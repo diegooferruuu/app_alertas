@@ -1,0 +1,26 @@
+{
+  "name": "app-alertas-monorepo",
+  "version": "1.0.0",
+  "description": "Mobile emergency alert application monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "cd apps/backend && npm run start:dev",
+    "dev:mobile": "cd apps/mobile && npm run start",
+    "build:backend": "cd apps/backend && npm run build",
+    "build:mobile": "cd apps/mobile && npm run build",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.2",
+    "@typescript-eslint/parser": "^6.13.2",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.3.3"
+  }
+}

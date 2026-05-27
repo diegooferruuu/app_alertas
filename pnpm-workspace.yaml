@@ -1,0 +1,7 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+allowBuilds:
+  '@nestjs/core': false
+  bcrypt: false
+  protobufjs: false

@@ -1,0 +1,76 @@
+import { UsersService } from './users.service';
+import { UpdateUserDto } from './dto/update-user.dto';
+export declare class UsersController {
+    private readonly usersService;
+    constructor(usersService: UsersService);
+    getUser(id: string): Promise<{
+        id: string;
+        full_name: string;
+        email: string;
+        phone: string;
+        identity_verified: boolean;
+        ci_hash: string;
+        identity_verified_at: Date;
+        reputation_score: number;
+        is_suspended: boolean;
+        suspended_at: Date;
+        suspension_reason: string;
+        push_token: string;
+        push_token_updated_at: Date;
+        last_location: string;
+        last_location_at: Date;
+        role: "citizen" | "admin";
+        created_at: Date;
+        updated_at: Date;
+        deleted_at: Date;
+        refresh_tokens: import("./entities/refresh-token.entity").RefreshToken[];
+        reputation_events: import("./entities/reputation-event.entity").ReputationEvent[];
+    }>;
+    updateUser(id: string, updateUserDto: UpdateUserDto): Promise<{
+        id: string;
+        full_name: string;
+        email: string;
+        phone: string;
+        identity_verified: boolean;
+        ci_hash: string;
+        identity_verified_at: Date;
+        reputation_score: number;
+        is_suspended: boolean;
+        suspended_at: Date;
+        suspension_reason: string;
+        push_token: string;
+        push_token_updated_at: Date;
+        last_location: string;
+        last_location_at: Date;
+        role: "citizen" | "admin";
+        created_at: Date;
+        updated_at: Date;
+        deleted_at: Date;
+        refresh_tokens: import("./entities/refresh-token.entity").RefreshToken[];
+        reputation_events: import("./entities/reputation-event.entity").ReputationEvent[];
+    }>;
+    getProfile(user: any): Promise<{
+        id: string;
+        full_name: string;
+        email: string;
+        phone: string;
+        identity_verified: boolean;
+        ci_hash: string;
+        identity_verified_at: Date;
+        reputation_score: number;
+        is_suspended: boolean;
+        suspended_at: Date;
+        suspension_reason: string;
+        push_token: string;
+        push_token_updated_at: Date;
+        last_location: string;
+        last_location_at: Date;
+        role: "citizen" | "admin";
+        created_at: Date;
+        updated_at: Date;
+        deleted_at: Date;
+        refresh_tokens: import("./entities/refresh-token.entity").RefreshToken[];
+        reputation_events: import("./entities/reputation-event.entity").ReputationEvent[];
+    }>;
+}
+//# sourceMappingURL=users.controller.d.ts.map

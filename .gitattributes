@@ -1,0 +1,41 @@
+# Byte Order Mark files
+*.sln text eol=crlf
+
+# Diff files
+*.diff text
+*.patch text
+
+# Image files
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.svg text
+*.webp binary
+
+# Video files
+*.mp4 binary
+*.mov binary
+*.mkv binary
+
+# Archive files
+*.zip binary
+*.gz binary
+*.tar binary
+*.rar binary
+
+# Documents
+*.pdf binary
+*.doc binary
+*.docx binary
+*.xls binary
+*.xlsx binary
+
+# Compiled binaries
+*.o binary
+*.so binary
+*.exe binary
+*.dll binary
+
+# Node
+node_modules linguist-vendored

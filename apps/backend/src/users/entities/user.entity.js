@@ -1,0 +1,198 @@
+"use strict";
+var __esDecorate = (this && this.__esDecorate) || function (ctor, descriptorIn, decorators, contextIn, initializers, extraInitializers) {
+    function accept(f) { if (f !== void 0 && typeof f !== "function") throw new TypeError("Function expected"); return f; }
+    var kind = contextIn.kind, key = kind === "getter" ? "get" : kind === "setter" ? "set" : "value";
+    var target = !descriptorIn && ctor ? contextIn["static"] ? ctor : ctor.prototype : null;
+    var descriptor = descriptorIn || (target ? Object.getOwnPropertyDescriptor(target, contextIn.name) : {});
+    var _, done = false;
+    for (var i = decorators.length - 1; i >= 0; i--) {
+        var context = {};
+        for (var p in contextIn) context[p] = p === "access" ? {} : contextIn[p];
+        for (var p in contextIn.access) context.access[p] = contextIn.access[p];
+        context.addInitializer = function (f) { if (done) throw new TypeError("Cannot add initializers after decoration has completed"); extraInitializers.push(accept(f || null)); };
+        var result = (0, decorators[i])(kind === "accessor" ? { get: descriptor.get, set: descriptor.set } : descriptor[key], context);
+        if (kind === "accessor") {
+            if (result === void 0) continue;
+            if (result === null || typeof result !== "object") throw new TypeError("Object expected");
+            if (_ = accept(result.get)) descriptor.get = _;
+            if (_ = accept(result.set)) descriptor.set = _;
+            if (_ = accept(result.init)) initializers.unshift(_);
+        }
+        else if (_ = accept(result)) {
+            if (kind === "field") initializers.unshift(_);
+            else descriptor[key] = _;
+        }
+    }
+    if (target) Object.defineProperty(target, contextIn.name, descriptor);
+    done = true;
+};
+var __runInitializers = (this && this.__runInitializers) || function (thisArg, initializers, value) {
+    var useValue = arguments.length > 2;
+    for (var i = 0; i < initializers.length; i++) {
+        value = useValue ? initializers[i].call(thisArg, value) : initializers[i].call(thisArg);
+    }
+    return useValue ? value : void 0;
+};
+var __setFunctionName = (this && this.__setFunctionName) || function (f, name, prefix) {
+    if (typeof name === "symbol") name = name.description ? "[".concat(name.description, "]") : "";
+    return Object.defineProperty(f, "name", { configurable: true, value: prefix ? "".concat(prefix, " ", name) : name });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.User = void 0;
+const typeorm_1 = require("typeorm");
+const refresh_token_entity_1 = require("./refresh-token.entity");
+const reputation_event_entity_1 = require("./reputation-event.entity");
+let User = (() => {
+    let _classDecorators = [(0, typeorm_1.Entity)('users'), (0, typeorm_1.Index)('idx_users_email', ['email']), (0, typeorm_1.Index)('idx_users_ci_hash', ['ci_hash']), (0, typeorm_1.Index)('idx_users_push_token', ['push_token'], { where: '"push_token" IS NOT NULL' }), (0, typeorm_1.Unique)(['ci_hash']), (0, typeorm_1.Unique)(['email'])];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _id_decorators;
+    let _id_initializers = [];
+    let _id_extraInitializers = [];
+    let _full_name_decorators;
+    let _full_name_initializers = [];
+    let _full_name_extraInitializers = [];
+    let _email_decorators;
+    let _email_initializers = [];
+    let _email_extraInitializers = [];
+    let _phone_decorators;
+    let _phone_initializers = [];
+    let _phone_extraInitializers = [];
+    let _password_hash_decorators;
+    let _password_hash_initializers = [];
+    let _password_hash_extraInitializers = [];
+    let _identity_verified_decorators;
+    let _identity_verified_initializers = [];
+    let _identity_verified_extraInitializers = [];
+    let _ci_hash_decorators;
+    let _ci_hash_initializers = [];
+    let _ci_hash_extraInitializers = [];
+    let _identity_verified_at_decorators;
+    let _identity_verified_at_initializers = [];
+    let _identity_verified_at_extraInitializers = [];
+    let _reputation_score_decorators;
+    let _reputation_score_initializers = [];
+    let _reputation_score_extraInitializers = [];
+    let _is_suspended_decorators;
+    let _is_suspended_initializers = [];
+    let _is_suspended_extraInitializers = [];
+    let _suspended_at_decorators;
+    let _suspended_at_initializers = [];
+    let _suspended_at_extraInitializers = [];
+    let _suspension_reason_decorators;
+    let _suspension_reason_initializers = [];
+    let _suspension_reason_extraInitializers = [];
+    let _push_token_decorators;
+    let _push_token_initializers = [];
+    let _push_token_extraInitializers = [];
+    let _push_token_updated_at_decorators;
+    let _push_token_updated_at_initializers = [];
+    let _push_token_updated_at_extraInitializers = [];
+    let _last_location_decorators;
+    let _last_location_initializers = [];
+    let _last_location_extraInitializers = [];
+    let _last_location_at_decorators;
+    let _last_location_at_initializers = [];
+    let _last_location_at_extraInitializers = [];
+    let _role_decorators;
+    let _role_initializers = [];
+    let _role_extraInitializers = [];
+    let _created_at_decorators;
+    let _created_at_initializers = [];
+    let _created_at_extraInitializers = [];
+    let _updated_at_decorators;
+    let _updated_at_initializers = [];
+    let _updated_at_extraInitializers = [];
+    let _deleted_at_decorators;
+    let _deleted_at_initializers = [];
+    let _deleted_at_extraInitializers = [];
+    let _refresh_tokens_decorators;
+    let _refresh_tokens_initializers = [];
+    let _refresh_tokens_extraInitializers = [];
+    let _reputation_events_decorators;
+    let _reputation_events_initializers = [];
+    let _reputation_events_extraInitializers = [];
+    var User = _classThis = class {
+        constructor() {
+            this.id = __runInitializers(this, _id_initializers, void 0);
+            this.full_name = (__runInitializers(this, _id_extraInitializers), __runInitializers(this, _full_name_initializers, void 0));
+            this.email = (__runInitializers(this, _full_name_extraInitializers), __runInitializers(this, _email_initializers, void 0));
+            this.phone = (__runInitializers(this, _email_extraInitializers), __runInitializers(this, _phone_initializers, void 0));
+            this.password_hash = (__runInitializers(this, _phone_extraInitializers), __runInitializers(this, _password_hash_initializers, void 0));
+            this.identity_verified = (__runInitializers(this, _password_hash_extraInitializers), __runInitializers(this, _identity_verified_initializers, void 0));
+            this.ci_hash = (__runInitializers(this, _identity_verified_extraInitializers), __runInitializers(this, _ci_hash_initializers, void 0));
+            this.identity_verified_at = (__runInitializers(this, _ci_hash_extraInitializers), __runInitializers(this, _identity_verified_at_initializers, void 0));
+            this.reputation_score = (__runInitializers(this, _identity_verified_at_extraInitializers), __runInitializers(this, _reputation_score_initializers, void 0));
+            this.is_suspended = (__runInitializers(this, _reputation_score_extraInitializers), __runInitializers(this, _is_suspended_initializers, void 0));
+            this.suspended_at = (__runInitializers(this, _is_suspended_extraInitializers), __runInitializers(this, _suspended_at_initializers, void 0));
+            this.suspension_reason = (__runInitializers(this, _suspended_at_extraInitializers), __runInitializers(this, _suspension_reason_initializers, void 0));
+            this.push_token = (__runInitializers(this, _suspension_reason_extraInitializers), __runInitializers(this, _push_token_initializers, void 0));
+            this.push_token_updated_at = (__runInitializers(this, _push_token_extraInitializers), __runInitializers(this, _push_token_updated_at_initializers, void 0));
+            this.last_location = (__runInitializers(this, _push_token_updated_at_extraInitializers), __runInitializers(this, _last_location_initializers, void 0));
+            this.last_location_at = (__runInitializers(this, _last_location_extraInitializers), __runInitializers(this, _last_location_at_initializers, void 0));
+            this.role = (__runInitializers(this, _last_location_at_extraInitializers), __runInitializers(this, _role_initializers, void 0));
+            this.created_at = (__runInitializers(this, _role_extraInitializers), __runInitializers(this, _created_at_initializers, void 0));
+            this.updated_at = (__runInitializers(this, _created_at_extraInitializers), __runInitializers(this, _updated_at_initializers, void 0));
+            this.deleted_at = (__runInitializers(this, _updated_at_extraInitializers), __runInitializers(this, _deleted_at_initializers, void 0));
+            this.refresh_tokens = (__runInitializers(this, _deleted_at_extraInitializers), __runInitializers(this, _refresh_tokens_initializers, void 0));
+            this.reputation_events = (__runInitializers(this, _refresh_tokens_extraInitializers), __runInitializers(this, _reputation_events_initializers, void 0));
+            __runInitializers(this, _reputation_events_extraInitializers);
+        }
+    };
+    __setFunctionName(_classThis, "User");
+    (() => {
+        const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(null) : void 0;
+        _id_decorators = [(0, typeorm_1.PrimaryGeneratedColumn)('uuid')];
+        _full_name_decorators = [(0, typeorm_1.Column)({ type: 'varchar', length: 120 })];
+        _email_decorators = [(0, typeorm_1.Column)({ type: 'varchar', length: 255 })];
+        _phone_decorators = [(0, typeorm_1.Column)({ type: 'varchar', length: 20, nullable: true })];
+        _password_hash_decorators = [(0, typeorm_1.Column)({ type: 'varchar', length: 255 })];
+        _identity_verified_decorators = [(0, typeorm_1.Column)({ type: 'boolean', default: false })];
+        _ci_hash_decorators = [(0, typeorm_1.Column)({ type: 'varchar', length: 64, nullable: true })];
+        _identity_verified_at_decorators = [(0, typeorm_1.Column)({ type: 'timestamptz', nullable: true })];
+        _reputation_score_decorators = [(0, typeorm_1.Column)({ type: 'integer', default: 100 })];
+        _is_suspended_decorators = [(0, typeorm_1.Column)({ type: 'boolean', default: false })];
+        _suspended_at_decorators = [(0, typeorm_1.Column)({ type: 'timestamptz', nullable: true })];
+        _suspension_reason_decorators = [(0, typeorm_1.Column)({ type: 'text', nullable: true })];
+        _push_token_decorators = [(0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true })];
+        _push_token_updated_at_decorators = [(0, typeorm_1.Column)({ type: 'timestamptz', nullable: true })];
+        _last_location_decorators = [(0, typeorm_1.Column)({ type: 'geography', spatialFeatureType: 'Point', srid: 4326, nullable: true })];
+        _last_location_at_decorators = [(0, typeorm_1.Column)({ type: 'timestamptz', nullable: true })];
+        _role_decorators = [(0, typeorm_1.Column)({ type: 'varchar', length: 20, default: 'citizen' })];
+        _created_at_decorators = [(0, typeorm_1.CreateDateColumn)({ type: 'timestamptz' })];
+        _updated_at_decorators = [(0, typeorm_1.UpdateDateColumn)({ type: 'timestamptz' })];
+        _deleted_at_decorators = [(0, typeorm_1.Column)({ type: 'timestamptz', nullable: true })];
+        _refresh_tokens_decorators = [(0, typeorm_1.OneToMany)(() => refresh_token_entity_1.RefreshToken, (token) => token.user)];
+        _reputation_events_decorators = [(0, typeorm_1.OneToMany)(() => reputation_event_entity_1.ReputationEvent, (event) => event.user)];
+        __esDecorate(null, null, _id_decorators, { kind: "field", name: "id", static: false, private: false, access: { has: obj => "id" in obj, get: obj => obj.id, set: (obj, value) => { obj.id = value; } }, metadata: _metadata }, _id_initializers, _id_extraInitializers);
+        __esDecorate(null, null, _full_name_decorators, { kind: "field", name: "full_name", static: false, private: false, access: { has: obj => "full_name" in obj, get: obj => obj.full_name, set: (obj, value) => { obj.full_name = value; } }, metadata: _metadata }, _full_name_initializers, _full_name_extraInitializers);
+        __esDecorate(null, null, _email_decorators, { kind: "field", name: "email", static: false, private: false, access: { has: obj => "email" in obj, get: obj => obj.email, set: (obj, value) => { obj.email = value; } }, metadata: _metadata }, _email_initializers, _email_extraInitializers);
+        __esDecorate(null, null, _phone_decorators, { kind: "field", name: "phone", static: false, private: false, access: { has: obj => "phone" in obj, get: obj => obj.phone, set: (obj, value) => { obj.phone = value; } }, metadata: _metadata }, _phone_initializers, _phone_extraInitializers);
+        __esDecorate(null, null, _password_hash_decorators, { kind: "field", name: "password_hash", static: false, private: false, access: { has: obj => "password_hash" in obj, get: obj => obj.password_hash, set: (obj, value) => { obj.password_hash = value; } }, metadata: _metadata }, _password_hash_initializers, _password_hash_extraInitializers);
+        __esDecorate(null, null, _identity_verified_decorators, { kind: "field", name: "identity_verified", static: false, private: false, access: { has: obj => "identity_verified" in obj, get: obj => obj.identity_verified, set: (obj, value) => { obj.identity_verified = value; } }, metadata: _metadata }, _identity_verified_initializers, _identity_verified_extraInitializers);
+        __esDecorate(null, null, _ci_hash_decorators, { kind: "field", name: "ci_hash", static: false, private: false, access: { has: obj => "ci_hash" in obj, get: obj => obj.ci_hash, set: (obj, value) => { obj.ci_hash = value; } }, metadata: _metadata }, _ci_hash_initializers, _ci_hash_extraInitializers);
+        __esDecorate(null, null, _identity_verified_at_decorators, { kind: "field", name: "identity_verified_at", static: false, private: false, access: { has: obj => "identity_verified_at" in obj, get: obj => obj.identity_verified_at, set: (obj, value) => { obj.identity_verified_at = value; } }, metadata: _metadata }, _identity_verified_at_initializers, _identity_verified_at_extraInitializers);
+        __esDecorate(null, null, _reputation_score_decorators, { kind: "field", name: "reputation_score", static: false, private: false, access: { has: obj => "reputation_score" in obj, get: obj => obj.reputation_score, set: (obj, value) => { obj.reputation_score = value; } }, metadata: _metadata }, _reputation_score_initializers, _reputation_score_extraInitializers);
+        __esDecorate(null, null, _is_suspended_decorators, { kind: "field", name: "is_suspended", static: false, private: false, access: { has: obj => "is_suspended" in obj, get: obj => obj.is_suspended, set: (obj, value) => { obj.is_suspended = value; } }, metadata: _metadata }, _is_suspended_initializers, _is_suspended_extraInitializers);
+        __esDecorate(null, null, _suspended_at_decorators, { kind: "field", name: "suspended_at", static: false, private: false, access: { has: obj => "suspended_at" in obj, get: obj => obj.suspended_at, set: (obj, value) => { obj.suspended_at = value; } }, metadata: _metadata }, _suspended_at_initializers, _suspended_at_extraInitializers);
+        __esDecorate(null, null, _suspension_reason_decorators, { kind: "field", name: "suspension_reason", static: false, private: false, access: { has: obj => "suspension_reason" in obj, get: obj => obj.suspension_reason, set: (obj, value) => { obj.suspension_reason = value; } }, metadata: _metadata }, _suspension_reason_initializers, _suspension_reason_extraInitializers);
+        __esDecorate(null, null, _push_token_decorators, { kind: "field", name: "push_token", static: false, private: false, access: { has: obj => "push_token" in obj, get: obj => obj.push_token, set: (obj, value) => { obj.push_token = value; } }, metadata: _metadata }, _push_token_initializers, _push_token_extraInitializers);
+        __esDecorate(null, null, _push_token_updated_at_decorators, { kind: "field", name: "push_token_updated_at", static: false, private: false, access: { has: obj => "push_token_updated_at" in obj, get: obj => obj.push_token_updated_at, set: (obj, value) => { obj.push_token_updated_at = value; } }, metadata: _metadata }, _push_token_updated_at_initializers, _push_token_updated_at_extraInitializers);
+        __esDecorate(null, null, _last_location_decorators, { kind: "field", name: "last_location", static: false, private: false, access: { has: obj => "last_location" in obj, get: obj => obj.last_location, set: (obj, value) => { obj.last_location = value; } }, metadata: _metadata }, _last_location_initializers, _last_location_extraInitializers);
+        __esDecorate(null, null, _last_location_at_decorators, { kind: "field", name: "last_location_at", static: false, private: false, access: { has: obj => "last_location_at" in obj, get: obj => obj.last_location_at, set: (obj, value) => { obj.last_location_at = value; } }, metadata: _metadata }, _last_location_at_initializers, _last_location_at_extraInitializers);
+        __esDecorate(null, null, _role_decorators, { kind: "field", name: "role", static: false, private: false, access: { has: obj => "role" in obj, get: obj => obj.role, set: (obj, value) => { obj.role = value; } }, metadata: _metadata }, _role_initializers, _role_extraInitializers);
+        __esDecorate(null, null, _created_at_decorators, { kind: "field", name: "created_at", static: false, private: false, access: { has: obj => "created_at" in obj, get: obj => obj.created_at, set: (obj, value) => { obj.created_at = value; } }, metadata: _metadata }, _created_at_initializers, _created_at_extraInitializers);
+        __esDecorate(null, null, _updated_at_decorators, { kind: "field", name: "updated_at", static: false, private: false, access: { has: obj => "updated_at" in obj, get: obj => obj.updated_at, set: (obj, value) => { obj.updated_at = value; } }, metadata: _metadata }, _updated_at_initializers, _updated_at_extraInitializers);
+        __esDecorate(null, null, _deleted_at_decorators, { kind: "field", name: "deleted_at", static: false, private: false, access: { has: obj => "deleted_at" in obj, get: obj => obj.deleted_at, set: (obj, value) => { obj.deleted_at = value; } }, metadata: _metadata }, _deleted_at_initializers, _deleted_at_extraInitializers);
+        __esDecorate(null, null, _refresh_tokens_decorators, { kind: "field", name: "refresh_tokens", static: false, private: false, access: { has: obj => "refresh_tokens" in obj, get: obj => obj.refresh_tokens, set: (obj, value) => { obj.refresh_tokens = value; } }, metadata: _metadata }, _refresh_tokens_initializers, _refresh_tokens_extraInitializers);
+        __esDecorate(null, null, _reputation_events_decorators, { kind: "field", name: "reputation_events", static: false, private: false, access: { has: obj => "reputation_events" in obj, get: obj => obj.reputation_events, set: (obj, value) => { obj.reputation_events = value; } }, metadata: _metadata }, _reputation_events_initializers, _reputation_events_extraInitializers);
+        __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+        User = _classThis = _classDescriptor.value;
+        if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+        __runInitializers(_classThis, _classExtraInitializers);
+    })();
+    return User = _classThis;
+})();
+exports.User = User;
+//# sourceMappingURL=user.entity.js.map
