@@ -1,72 +1,36 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
-  Alert,
+  TouchableOpacity,
   Image,
+  Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from '../../hooks/useAuth';
+import { useAuthStore } from '../../store/auth.store';
 
-export const VerifyIdentityScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const [cameraType, setCameraType] = useState<CameraType>('back');
-  const [permission, requestPermission] = useCameraPermissions();
+const VerifyIdentityScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const { verifyIdentity, isLoading, error } = useAuthStore();
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [photoPermission, requestPhotoPermission] = ImagePicker.useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
-  const { verifyIdentity, isLoading, error } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!permission) {
-    return <View />;
-  }
+  const handleFileSelect = (event: any) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  if (!permission.granted) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.message}>We need camera access to verify your identity</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const takePicture = async () => {
-    try {
-      if (cameraRef.current) {
-        const photo = await cameraRef.current.takePictureAsync({
-          base64: true,
-          quality: 0.8,
-        });
-        setCapturedImage(photo.base64);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to take picture');
-    }
+    const reader = new FileReader();
+    reader.onload = (e: any) => {
+      const base64 = e.target.result.split(',')[1];
+      setCapturedImage(base64);
+    };
+    reader.readAsDataURL(file);
   };
 
   const pickImage = async () => {
-    try {
-      if (!photoPermission?.granted) {
-        await requestPhotoPermission();
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.8,
-        base64: true,
-      });
-
-      if (!result.canceled) {
-        setCapturedImage(result.assets[0].base64);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to pick image');
+    if (Platform.OS === 'web') {
+      fileInputRef.current?.click();
     }
   };
 
@@ -81,7 +45,7 @@ export const VerifyIdentityScreen: React.FC<{ navigation: any }> = ({ navigation
       Alert.alert('Success', 'Identity verified successfully!');
       navigation.navigate('Home');
     } catch (error) {
-      Alert.alert('Verification Failed', error.message || 'An error occurred');
+      Alert.alert('Verification Failed', (error as any).message || 'An error occurred');
     }
   };
 
@@ -116,21 +80,40 @@ export const VerifyIdentityScreen: React.FC<{ navigation: any }> = ({ navigation
     );
   }
 
+  // Web version with file upload
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.webContent}>
+          <Text style={styles.title}>Verify Your Identity</Text>
+          <Text style={styles.subtitle}>
+            Upload a photo of your ID card to complete the verification process
+          </Text>
+          <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+            <Text style={styles.uploadButtonText}>📤 Choose ID Card Photo</Text>
+          </TouchableOpacity>
+          <input
+            ref={fileInputRef as any}
+            type="file"
+            accept="image/*"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          {error && <Text style={styles.error}>{error}</Text>}
+        </View>
+      </View>
+    );
+  }
+
+  // Native version (fallback)
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} facing={cameraType} ref={cameraRef}>
-        <View style={styles.cameraOverlay}>
-          <Text style={styles.overlayText}>Position your ID card in the frame</Text>
-        </View>
-      </CameraView>
-      <View style={styles.controls}>
-        <TouchableOpacity style={styles.button} onPress={takePicture}>
-          <Text style={styles.buttonText}>Capture Photo</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryButton} onPress={pickImage}>
-          <Text style={styles.secondaryButtonText}>Choose from Gallery</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.title}>Verify Your Identity</Text>
+      <Text style={styles.message}>Upload a photo of your ID card</Text>
+      <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+        <Text style={styles.uploadButtonText}>📤 Choose ID Card Photo</Text>
+      </TouchableOpacity>
+      {error && <Text style={styles.error}>{error}</Text>}
     </View>
   );
 };
@@ -138,41 +121,40 @@ export const VerifyIdentityScreen: React.FC<{ navigation: any }> = ({ navigation
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'flex-end',
-  },
-  camera: {
-    flex: 1,
-  },
-  cameraOverlay: {
-    flex: 1,
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  overlayText: {
-    color: '#fff',
-    fontSize: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+  webContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    maxWidth: 400,
   },
-  controls: {
-    backgroundColor: '#000',
-    paddingBottom: 40,
-    paddingHorizontal: 20,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  preview: {
+    width: 300,
+    height: 200,
+    marginBottom: 20,
+    borderRadius: 8,
   },
   button: {
     backgroundColor: '#007AFF',
-    padding: 15,
+    paddingHorizontal: 30,
+    paddingVertical: 15,
     borderRadius: 8,
-    alignItems: 'center',
     marginBottom: 10,
-  },
-  secondaryButton: {
-    backgroundColor: '#666',
-    padding: 15,
-    borderRadius: 8,
     alignItems: 'center',
   },
   buttonText: {
@@ -180,36 +162,46 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  secondaryButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
   secondaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  preview: {
-    width: '100%',
-    height: 300,
-    resizeMode: 'contain',
-    marginBottom: 20,
-  },
-  title: {
-    color: '#fff',
-    fontSize: 20,
+    color: '#007AFF',
+    fontSize: 14,
     fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-    marginTop: 20,
   },
-  message: {
+  uploadButton: {
+    backgroundColor: '#34C759',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 8,
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  uploadButtonText: {
     color: '#fff',
     fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  error: {
-    color: '#FF3B30',
-    marginBottom: 10,
-    textAlign: 'center',
+    fontWeight: 'bold',
   },
   buttonDisabled: {
     opacity: 0.6,
   },
+  message: {
+    fontSize: 16,
+    marginBottom: 20,
+    color: '#666',
+    textAlign: 'center',
+  },
+  error: {
+    color: '#FF3B30',
+    marginBottom: 15,
+    textAlign: 'center',
+    marginTop: 10,
+  },
 });
+
+export { VerifyIdentityScreen };

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import * as SecureStore from 'expo-secure-store';
+import { storage } from '../utils/storage';
 
 const API_URL = process.env.MOBILE_API_URL || 'http://localhost:3000/api';
 
@@ -35,7 +35,7 @@ class AuthService {
   private setupInterceptors() {
     this.axiosInstance.interceptors.request.use(
       async (config) => {
-        const token = await SecureStore.getItemAsync('accessToken');
+        const token = await storage.getItem('accessToken');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -52,15 +52,15 @@ class AuthService {
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
           try {
-            const refreshToken = await SecureStore.getItemAsync('refreshToken');
+            const refreshToken = await storage.getItem('refreshToken');
             if (refreshToken) {
               const response = await axios.post(`${API_URL}/auth/refresh`, {
                 refreshToken,
               });
               const { accessToken, refreshToken: newRefreshToken } = response.data;
 
-              await SecureStore.setItemAsync('accessToken', accessToken);
-              await SecureStore.setItemAsync('refreshToken', newRefreshToken);
+              await storage.setItem('accessToken', accessToken);
+              await storage.setItem('refreshToken', newRefreshToken);
 
               originalRequest.headers.Authorization = `Bearer ${accessToken}`;
               return this.axiosInstance(originalRequest);
@@ -99,9 +99,9 @@ class AuthService {
   }
 
   async logout(): Promise<void> {
-    await SecureStore.deleteItemAsync('accessToken');
-    await SecureStore.deleteItemAsync('refreshToken');
-    await SecureStore.deleteItemAsync('userId');
+    await storage.removeItem('accessToken');
+    await storage.removeItem('refreshToken');
+    await storage.removeItem('userId');
   }
 
   async verifyIdentity(id_card_base64: string): Promise<any> {
@@ -116,9 +116,9 @@ class AuthService {
   }
 
   private async saveTokens(data: LoginResponse): Promise<void> {
-    await SecureStore.setItemAsync('accessToken', data.accessToken);
-    await SecureStore.setItemAsync('refreshToken', data.refreshToken);
-    await SecureStore.setItemAsync('userId', data.user.id);
+    await storage.setItem('accessToken', data.accessToken);
+    await storage.setItem('refreshToken', data.refreshToken);
+    await storage.setItem('userId', data.user.id);
   }
 }
 

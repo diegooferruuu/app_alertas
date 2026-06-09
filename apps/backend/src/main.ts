@@ -6,9 +6,30 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Increase payload limit for images (5MB)
+  app.use((req, res, next) => {
+    req.on('data', () => {}); // Allow large payloads
+    next();
+  });
+  app.use(require('express').json({ limit: '5mb' }));
+  app.use(require('express').urlencoded({ limit: '5mb', extended: true }));
+
   // Enable CORS
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:8081',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:8081',
+  ];
+
   app.enableCors({
-    origin: process.env.MOBILE_API_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 

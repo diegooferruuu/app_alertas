@@ -22,5 +22,11 @@
     "eslint": "^8.55.0",
     "prettier": "^3.1.0",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.29.7",
+    "@vladmandic/face-api": "^1.7.15",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0"
   }
 }

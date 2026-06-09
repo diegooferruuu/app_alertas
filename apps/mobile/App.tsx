@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/stack';
+import { createStackNavigator } from '@react-navigation/stack';
 import { useAuth } from './src/hooks/useAuth';
 import { LoginScreen } from './src/screens/auth/LoginScreen';
 import { RegisterScreen } from './src/screens/auth/RegisterScreen';
 import { VerifyIdentityScreen } from './src/screens/auth/VerifyIdentityScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { ActivityIndicator, View, Text } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import { storage } from './src/utils/storage';
 
-const Stack = createNativeStackNavigator();
+const Stack = createStackNavigator();
 
 export default function App() {
   const { isAuthenticated, identityVerified, getProfile } = useAuth();
@@ -18,7 +18,7 @@ export default function App() {
   useEffect(() => {
     const checkAuthStatus = async () => {
       try {
-        const token = await SecureStore.getItemAsync('accessToken');
+        const token = await storage.getItem('accessToken');
         if (token) {
           await getProfile();
         }
