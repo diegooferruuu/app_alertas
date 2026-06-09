@@ -26,10 +26,10 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
     try {
       // For now, use a placeholder for ID card - user will verify identity later
-      await register(email, password, fullName, phone, 'placeholder');
+      await register(email, password, fullName, phone);
       // Navigation to VerifyIdentity will be handled by the navigation flow
-    } catch (error) {
-      Alert.alert('Registration Failed', error.message || 'An error occurred');
+    } catch (error: any) {
+      Alert.alert('Registration Failed', error?.message || 'An error occurred');
     }
   };
 

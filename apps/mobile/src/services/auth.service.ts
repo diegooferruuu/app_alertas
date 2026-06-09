@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { storage } from '../utils/storage';
 
-const API_URL = process.env.MOBILE_API_URL || 'http://localhost:3000/api';
+// En dispositivo físico usa la IP de tu Mac. En simulador/web usa localhost.
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.6.200:3000/api';
 
 export interface LoginResponse {
   accessToken: string;
@@ -77,13 +78,12 @@ class AuthService {
     );
   }
 
-  async register(email: string, password: string, full_name: string, phone: string, id_card_base64: string): Promise<LoginResponse> {
+  async register(email: string, password: string, full_name: string, phone: string): Promise<LoginResponse> {
     const response = await this.axiosInstance.post<LoginResponse>('/auth/register', {
       email,
       password,
       full_name,
       phone,
-      id_card_base64,
     });
     await this.saveTokens(response.data);
     return response.data;
@@ -104,10 +104,31 @@ class AuthService {
     await storage.removeItem('userId');
   }
 
-  async verifyIdentity(id_card_base64: string): Promise<any> {
-    return this.axiosInstance.post('/auth/verify-identity', {
-      id_card_base64,
-    });
+  async verifyIdCard(payload: {
+    id_front_base64: string;
+    id_back_base64: string;
+    personal_data: {
+      full_name: string;
+      ci_number: string;
+      birth_place: string;
+      birth_date: string;
+    };
+  }): Promise<any> {
+    return this.axiosInstance.post('/auth/verify-id', payload);
+  }
+
+  async verifyIdentity(payload: {
+    id_front_base64: string;
+    id_back_base64: string;
+    selfie_base64: string;
+    personal_data: {
+      full_name: string;
+      ci_number: string;
+      birth_place: string;
+      birth_date: string;
+    };
+  }): Promise<any> {
+    return this.axiosInstance.post('/auth/verify-identity', payload);
   }
 
   async getProfile(): Promise<User> {

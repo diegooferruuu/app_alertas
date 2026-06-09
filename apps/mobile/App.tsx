@@ -4,9 +4,11 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { useAuth } from './src/hooks/useAuth';
 import { LoginScreen } from './src/screens/auth/LoginScreen';
 import { RegisterScreen } from './src/screens/auth/RegisterScreen';
-import { VerifyIdentityScreen } from './src/screens/auth/VerifyIdentityScreen';
+import { PersonalDataScreen } from './src/screens/auth/PersonalDataScreen';
+import { IDPhotoScreen } from './src/screens/auth/IDPhotoScreen';
+import { SelfieScreen } from './src/screens/auth/SelfieScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
-import { ActivityIndicator, View, Text } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
 
 const Stack = createStackNavigator();
@@ -47,7 +49,6 @@ export default function App() {
         }}
       >
         {!isAuthenticated ? (
-          // Auth Stack
           <Stack.Group>
             <Stack.Screen
               name="Login"
@@ -57,28 +58,37 @@ export default function App() {
             <Stack.Screen
               name="Register"
               component={RegisterScreen}
-              options={{ title: 'Create Account' }}
+              options={{ title: 'Crear cuenta' }}
             />
           </Stack.Group>
         ) : !identityVerified ? (
-          // Identity Verification Stack
+          // Flujo de verificación de identidad (3 pasos)
           <Stack.Group>
             <Stack.Screen
-              name="VerifyIdentity"
-              component={VerifyIdentityScreen}
+              name="PersonalData"
+              component={PersonalDataScreen}
               options={{
-                title: 'Verify Identity',
+                title: 'Paso 1: Datos personales',
                 headerBackVisible: false,
               }}
             />
+            <Stack.Screen
+              name="IDPhoto"
+              component={IDPhotoScreen}
+              options={{ title: 'Paso 2: Foto del carnet' }}
+            />
+            <Stack.Screen
+              name="Selfie"
+              component={SelfieScreen}
+              options={{ title: 'Paso 3: Selfie' }}
+            />
           </Stack.Group>
         ) : (
-          // App Stack
           <Stack.Group>
             <Stack.Screen
               name="Home"
               component={HomeScreen}
-              options={{ title: 'Emergency Alert' }}
+              options={{ title: 'Alerta de Emergencia' }}
             />
           </Stack.Group>
         )}

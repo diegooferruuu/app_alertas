@@ -23,6 +23,9 @@
     "prettier": "^3.1.0",
     "typescript": "^5.3.3"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["sharp", "tesseract.js"]
+  },
   "dependencies": {
     "@babel/runtime": "^7.29.7",
     "@vladmandic/face-api": "^1.7.15",

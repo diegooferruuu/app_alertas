@@ -1,18 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  // Increase payload limit for images (5MB)
-  app.use((req, res, next) => {
-    req.on('data', () => {}); // Allow large payloads
-    next();
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
   });
-  app.use(require('express').json({ limit: '5mb' }));
-  app.use(require('express').urlencoded({ limit: '5mb', extended: true }));
+
+  // Register body parsers with a 10mb limit (default is 100kb).
+  // Needed for base64 ID card + selfie images.
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { limit: '10mb', extended: true });
 
   // Enable CORS
   const allowedOrigins = [
@@ -20,6 +20,8 @@ async function bootstrap() {
     'http://localhost:8081',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:8081',
+    'http://192.168.6.200:3000',
+    'http://192.168.6.200:8081',
   ];
 
   app.enableCors({
