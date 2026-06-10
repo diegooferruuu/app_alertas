@@ -7,9 +7,24 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Modal,
   Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuthStore } from '../../store/auth.store';
+
+// Las 9 capitales de departamento de Bolivia
+const BOLIVIAN_CITIES = [
+  'Sucre',
+  'La Paz',
+  'Cochabamba',
+  'Oruro',
+  'Potosí',
+  'Tarija',
+  'Santa Cruz de la Sierra',
+  'Trinidad',
+  'Cobija',
+];
 
 interface PersonalData {
   full_name: string;
@@ -18,42 +33,58 @@ interface PersonalData {
   birth_date: string;
 }
 
+const formatDate = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { setPersonalData } = useAuthStore();
-  const [form, setForm] = useState<PersonalData>({
-    full_name: '',
-    ci_number: '',
-    birth_place: '',
-    birth_date: '',
-  });
+  const [fullName, setFullName] = useState('');
+  const [ciNumber, setCiNumber] = useState('');
+  const [birthPlace, setBirthPlace] = useState('');
+  const [birthDate, setBirthDate] = useState<Date | null>(null);
 
-  const handleChange = (field: keyof PersonalData, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const [cityModalVisible, setCityModalVisible] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    // En Android el picker es un diálogo que se cierra solo
+    if (Platform.OS !== 'ios') {
+      setShowDatePicker(false);
+    }
+    if (event.type === 'dismissed') return;
+    if (selectedDate) {
+      setBirthDate(selectedDate);
+    }
   };
 
   const handleNext = () => {
-    const { full_name, ci_number, birth_place, birth_date } = form;
-
-    if (!full_name.trim() || !ci_number.trim() || !birth_place.trim() || !birth_date.trim()) {
+    if (!fullName.trim() || !ciNumber.trim() || !birthPlace || !birthDate) {
       Alert.alert('Datos incompletos', 'Por favor completa todos los campos.');
       return;
     }
 
     const ciRegex = /^\d{7,8}$/;
-    if (!ciRegex.test(ci_number.replace(/\s/g, ''))) {
+    if (!ciRegex.test(ciNumber.replace(/\s/g, ''))) {
       Alert.alert('CI inválido', 'El número de CI debe tener 7 u 8 dígitos.');
       return;
     }
 
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(birth_date)) {
-      Alert.alert('Fecha inválida', 'Ingresa la fecha en formato YYYY-MM-DD (ej: 1995-03-21).');
-      return;
-    }
-
-    setPersonalData(form);
+    setPersonalData({
+      full_name: fullName.trim(),
+      ci_number: ciNumber.trim(),
+      birth_place: birthPlace,
+      birth_date: formatDate(birthDate),
+    });
     navigation.navigate('IDPhoto');
   };
+
+  // Límites del calendario: entre hace 100 años y hoy
+  const today = new Date();
+  const minDate = new Date(today.getFullYear() - 100, 0, 1);
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
@@ -66,8 +97,8 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <TextInput
         style={styles.input}
         placeholder="Ej: Juan Carlos Pérez López"
-        value={form.full_name}
-        onChangeText={(v) => handleChange('full_name', v)}
+        value={fullName}
+        onChangeText={setFullName}
         autoCapitalize="words"
         returnKeyType="next"
       />
@@ -76,33 +107,49 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <TextInput
         style={styles.input}
         placeholder="Ej: 1234567"
-        value={form.ci_number}
-        onChangeText={(v) => handleChange('ci_number', v.replace(/\D/g, ''))}
+        value={ciNumber}
+        onChangeText={(v) => setCiNumber(v.replace(/\D/g, ''))}
         keyboardType="numeric"
         maxLength={8}
         returnKeyType="next"
       />
 
       <Text style={styles.label}>Lugar de nacimiento</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Ej: La Paz"
-        value={form.birth_place}
-        onChangeText={(v) => handleChange('birth_place', v)}
-        autoCapitalize="words"
-        returnKeyType="next"
-      />
+      <TouchableOpacity style={styles.selector} onPress={() => setCityModalVisible(true)}>
+        <Text style={birthPlace ? styles.selectorText : styles.selectorPlaceholder}>
+          {birthPlace || 'Selecciona una ciudad'}
+        </Text>
+        <Text style={styles.chevron}>▾</Text>
+      </TouchableOpacity>
 
       <Text style={styles.label}>Fecha de nacimiento</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="YYYY-MM-DD (ej: 1995-03-21)"
-        value={form.birth_date}
-        onChangeText={(v) => handleChange('birth_date', v)}
-        keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'}
-        maxLength={10}
-        returnKeyType="done"
-      />
+      <TouchableOpacity style={styles.selector} onPress={() => setShowDatePicker(true)}>
+        <Text style={birthDate ? styles.selectorText : styles.selectorPlaceholder}>
+          {birthDate ? formatDate(birthDate) : 'Selecciona la fecha'}
+        </Text>
+        <Text style={styles.chevron}>📅</Text>
+      </TouchableOpacity>
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={birthDate || new Date(2000, 0, 1)}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          maximumDate={today}
+          minimumDate={minDate}
+          onChange={onDateChange}
+        />
+      )}
+
+      {/* En iOS el spinner queda visible; mostramos botón para confirmar */}
+      {showDatePicker && Platform.OS === 'ios' && (
+        <TouchableOpacity
+          style={styles.confirmDateBtn}
+          onPress={() => setShowDatePicker(false)}
+        >
+          <Text style={styles.confirmDateText}>Confirmar fecha</Text>
+        </TouchableOpacity>
+      )}
 
       <TouchableOpacity style={styles.button} onPress={handleNext}>
         <Text style={styles.buttonText}>Siguiente: Foto del carnet →</Text>
@@ -113,6 +160,43 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <View style={styles.stepDot} />
         <View style={styles.stepDot} />
       </View>
+
+      {/* Modal selector de ciudades */}
+      <Modal
+        visible={cityModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCityModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setCityModalVisible(false)}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Lugar de nacimiento</Text>
+            {BOLIVIAN_CITIES.map((city) => (
+              <TouchableOpacity
+                key={city}
+                style={styles.cityOption}
+                onPress={() => {
+                  setBirthPlace(city);
+                  setCityModalVisible(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.cityOptionText,
+                    birthPlace === city && styles.cityOptionSelected,
+                  ]}
+                >
+                  {city}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 };
@@ -153,6 +237,41 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
+  selector: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: '#fafafa',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectorText: {
+    fontSize: 15,
+    color: '#1a1a1a',
+  },
+  selectorPlaceholder: {
+    fontSize: 15,
+    color: '#999',
+  },
+  chevron: {
+    fontSize: 14,
+    color: '#666',
+  },
+  confirmDateBtn: {
+    alignSelf: 'center',
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    backgroundColor: '#eef4ff',
+  },
+  confirmDateText: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
   button: {
     backgroundColor: '#007AFF',
     borderRadius: 12,
@@ -179,6 +298,40 @@ const styles = StyleSheet.create({
   },
   stepActive: {
     backgroundColor: '#007AFF',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 12,
+    color: '#1a1a1a',
+  },
+  cityOption: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  cityOptionText: {
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+  },
+  cityOptionSelected: {
+    color: '#007AFF',
+    fontWeight: '700',
   },
 });
 

@@ -41,7 +41,8 @@
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to upload ID card.",
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to capture ID card."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "scheme": "myapp",
     "extra": {

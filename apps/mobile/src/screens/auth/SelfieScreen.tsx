@@ -45,12 +45,11 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
 
     try {
+      // Al completar la verificación, identityVerified pasa a true y el stack
+      // de navegación cambia automáticamente a la pantalla Home (ver App.tsx).
+      // No se navega manualmente para evitar el error 'NAVIGATE Home not handled'.
       await verifyIdentity(selfieImage);
-      Alert.alert(
-        '¡Verificado!',
-        'Tu identidad ha sido verificada correctamente.',
-        [{ text: 'Continuar', onPress: () => navigation.navigate('Home') }],
-      );
+      Alert.alert('¡Verificado!', 'Tu identidad ha sido verificada correctamente.');
     } catch (err: any) {
       Alert.alert(
         'Verificación fallida',
