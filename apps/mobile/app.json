@@ -42,7 +42,13 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to capture ID card."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to show and report nearby incidents."
+        }
+      ]
     ],
     "scheme": "myapp",
     "extra": {

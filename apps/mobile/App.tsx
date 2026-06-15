@@ -7,14 +7,15 @@ import { RegisterScreen } from './src/screens/auth/RegisterScreen';
 import { PersonalDataScreen } from './src/screens/auth/PersonalDataScreen';
 import { IDPhotoScreen } from './src/screens/auth/IDPhotoScreen';
 import { SelfieScreen } from './src/screens/auth/SelfieScreen';
-import { HomeScreen } from './src/screens/HomeScreen';
+import { MainTabs } from './src/navigation/MainTabs';
+import { ReportIncidentScreen } from './src/screens/main/ReportIncidentScreen';
 import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
 
 const Stack = createStackNavigator();
 
 export default function App() {
-  const { isAuthenticated, identityVerified, getProfile } = useAuth();
+  const { isAuthenticated, getProfile } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function App() {
         }}
       >
         {!isAuthenticated ? (
+          // Stack de autenticación
           <Stack.Group>
             <Stack.Screen
               name="Login"
@@ -61,34 +63,35 @@ export default function App() {
               options={{ title: 'Crear cuenta' }}
             />
           </Stack.Group>
-        ) : !identityVerified ? (
-          // Flujo de verificación de identidad (3 pasos)
+        ) : (
+          // App principal: cualquier usuario logueado entra (Visitante o más).
+          // La verificación se exige solo al reportar.
           <Stack.Group>
+            <Stack.Screen
+              name="MainTabs"
+              component={MainTabs}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ReportIncident"
+              component={ReportIncidentScreen}
+              options={{ title: 'Reportar', presentation: 'modal' }}
+            />
+            {/* Flujo de verificación de identidad (on-demand) */}
             <Stack.Screen
               name="PersonalData"
               component={PersonalDataScreen}
-              options={{
-                title: 'Paso 1: Datos personales',
-                headerBackVisible: false,
-              }}
+              options={{ title: 'Verificación: datos' }}
             />
             <Stack.Screen
               name="IDPhoto"
               component={IDPhotoScreen}
-              options={{ title: 'Paso 2: Foto del carnet' }}
+              options={{ title: 'Verificación: carnet' }}
             />
             <Stack.Screen
               name="Selfie"
               component={SelfieScreen}
-              options={{ title: 'Paso 3: Selfie' }}
-            />
-          </Stack.Group>
-        ) : (
-          <Stack.Group>
-            <Stack.Screen
-              name="Home"
-              component={HomeScreen}
-              options={{ title: 'Alerta de Emergencia' }}
+              options={{ title: 'Verificación: selfie' }}
             />
           </Stack.Group>
         )}

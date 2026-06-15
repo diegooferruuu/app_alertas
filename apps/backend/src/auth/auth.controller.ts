@@ -1,5 +1,6 @@
 import { Controller, Post, Body, UseGuards, Get, BadRequestException } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { UsersService } from '../users/users.service';
 import { VerificationService } from '../verification/verification.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -12,6 +13,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class AuthController {
   constructor(
     private authService: AuthService,
+    private usersService: UsersService,
     private verificationService: VerificationService,
   ) {}
 
@@ -66,6 +68,16 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async getProfile(@CurrentUser() user: any) {
-    return user;
+    const fullUser = await this.usersService.findById(user.userId);
+    return {
+      id: fullUser.id,
+      email: fullUser.email,
+      full_name: fullUser.full_name,
+      phone: fullUser.phone,
+      identity_verified: fullUser.identity_verified,
+      reputation_score: fullUser.reputation_score,
+      role: fullUser.role,
+      is_suspended: fullUser.is_suspended,
+    };
   }
 }

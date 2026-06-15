@@ -4,9 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
+import { IncidentsModule } from './incidents/incidents.module';
 import { User } from './users/entities/user.entity';
 import { RefreshToken } from './users/entities/refresh-token.entity';
 import { ReputationEvent } from './users/entities/reputation-event.entity';
+import { Incident } from './incidents/entities/incident.entity';
 
 @Module({
   imports: [
@@ -24,7 +26,7 @@ import { ReputationEvent } from './users/entities/reputation-event.entity';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        entities: [User, RefreshToken, ReputationEvent],
+        entities: [User, RefreshToken, ReputationEvent, Incident],
         synchronize: process.env.NODE_ENV !== 'production',
         logging: process.env.NODE_ENV === 'development',
       }),
@@ -32,6 +34,7 @@ import { ReputationEvent } from './users/entities/reputation-event.entity';
     AuthModule,
     UsersModule,
     VerificationModule,
+    IncidentsModule,
   ],
 })
 export class AppModule {}

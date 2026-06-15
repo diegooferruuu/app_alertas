@@ -1,8 +1,5 @@
-import axios from 'axios';
 import { storage } from '../utils/storage';
-
-// En dispositivo físico usa la IP de tu Mac. En simulador/web usa localhost.
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.6.200:3000/api';
+import { apiClient } from './api';
 
 export interface LoginResponse {
   accessToken: string;
@@ -22,64 +19,18 @@ export interface User {
   phone: string;
   identity_verified: boolean;
   reputation_score: number;
+  role: 'citizen' | 'admin' | 'moderator';
+  is_suspended: boolean;
 }
 
 class AuthService {
-  private axiosInstance = axios.create({
-    baseURL: API_URL,
-  });
-
-  constructor() {
-    this.setupInterceptors();
-  }
-
-  private setupInterceptors() {
-    this.axiosInstance.interceptors.request.use(
-      async (config) => {
-        const token = await storage.getItem('accessToken');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error),
-    );
-
-    this.axiosInstance.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        const originalRequest = error.config;
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-          try {
-            const refreshToken = await storage.getItem('refreshToken');
-            if (refreshToken) {
-              const response = await axios.post(`${API_URL}/auth/refresh`, {
-                refreshToken,
-              });
-              const { accessToken, refreshToken: newRefreshToken } = response.data;
-
-              await storage.setItem('accessToken', accessToken);
-              await storage.setItem('refreshToken', newRefreshToken);
-
-              originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-              return this.axiosInstance(originalRequest);
-            }
-          } catch (refreshError) {
-            // Refresh token failed, logout user
-            await this.logout();
-            return Promise.reject(refreshError);
-          }
-        }
-
-        return Promise.reject(error);
-      },
-    );
-  }
-
-  async register(email: string, password: string, full_name: string, phone: string): Promise<LoginResponse> {
-    const response = await this.axiosInstance.post<LoginResponse>('/auth/register', {
+  async register(
+    email: string,
+    password: string,
+    full_name: string,
+    phone: string,
+  ): Promise<LoginResponse> {
+    const response = await apiClient.post<LoginResponse>('/auth/register', {
       email,
       password,
       full_name,
@@ -90,7 +41,7 @@ class AuthService {
   }
 
   async login(email: string, password: string): Promise<LoginResponse> {
-    const response = await this.axiosInstance.post<LoginResponse>('/auth/login', {
+    const response = await apiClient.post<LoginResponse>('/auth/login', {
       email,
       password,
     });
@@ -114,7 +65,7 @@ class AuthService {
       birth_date: string;
     };
   }): Promise<any> {
-    return this.axiosInstance.post('/auth/verify-id', payload);
+    return apiClient.post('/auth/verify-id', payload);
   }
 
   async verifyIdentity(payload: {
@@ -128,11 +79,11 @@ class AuthService {
       birth_date: string;
     };
   }): Promise<any> {
-    return this.axiosInstance.post('/auth/verify-identity', payload);
+    return apiClient.post('/auth/verify-identity', payload);
   }
 
   async getProfile(): Promise<User> {
-    const response = await this.axiosInstance.get<User>('/auth/me');
+    const response = await apiClient.get<User>('/auth/me');
     return response.data;
   }
 
