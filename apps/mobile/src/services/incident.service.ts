@@ -6,6 +6,7 @@ export interface Incident {
   id: string;
   reporter_id: string;
   category: IncidentCategory;
+  victim_name: string | null;
   description: string;
   latitude: number;
   longitude: number;
@@ -18,9 +19,16 @@ export interface Incident {
 
 export interface CreateIncidentPayload {
   category: IncidentCategory;
+  victim_name: string;
   description: string;
   latitude: number;
   longitude: number;
+  photo_base64?: string;
+}
+
+export interface UpdateIncidentPayload {
+  victim_name?: string;
+  description?: string;
   photo_base64?: string;
 }
 
@@ -45,6 +53,20 @@ class IncidentService {
   async getOne(id: string): Promise<Incident> {
     const response = await apiClient.get<Incident>(`/incidents/${id}`);
     return response.data;
+  }
+
+  async getMine(): Promise<Incident[]> {
+    const response = await apiClient.get<Incident[]>('/incidents/mine');
+    return response.data;
+  }
+
+  async update(id: string, payload: UpdateIncidentPayload): Promise<Incident> {
+    const response = await apiClient.patch<Incident>(`/incidents/${id}`, payload);
+    return response.data;
+  }
+
+  async remove(id: string): Promise<void> {
+    await apiClient.delete(`/incidents/${id}`);
   }
 }
 

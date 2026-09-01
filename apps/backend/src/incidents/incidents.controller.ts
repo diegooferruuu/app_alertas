@@ -2,34 +2,32 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Body,
   Param,
   Query,
   UseGuards,
-  ParseFloatPipe,
   BadRequestException,
 } from '@nestjs/common';
 import { IncidentsService } from './incidents.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
+import { UpdateIncidentDto } from './dto/update-incident.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @Controller('incidents')
+@UseGuards(JwtAuthGuard)
 export class IncidentsController {
   constructor(private readonly incidentsService: IncidentsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  async create(
-    @CurrentUser() user: any,
-    @Body() dto: CreateIncidentDto,
-  ) {
+  async create(@CurrentUser() user: any, @Body() dto: CreateIncidentDto) {
     return this.incidentsService.create(user.userId, dto);
   }
 
   // Incidentes cercanos para pintar el mapa
   @Get('nearby')
-  @UseGuards(JwtAuthGuard)
   async findNearby(
     @Query('lat') lat: string,
     @Query('lng') lng: string,
@@ -44,16 +42,34 @@ export class IncidentsController {
     return this.incidentsService.findNearby(latitude, longitude, radiusMeters);
   }
 
-  // Lista de incidentes recientes (pestaña de lista)
+  // Denuncias del usuario autenticado (debe ir antes de ':id')
+  @Get('mine')
+  async findMine(@CurrentUser() user: any) {
+    return this.incidentsService.findMine(user.userId);
+  }
+
+  // Lista de incidentes recientes
   @Get()
-  @UseGuards(JwtAuthGuard)
   async findRecent() {
     return this.incidentsService.findRecent();
   }
 
   @Get(':id')
-  @UseGuards(JwtAuthGuard)
   async findOne(@Param('id') id: string) {
     return this.incidentsService.findOne(id);
+  }
+
+  @Patch(':id')
+  async update(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateIncidentDto,
+  ) {
+    return this.incidentsService.update(user.userId, id, dto);
+  }
+
+  @Delete(':id')
+  async remove(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.incidentsService.remove(user.userId, id);
   }
 }

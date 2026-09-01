@@ -8,13 +8,18 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import incidentService from '../../services/incident.service';
 
 const ReportIncidentScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const [victimName, setVictimName] = useState('');
   const [description, setDescription] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -33,23 +38,53 @@ const ReportIncidentScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     })();
   }, []);
 
-  const handleSubmit = async () => {
-    if (description.trim().length < 5) {
-      Alert.alert('Datos insuficientes', 'Describe a la persona desaparecida (mínimo 5 caracteres).');
+  const pickPhoto = async () => {
+    if (Platform.OS === 'web') {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.5,
+        base64: true,
+      });
+      if (!result.canceled && result.assets[0].base64) setPhoto(result.assets[0].base64);
       return;
     }
-    if (!coords) {
-      Alert.alert('Sin ubicación', 'No pudimos obtener tu ubicación. Activa el GPS e intenta de nuevo.');
-      return;
-    }
+    Alert.alert('Agregar foto', 'Elige una opción', [
+      {
+        text: 'Tomar foto',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') return;
+          const r = await ImagePicker.launchCameraAsync({ quality: 0.5, base64: true });
+          if (!r.canceled && r.assets[0].base64) setPhoto(r.assets[0].base64);
+        },
+      },
+      {
+        text: 'Galería',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') return;
+          const r = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.5,
+            base64: true,
+          });
+          if (!r.canceled && r.assets[0].base64) setPhoto(r.assets[0].base64);
+        },
+      },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  };
 
+  const submit = async () => {
     setSubmitting(true);
     try {
       await incidentService.create({
         category: 'desaparicion',
+        victim_name: victimName.trim(),
         description: description.trim(),
-        latitude: coords.lat,
-        longitude: coords.lng,
+        latitude: coords!.lat,
+        longitude: coords!.lng,
+        photo_base64: photo ?? undefined,
       });
       Alert.alert('¡Reportado!', 'La denuncia de desaparición fue registrada.', [
         { text: 'OK', onPress: () => navigation.goBack() },
@@ -64,6 +99,31 @@ const ReportIncidentScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     }
   };
 
+  const handleSubmit = () => {
+    if (victimName.trim().length < 2) {
+      Alert.alert('Falta el nombre', 'Ingresa el nombre de la persona desaparecida.');
+      return;
+    }
+    if (description.trim().length < 5) {
+      Alert.alert('Datos insuficientes', 'Agrega más detalles (mínimo 5 caracteres).');
+      return;
+    }
+    if (!coords) {
+      Alert.alert('Sin ubicación', 'No pudimos obtener tu ubicación. Activa el GPS e intenta de nuevo.');
+      return;
+    }
+
+    // Aviso de confirmación antes de enviar
+    Alert.alert(
+      '¿Confirmar denuncia?',
+      `Estás por reportar la desaparición de "${victimName.trim()}". Esta denuncia será visible para otros usuarios. ¿Deseas continuar?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Sí, denunciar', style: 'destructive', onPress: submit },
+      ],
+    );
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Reportar desaparición</Text>
@@ -73,16 +133,41 @@ const ReportIncidentScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         <Text style={styles.bannerText}>Denuncia de persona desaparecida</Text>
       </View>
 
-      <Text style={styles.label}>Datos de la persona desaparecida</Text>
+      <Text style={styles.label}>Nombre de la víctima</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej: María Pérez López"
+        value={victimName}
+        onChangeText={setVictimName}
+        autoCapitalize="words"
+        maxLength={120}
+      />
+
+      <Text style={styles.label}>Detalles</Text>
       <TextInput
         style={styles.textarea}
-        placeholder="Nombre, edad, descripción física, ropa, última vez vista..."
+        placeholder="Edad, descripción física, ropa, última vez vista, contacto..."
         value={description}
         onChangeText={setDescription}
         multiline
         numberOfLines={5}
-        maxLength={500}
+        maxLength={1000}
       />
+
+      <Text style={styles.label}>Foto (opcional)</Text>
+      {photo ? (
+        <View style={styles.photoWrap}>
+          <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={styles.photo} />
+          <TouchableOpacity style={styles.photoRemove} onPress={() => setPhoto(null)}>
+            <Ionicons name="close-circle" size={26} color="#FF3B30" />
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.photoButton} onPress={pickPhoto}>
+          <Ionicons name="camera-outline" size={22} color="#007AFF" />
+          <Text style={styles.photoButtonText}>Agregar foto</Text>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.locationBox}>
         {locating ? (
@@ -125,7 +210,7 @@ const ReportIncidentScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
 const styles = StyleSheet.create({
   container: { padding: 24, backgroundColor: '#fff', flexGrow: 1 },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, color: '#1a1a1a' },
-  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 10, marginTop: 8 },
+  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 10, marginTop: 16 },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -134,9 +219,18 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   bannerText: { color: '#FF3B30', fontWeight: '600', fontSize: 14 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    backgroundColor: '#fafafa',
+  },
   textarea: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -146,6 +240,27 @@ const styles = StyleSheet.create({
     minHeight: 100,
     textAlignVertical: 'top',
     backgroundColor: '#fafafa',
+  },
+  photoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#007AFF',
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    paddingVertical: 16,
+    justifyContent: 'center',
+  },
+  photoButtonText: { color: '#007AFF', fontSize: 15, fontWeight: '600' },
+  photoWrap: { position: 'relative' },
+  photo: { width: '100%', height: 200, borderRadius: 10, resizeMode: 'cover' },
+  photoRemove: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#fff',
+    borderRadius: 13,
   },
   locationBox: {
     flexDirection: 'row',

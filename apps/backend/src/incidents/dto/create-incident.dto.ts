@@ -19,8 +19,13 @@ export class CreateIncidentDto {
   category!: string;
 
   @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  victim_name!: string;
+
+  @IsString()
   @MinLength(5)
-  @MaxLength(500)
+  @MaxLength(1000)
   description!: string;
 
   @IsNumber()

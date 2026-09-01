@@ -35,7 +35,7 @@ const formatDistance = (meters?: number): string => {
   return `${(meters / 1000).toFixed(1)} km`;
 };
 
-const IncidentsListScreen: React.FC = () => {
+const IncidentsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -139,13 +139,18 @@ const IncidentsListScreen: React.FC = () => {
           renderItem={({ item }) => {
             const meta = CATEGORY_META[item.category];
             return (
-              <View style={styles.card}>
+              <TouchableOpacity
+                style={styles.card}
+                onPress={() => navigation.navigate('IncidentDetail', { id: item.id })}
+              >
                 <View style={[styles.iconBadge, { backgroundColor: `${meta.color}20` }]}>
                   <Ionicons name={meta.icon as any} size={22} color={meta.color} />
                 </View>
                 <View style={styles.cardBody}>
                   <View style={styles.cardHeader}>
-                    <Text style={[styles.category, { color: meta.color }]}>{meta.label}</Text>
+                    <Text style={[styles.category, { color: meta.color }]} numberOfLines={1}>
+                      {item.victim_name || meta.label}
+                    </Text>
                     <Text style={styles.time}>
                       {sortMode === 'nearby' && item.distance_meters != null
                         ? formatDistance(item.distance_meters)
@@ -157,7 +162,8 @@ const IncidentsListScreen: React.FC = () => {
                   </Text>
                   <Text style={styles.status}>Estado: {item.status}</Text>
                 </View>
-              </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
             );
           }}
         />
@@ -194,6 +200,7 @@ const styles = StyleSheet.create({
   emptyText: { color: '#999', fontSize: 15, textAlign: 'center' },
   card: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 14,

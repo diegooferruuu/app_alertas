@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Incident } from './entities/incident.entity';
 import { CreateIncidentDto } from './dto/create-incident.dto';
+import { UpdateIncidentDto } from './dto/update-incident.dto';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -32,6 +33,7 @@ export class IncidentsService {
     const incident = this.incidentsRepository.create({
       reporter_id: userId,
       category: dto.category as Incident['category'],
+      victim_name: dto.victim_name,
       description: dto.description,
       latitude: dto.latitude,
       longitude: dto.longitude,
@@ -40,6 +42,42 @@ export class IncidentsService {
     });
 
     return this.incidentsRepository.save(incident);
+  }
+
+  /** Denuncias creadas por un usuario (sección "Mis denuncias"). */
+  async findMine(userId: string): Promise<Incident[]> {
+    return this.incidentsRepository.find({
+      where: { reporter_id: userId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  /** Edita una denuncia; solo el autor puede hacerlo. */
+  async update(
+    userId: string,
+    id: string,
+    dto: UpdateIncidentDto,
+  ): Promise<Incident> {
+    const incident = await this.findOne(id);
+    if (incident.reporter_id !== userId) {
+      throw new ForbiddenException('Solo puedes editar tus propias denuncias');
+    }
+
+    if (dto.victim_name !== undefined) incident.victim_name = dto.victim_name;
+    if (dto.description !== undefined) incident.description = dto.description;
+    if (dto.photo_base64 !== undefined) incident.photo_base64 = dto.photo_base64;
+
+    return this.incidentsRepository.save(incident);
+  }
+
+  /** Borra una denuncia; solo el autor puede hacerlo. */
+  async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
+    const incident = await this.findOne(id);
+    if (incident.reporter_id !== userId) {
+      throw new ForbiddenException('Solo puedes borrar tus propias denuncias');
+    }
+    await this.incidentsRepository.remove(incident);
+    return { deleted: true };
   }
 
   /**

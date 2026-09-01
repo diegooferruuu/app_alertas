@@ -26,6 +26,10 @@ export class Incident {
   @Column({ type: 'varchar', length: 40 })
   category!: IncidentCategory;
 
+  // Nombre de la persona desaparecida (nullable por compatibilidad con datos previos)
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  victim_name!: string | null;
+
   @Column({ type: 'text' })
   description!: string;
 

@@ -9,6 +9,9 @@ import { IDPhotoScreen } from './src/screens/auth/IDPhotoScreen';
 import { SelfieScreen } from './src/screens/auth/SelfieScreen';
 import { MainTabs } from './src/navigation/MainTabs';
 import { ReportIncidentScreen } from './src/screens/main/ReportIncidentScreen';
+import { IncidentDetailScreen } from './src/screens/main/IncidentDetailScreen';
+import { EditIncidentScreen } from './src/screens/main/EditIncidentScreen';
+import { MyIncidentsScreen } from './src/screens/main/MyIncidentsScreen';
 import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
 
@@ -76,6 +79,21 @@ export default function App() {
               name="ReportIncident"
               component={ReportIncidentScreen}
               options={{ title: 'Reportar', presentation: 'modal' }}
+            />
+            <Stack.Screen
+              name="IncidentDetail"
+              component={IncidentDetailScreen}
+              options={{ title: 'Detalle de la denuncia' }}
+            />
+            <Stack.Screen
+              name="EditIncident"
+              component={EditIncidentScreen}
+              options={{ title: 'Editar denuncia' }}
+            />
+            <Stack.Screen
+              name="MyIncidents"
+              component={MyIncidentsScreen}
+              options={{ title: 'Mis denuncias' }}
             />
             {/* Flujo de verificación de identidad (on-demand) */}
             <Stack.Screen

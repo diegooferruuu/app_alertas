@@ -63,6 +63,15 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </View>
       </View>
 
+      <TouchableOpacity
+        style={styles.menuItem}
+        onPress={() => navigation.navigate('MyIncidents')}
+      >
+        <Ionicons name="document-text-outline" size={20} color="#007AFF" />
+        <Text style={styles.menuItemText}>Mis denuncias</Text>
+        <Ionicons name="chevron-forward" size={18} color="#ccc" />
+      </TouchableOpacity>
+
       {!identityVerified && (
         <TouchableOpacity
           style={styles.verifyButton}
@@ -109,6 +118,18 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a' },
   statLabel: { fontSize: 12, color: '#888', marginTop: 4 },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+    backgroundColor: '#f7f7f7',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+  },
+  menuItemText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
   verifyButton: {
     flexDirection: 'row',
     gap: 8,
