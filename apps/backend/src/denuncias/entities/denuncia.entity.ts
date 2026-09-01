@@ -7,8 +7,10 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  Check,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { EstadoDenuncia, NivelConfianza } from '../domain/estados';
 
 /**
  * Denuncia de desaparición.
@@ -17,10 +19,29 @@ import { User } from '../../users/entities/user.entity';
  * un delito, y nombrarla así prejuzgaría el caso. Tampoco hay categoría: se
  * atiende un único tipo de caso.
  */
-export type DenunciaEstado = 'activo' | 'verificado' | 'resuelto' | 'descartado';
-
 @Entity('denuncias')
 @Index('idx_denuncias_created_at', ['created_at'])
+@Index('idx_denuncias_ci_persona_buscada', ['ci_hash_persona_buscada'])
+// Los valores válidos se controlan en el dominio; estas restricciones son la
+// segunda línea, para que una escritura directa a la base no pueda dejar la
+// máquina de estados en un valor que el código no sabe interpretar.
+// Las expresiones están escritas tal como Postgres las normaliza, para que
+// `migration:generate` no proponga recrearlas en cada ejecución.
+@Check(
+  'chk_denuncias_nivel_confianza',
+  `((nivel_confianza)::text = ANY ((ARRAY['REGISTRADA'::character varying, 'PROVISIONAL'::character varying, 'CORROBORADA'::character varying])::text[]))`,
+)
+@Check(
+  'chk_denuncias_estado',
+  `((estado)::text = ANY ((ARRAY['ACTIVA'::character varying, 'CADUCADA'::character varying, 'INVALIDADA'::character varying, 'CERRADA'::character varying])::text[]))`,
+)
+// Una denuncia difundible tiene siempre radio y caducidad; una REGISTRADA no
+// tiene ninguno de los dos. Impide el intermedio incoherente de una alerta
+// emitida sin plazo de vencimiento.
+@Check(
+  'chk_denuncias_difusion_coherente',
+  `(((((nivel_confianza)::text = 'REGISTRADA'::text) AND (radio_actual_m IS NULL) AND (expira_en IS NULL)) OR (((nivel_confianza)::text <> 'REGISTRADA'::text) AND (radio_actual_m IS NOT NULL) AND (expira_en IS NOT NULL))))`,
+)
 export class Denuncia {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -30,6 +51,16 @@ export class Denuncia {
 
   @Column({ type: 'varchar', length: 120, nullable: true })
   nombre_persona_buscada!: string | null;
+
+  /**
+   * SHA-256 del documento de la persona buscada. Obligatorio.
+   *
+   * Es el campo que habilita el interruptor de desactivación: sin él, la persona
+   * reportada no tendría forma de demostrar que una denuncia la identifica. El
+   * número nunca se almacena en claro, y este hash no viaja en ninguna respuesta.
+   */
+  @Column({ type: 'varchar', length: 64, select: false })
+  ci_hash_persona_buscada!: string;
 
   @Column({ type: 'text' })
   description!: string;
@@ -67,8 +98,32 @@ export class Denuncia {
   @Column({ type: 'text', nullable: true })
   photo_base64!: string | null;
 
-  @Column({ type: 'varchar', length: 20, default: 'activo' })
-  status!: DenunciaEstado;
+  /**
+   * Cuánto respaldo tiene el caso. Nace REGISTRADA: existe pero no se difunde.
+   * Es el invariante I1 expresado en datos — crear y emitir son operaciones
+   * distintas.
+   */
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: NivelConfianza.REGISTRADA,
+  })
+  nivel_confianza!: NivelConfianza;
+
+  @Column({ type: 'varchar', length: 20, default: EstadoDenuncia.ACTIVA })
+  estado!: EstadoDenuncia;
+
+  /** Alcance de la difusión de este caso. Nulo mientras no se difunda. */
+  @Column({ type: 'integer', nullable: true })
+  radio_actual_m!: number | null;
+
+  /** Cuándo caduca la alerta. Nulo mientras el nivel sea REGISTRADA. */
+  @Column({ type: 'timestamptz', nullable: true })
+  expira_en!: Date | null;
+
+  /** Número de caso de la FELCC. Una de las dos vías de corroboración. */
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  numero_caso_felcc!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;

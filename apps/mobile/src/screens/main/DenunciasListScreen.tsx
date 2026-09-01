@@ -11,7 +11,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
+import denunciaService, {
+  Denuncia,
+  DENUNCIA_META,
+  NIVEL_META,
+} from '../../services/denuncia.service';
 
 // La Paz, Bolivia por defecto si no hay GPS
 const DEFAULT = { lat: -16.5, lng: -68.15 };
@@ -160,7 +164,9 @@ const DenunciasListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   <Text style={styles.description} numberOfLines={2}>
                     {item.description}
                   </Text>
-                  <Text style={styles.status}>Estado: {item.status}</Text>
+                  <Text style={[styles.status, { color: NIVEL_META[item.nivel_confianza].color }]}>
+                    {NIVEL_META[item.nivel_confianza].label}
+                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#ccc" />
               </TouchableOpacity>
@@ -221,7 +227,7 @@ const styles = StyleSheet.create({
   category: { fontSize: 15, fontWeight: '700' },
   time: { fontSize: 12, color: '#999' },
   description: { fontSize: 14, color: '#444', marginBottom: 6 },
-  status: { fontSize: 12, color: '#888', textTransform: 'capitalize' },
+  status: { fontSize: 12, fontWeight: '600' },
 });
 
 export { DenunciasListScreen };

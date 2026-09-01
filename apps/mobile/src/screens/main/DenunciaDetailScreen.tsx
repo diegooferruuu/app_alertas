@@ -11,7 +11,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
+import denunciaService, {
+  Denuncia,
+  DENUNCIA_META,
+  NIVEL_META,
+} from '../../services/denuncia.service';
 import { useAuth } from '../../hooks/useAuth';
 
 const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
@@ -106,7 +110,10 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
         </View>
         <View style={styles.metaRow}>
           <Ionicons name="flag-outline" size={16} color="#888" />
-          <Text style={styles.metaText}>Estado: {denuncia.status}</Text>
+          <Text style={styles.metaText}>
+            {NIVEL_META[denuncia.nivel_confianza].label} ·{' '}
+            {NIVEL_META[denuncia.nivel_confianza].desc}
+          </Text>
         </View>
 
         {isOwner && (

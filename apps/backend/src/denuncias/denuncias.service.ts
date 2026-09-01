@@ -1,9 +1,21 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { createHash } from 'crypto';
 import { Denuncia } from './entities/denuncia.entity';
 import { CreateDenunciaDto } from './dto/create-denuncia.dto';
 import { UpdateDenunciaDto } from './dto/update-denuncia.dto';
+import {
+  EstadoDenuncia,
+  NivelConfianza,
+  puedeTransicionarEstado,
+  puedeTransicionarNivel,
+} from './domain/estados';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -14,9 +26,17 @@ export class DenunciasService {
     private usersService: UsersService,
   ) {}
 
+  /** El número de documento nunca se almacena en claro, solo su hash. */
+  private hashDeCi(ciNumber: string): string {
+    return createHash('sha256').update(ciNumber.trim()).digest('hex');
+  }
+
   /**
-   * Crea una denuncia. Solo quien tiene documento registrado puede denunciar,
-   * porque la denuncia queda atribuida a ese documento.
+   * Crea una denuncia en nivel REGISTRADA: existe, pero no se difunde nada.
+   *
+   * La difusión requiere firmar la declaración jurada (fase 2). Esto es el
+   * invariante I1: crear una denuncia y emitir una alerta son operaciones
+   * distintas.
    */
   async create(userId: string, dto: CreateDenunciaDto): Promise<Denuncia> {
     const user = await this.usersService.findById(userId);
@@ -33,13 +53,70 @@ export class DenunciasService {
     const denuncia = this.denunciasRepository.create({
       denunciante_id: userId,
       nombre_persona_buscada: dto.nombre_persona_buscada,
+      ci_hash_persona_buscada: this.hashDeCi(dto.ci_persona_buscada),
       description: dto.description,
       latitude: dto.latitude,
       longitude: dto.longitude,
       photo_base64: dto.photo_base64 ?? null,
-      status: 'activo',
+      nivel_confianza: NivelConfianza.REGISTRADA,
+      estado: EstadoDenuncia.ACTIVA,
+      // Sin radio ni caducidad: todavía no se difunde nada.
+      radio_actual_m: null,
+      expira_en: null,
     });
 
+    return this.denunciasRepository.save(denuncia);
+  }
+
+  /**
+   * Cambia el nivel de confianza validando la transición.
+   *
+   * Único punto por el que el nivel puede subir: concentrarlo aquí es lo que
+   * impide que un camino nuevo difunda una denuncia sin pasar por las reglas.
+   */
+  async transicionarNivel(
+    id: string,
+    hacia: NivelConfianza,
+    cambios: Partial<Pick<Denuncia, 'radio_actual_m' | 'expira_en'>> = {},
+  ): Promise<Denuncia> {
+    const denuncia = await this.findOne(id);
+
+    if (denuncia.estado !== EstadoDenuncia.ACTIVA) {
+      throw new ConflictException(
+        `Una denuncia ${denuncia.estado} no puede cambiar de nivel de confianza`,
+      );
+    }
+    if (!puedeTransicionarNivel(denuncia.nivel_confianza, hacia)) {
+      throw new ConflictException(
+        `Transición de nivel inválida: ${denuncia.nivel_confianza} → ${hacia}`,
+      );
+    }
+
+    denuncia.nivel_confianza = hacia;
+    if (cambios.radio_actual_m !== undefined) {
+      denuncia.radio_actual_m = cambios.radio_actual_m;
+    }
+    if (cambios.expira_en !== undefined) {
+      denuncia.expira_en = cambios.expira_en;
+    }
+
+    return this.denunciasRepository.save(denuncia);
+  }
+
+  /** Cambia el estado validando la transición. */
+  async transicionarEstado(
+    id: string,
+    hacia: EstadoDenuncia,
+  ): Promise<Denuncia> {
+    const denuncia = await this.findOne(id);
+
+    if (!puedeTransicionarEstado(denuncia.estado, hacia)) {
+      throw new ConflictException(
+        `Transición de estado inválida: ${denuncia.estado} → ${hacia}`,
+      );
+    }
+
+    denuncia.estado = hacia;
     return this.denunciasRepository.save(denuncia);
   }
 
@@ -51,7 +128,12 @@ export class DenunciasService {
     });
   }
 
-  /** Edita una denuncia; solo su autor puede hacerlo. */
+  /**
+   * Edita una denuncia; solo su autor y solo mientras esté REGISTRADA.
+   *
+   * Una vez firmada la declaración jurada, el contenido queda sellado por su
+   * hash: modificarlo rompería la cadena probatoria.
+   */
   async update(
     userId: string,
     id: string,
@@ -60,6 +142,11 @@ export class DenunciasService {
     const denuncia = await this.findOne(id);
     if (denuncia.denunciante_id !== userId) {
       throw new ForbiddenException('Solo puedes editar tus propias denuncias');
+    }
+    if (denuncia.nivel_confianza !== NivelConfianza.REGISTRADA) {
+      throw new ConflictException(
+        'Esta denuncia ya fue declarada bajo juramento y su contenido no puede modificarse',
+      );
     }
 
     if (dto.nombre_persona_buscada !== undefined) {
@@ -71,7 +158,13 @@ export class DenunciasService {
     return this.denunciasRepository.save(denuncia);
   }
 
-  /** Borra una denuncia; solo su autor puede hacerlo. */
+  /**
+   * Borra una denuncia; solo su autor puede hacerlo.
+   *
+   * TODO(H1.5): esta ruta contradice el invariante I7 —ningún rol puede
+   * eliminar una denuncia— y debe desaparecer junto con los botones del cliente
+   * móvil, en un mismo incremento para no romper la app.
+   */
   async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
     const denuncia = await this.findOne(id);
     if (denuncia.denunciante_id !== userId) {
@@ -82,10 +175,14 @@ export class DenunciasService {
   }
 
   /**
-   * Denuncias dentro de un radio (metros) de un punto, ordenadas por cercanía.
+   * Denuncias que se difunden y alcanzan un punto dado.
    *
-   * Opera sobre la columna generada `ubicacion`, que tiene índice GiST. Comparar
-   * contra un cast por fila impediría usarlo y recorrería la tabla entera.
+   * Tres filtros que no son opcionales: la denuncia debe estar activa, haber
+   * superado el nivel REGISTRADA, y no haber vencido. Este último filtro por
+   * `expira_en` garantiza corrección aunque el trabajo programado de caducidad
+   * no llegue a correr.
+   *
+   * Opera sobre la columna generada `ubicacion`, que tiene índice GiST.
    */
   async findNearby(
     lat: number,
@@ -99,7 +196,11 @@ export class DenunciasService {
       .createQueryBuilder('denuncia')
       .addSelect(`ST_Distance(denuncia.ubicacion, ${punto})`, 'distance_meters')
       .where(`ST_DWithin(denuncia.ubicacion, ${punto}, :radius)`)
-      .andWhere('denuncia.status != :descartado', { descartado: 'descartado' })
+      .andWhere('denuncia.estado = :activa', { activa: EstadoDenuncia.ACTIVA })
+      .andWhere('denuncia.nivel_confianza != :registrada', {
+        registrada: NivelConfianza.REGISTRADA,
+      })
+      .andWhere('denuncia.expira_en > now()')
       .setParameters({ lat, lng, radius: radiusMeters })
       .orderBy('distance_meters', 'ASC')
       .limit(limit)
@@ -111,12 +212,18 @@ export class DenunciasService {
     })) as Array<Denuncia & { distance_meters: number }>;
   }
 
-  /** Lista las denuncias más recientes. */
+  /** Denuncias difundidas más recientes. Mismos filtros que la consulta por cercanía. */
   async findRecent(limit = 50): Promise<Denuncia[]> {
-    return this.denunciasRepository.find({
-      order: { created_at: 'DESC' },
-      take: limit,
-    });
+    return this.denunciasRepository
+      .createQueryBuilder('denuncia')
+      .where('denuncia.estado = :activa', { activa: EstadoDenuncia.ACTIVA })
+      .andWhere('denuncia.nivel_confianza != :registrada', {
+        registrada: NivelConfianza.REGISTRADA,
+      })
+      .andWhere('denuncia.expira_en > now()')
+      .orderBy('denuncia.created_at', 'DESC')
+      .limit(limit)
+      .getMany();
   }
 
   async findOne(id: string): Promise<Denuncia> {

@@ -17,7 +17,8 @@ import * as ImagePicker from 'expo-image-picker';
 import denunciaService from '../../services/denuncia.service';
 
 const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const [nombrePersonaBuscada, setVictimName] = useState('');
+  const [nombrePersonaBuscada, setNombrePersonaBuscada] = useState('');
+  const [ciPersonaBuscada, setCiPersonaBuscada] = useState('');
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -80,12 +81,13 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     try {
       await denunciaService.create({
         nombre_persona_buscada: nombrePersonaBuscada.trim(),
+        ci_persona_buscada: ciPersonaBuscada.trim(),
         description: description.trim(),
         latitude: coords!.lat,
         longitude: coords!.lng,
         photo_base64: photo ?? undefined,
       });
-      Alert.alert('¡Reportado!', 'La denuncia de desaparición fue registrada.', [
+      Alert.alert('Denuncia registrada', 'Por ahora solo tú la ves. Firma la declaración para que se alerte a la zona.', [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (err: any) {
@@ -103,6 +105,13 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       Alert.alert('Falta el nombre', 'Ingresa el nombre de la persona desaparecida.');
       return;
     }
+    if (!/^\d{5,12}$/.test(ciPersonaBuscada.trim())) {
+      Alert.alert(
+        'Falta el documento',
+        'Necesitamos el número de carnet de la persona desaparecida. Es lo que le permite retirar la alerta si hubo un error.',
+      );
+      return;
+    }
     if (description.trim().length < 5) {
       Alert.alert('Datos insuficientes', 'Agrega más detalles (mínimo 5 caracteres).');
       return;
@@ -115,7 +124,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     // Aviso de confirmación antes de enviar
     Alert.alert(
       '¿Confirmar denuncia?',
-      `Estás por reportar la desaparición de "${nombrePersonaBuscada.trim()}". Esta denuncia será visible para otros usuarios. ¿Deseas continuar?`,
+      `Estás por registrar la desaparición de "${nombrePersonaBuscada.trim()}".\n\nPor ahora la verás solo tú. Para que se alerte a la zona tendrás que firmar una declaración jurada.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Sí, denunciar', style: 'destructive', onPress: submit },
@@ -132,15 +141,29 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         <Text style={styles.bannerText}>Denuncia de persona desaparecida</Text>
       </View>
 
-      <Text style={styles.label}>Nombre de la víctima</Text>
+      <Text style={styles.label}>Nombre de la persona desaparecida</Text>
       <TextInput
         style={styles.input}
         placeholder="Ej: María Pérez López"
         value={nombrePersonaBuscada}
-        onChangeText={setVictimName}
+        onChangeText={setNombrePersonaBuscada}
         autoCapitalize="words"
         maxLength={120}
       />
+
+      <Text style={styles.label}>Número de carnet de la persona desaparecida</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej: 9876543"
+        value={ciPersonaBuscada}
+        onChangeText={(v) => setCiPersonaBuscada(v.replace(/\D/g, ''))}
+        keyboardType="numeric"
+        maxLength={12}
+      />
+      <Text style={styles.hint}>
+        Lo pedimos porque es lo que permite a esa persona retirar la alerta si hubo
+        un error. No guardamos el número: solo una huella cifrada de él.
+      </Text>
 
       <Text style={styles.label}>Detalles</Text>
       <TextInput
@@ -221,6 +244,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   bannerText: { color: '#FF3B30', fontWeight: '600', fontSize: 14 },
+  hint: { fontSize: 12, color: '#888', marginTop: 6, lineHeight: 17 },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
