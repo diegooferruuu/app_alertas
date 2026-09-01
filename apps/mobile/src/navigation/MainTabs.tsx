@@ -2,7 +2,7 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MapScreen } from '../screens/main/MapScreen';
-import { IncidentsListScreen } from '../screens/main/IncidentsListScreen';
+import { DenunciasListScreen } from '../screens/main/DenunciasListScreen';
 import { ProfileScreen } from '../screens/main/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
@@ -25,12 +25,12 @@ export const MainTabs: React.FC = () => {
       <Tab.Screen
         name="Mapa"
         component={MapScreen}
-        options={{ tabBarIcon: tabIcon('map'), title: 'Incidentes cercanos' }}
+        options={{ tabBarIcon: tabIcon('map'), title: 'Denuncias cercanas' }}
       />
       <Tab.Screen
-        name="Incidentes"
-        component={IncidentsListScreen}
-        options={{ tabBarIcon: tabIcon('list'), title: 'Lista de incidentes' }}
+        name="Denuncias"
+        component={DenunciasListScreen}
+        options={{ tabBarIcon: tabIcon('list'), title: 'Lista de denuncias' }}
       />
       <Tab.Screen
         name="Perfil"

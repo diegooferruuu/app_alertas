@@ -11,20 +11,20 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
-import incidentService, { Incident, CATEGORY_META } from '../../services/incident.service';
+import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
 
 // La Paz, Bolivia por defecto (en web no hay GPS nativo de expo-location confiable)
 const DEFAULT = { lat: -16.5, lng: -68.15 };
 
 const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { identityVerified } = useAuth();
-  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const { documentoRegistrado } = useAuth();
+  const [denuncias, setDenuncias] = useState<Denuncia[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const data = await incidentService.getNearby(DEFAULT.lat, DEFAULT.lng, 50000);
-      setIncidents(data);
+      const data = await denunciaService.getNearby(DEFAULT.lat, DEFAULT.lng, 50000);
+      setDenuncias(data);
     } catch {
       // silencioso
     } finally {
@@ -43,15 +43,15 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   );
 
   const handleReport = () => {
-    if (identityVerified) {
-      navigation.navigate('ReportIncident');
+    if (documentoRegistrado) {
+      navigation.navigate('ReportarDenuncia');
     } else {
       Alert.alert(
-        'Verificación requerida',
-        'Para reportar incidentes primero debes verificar tu identidad.',
+        'Documento requerido',
+        'Para reportar primero debes registrar tu documento de identidad.',
         [
           { text: 'Ahora no', style: 'cancel' },
-          { text: 'Verificar', onPress: () => navigation.navigate('PersonalData') },
+          { text: 'Registrar', onPress: () => navigation.navigate('PersonalData') },
         ],
       );
     }
@@ -71,10 +71,10 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </View>
           <Text style={styles.subtitle}>
             El mapa interactivo solo está disponible en la app móvil. Aquí ves los
-            incidentes cercanos como lista ({incidents.length}):
+            denuncias cercanas como lista ({denuncias.length}):
           </Text>
-          {incidents.map((inc) => {
-            const meta = CATEGORY_META[inc.category];
+          {denuncias.map((inc) => {
+            const meta = DENUNCIA_META;
             return (
               <View key={inc.id} style={styles.item}>
                 <View style={styles.itemTitleRow}>
@@ -91,8 +91,8 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               </View>
             );
           })}
-          {incidents.length === 0 && (
-            <Text style={styles.empty}>No hay incidentes cercanos.</Text>
+          {denuncias.length === 0 && (
+            <Text style={styles.empty}>No hay denuncias cercanas.</Text>
           )}
         </ScrollView>
       )}

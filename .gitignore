@@ -13,6 +13,15 @@ dist
 build
 out
 
+# Salida de compilación que no debe vivir junto a las fuentes.
+# Un .js viejo al lado de su .ts secuestra la resolución de módulos:
+# CommonJS resuelve .js antes que .ts y carga el artefacto obsoleto.
+apps/backend/src/**/*.js
+apps/backend/src/**/*.js.map
+apps/backend/src/**/*.d.ts
+apps/backend/src/**/*.d.ts.map
+*.tsbuildinfo
+
 # Misc
 .DS_Store
 *.pem

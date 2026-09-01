@@ -24,15 +24,17 @@ export class User {
   @Column({ type: 'varchar', length: 255 })
   password_hash!: string;
 
-  // Identity verification
+  // Documento de identidad registrado.
+  // El OCR extrae datos, no autentica: el sistema NO establece que la persona
+  // sea quien dice ser, solo que registró un documento con estos datos.
   @Column({ type: 'boolean', default: false })
-  identity_verified!: boolean;
+  documento_registrado!: boolean;
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   ci_hash!: string;
 
   @Column({ type: 'timestamptz', nullable: true })
-  identity_verified_at!: Date;
+  documento_registrado_en!: Date;
 
   // Reputation system
   @Column({ type: 'integer', default: 100 })
@@ -54,7 +56,10 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   push_token_updated_at!: Date;
 
-  // Location (PostGIS)
+  // Última ubicación conocida (PostGIS). El índice GiST es imprescindible: la
+  // difusión de una alerta consulta esta columna para saber a quién alcanza, y
+  // sin índice esa consulta recorre la tabla entera de usuarios.
+  @Index('idx_users_last_location', { spatial: true })
   @Column({ type: 'geography', spatialFeatureType: 'Point', srid: 4326, nullable: true })
   last_location!: string;
 

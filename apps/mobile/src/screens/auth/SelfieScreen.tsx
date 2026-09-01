@@ -12,7 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/auth.store';
 
 const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { verifyIdentity, isLoading, error } = useAuthStore();
+  const { registrarDocumento, isLoading, error } = useAuthStore();
   const [selfieImage, setSelfieImage] = useState<string | null>(null);
 
   const takeSelfie = async () => {
@@ -38,23 +38,27 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
   };
 
-  const handleVerify = async () => {
+  const handleRegistrar = async () => {
     if (!selfieImage) {
       Alert.alert('Selfie requerida', 'Por favor toma una selfie para continuar.');
       return;
     }
 
     try {
-      await verifyIdentity(selfieImage);
-      // Tras verificar, volvemos a la app principal. El usuario ya es Ciudadano
-      // y puede reportar desde el botón rojo del mapa.
-      Alert.alert('¡Verificado!', 'Tu identidad ha sido verificada. Ya puedes reportar.', [
-        { text: 'Continuar', onPress: () => navigation.navigate('MainTabs') },
-      ]);
+      await registrarDocumento(selfieImage);
+      // Registrado el documento, volvemos a la app principal: ya puede reportar,
+      // porque sus denuncias quedan atribuidas a este documento.
+      Alert.alert(
+        'Documento registrado',
+        'Tu documento quedó registrado. Ya puedes reportar.',
+        [{ text: 'Continuar', onPress: () => navigation.navigate('MainTabs') }],
+      );
     } catch (err: any) {
       Alert.alert(
-        'Verificación fallida',
-        err?.response?.data?.message || err?.message || 'Error al verificar identidad.',
+        'No se pudo registrar el documento',
+        err?.response?.data?.message ||
+          err?.message ||
+          'No se pudo registrar el documento.',
       );
     }
   };
@@ -93,13 +97,13 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
       <TouchableOpacity
         style={[styles.button, (!selfieImage || isLoading) && styles.buttonDisabled]}
-        onPress={handleVerify}
+        onPress={handleRegistrar}
         disabled={!selfieImage || isLoading}
       >
         {isLoading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.buttonText}>Verificar identidad</Text>
+          <Text style={styles.buttonText}>Registrar documento</Text>
         )}
       </TouchableOpacity>
 

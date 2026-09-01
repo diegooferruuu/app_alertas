@@ -5,7 +5,7 @@ import { storage } from '../utils/storage';
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || 'http://192.168.6.200:3000/api';
 
-// Instancia axios compartida por todos los servicios (auth, incidents, ...).
+// Instancia axios compartida por todos los servicios (auth, denuncias, ...).
 export const apiClient = axios.create({ baseURL: API_URL });
 
 // Adjunta el token de acceso a cada request

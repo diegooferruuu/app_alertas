@@ -4,7 +4,10 @@ import { UsersService } from '../users/users.service';
 import { VerificationService } from '../verification/verification.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { VerifyIdentityDto, VerifyIdCardDto } from '../verification/dto/verify-identity.dto';
+import {
+  RegistrarDocumentoDto,
+  ExtraerDatosDocumentoDto,
+} from '../verification/dto/documento.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -36,32 +39,32 @@ export class AuthController {
     return this.authService.refreshAccessToken(refreshToken);
   }
 
-  @Post('verify-id')
+  @Post('documento/extraer')
   @UseGuards(JwtAuthGuard)
-  async verifyIdCard(
+  async extraerDatosDocumento(
     @CurrentUser() user: any,
-    @Body() verifyIdCardDto: VerifyIdCardDto,
+    @Body() dto: ExtraerDatosDocumentoDto,
   ) {
-    return this.verificationService.verifyIdCard(
+    return this.verificationService.extraerDatosDocumento(
       user.userId,
-      verifyIdCardDto.id_front_base64,
-      verifyIdCardDto.id_back_base64,
-      verifyIdCardDto.personal_data,
+      dto.id_front_base64,
+      dto.id_back_base64,
+      dto.personal_data,
     );
   }
 
-  @Post('verify-identity')
+  @Post('documento/registrar')
   @UseGuards(JwtAuthGuard)
-  async verifyIdentity(
+  async registrarDocumento(
     @CurrentUser() user: any,
-    @Body() verifyIdentityDto: VerifyIdentityDto,
+    @Body() dto: RegistrarDocumentoDto,
   ) {
-    return this.verificationService.verifyIdentity(
+    return this.verificationService.registrarDocumento(
       user.userId,
-      verifyIdentityDto.id_front_base64,
-      verifyIdentityDto.id_back_base64,
-      verifyIdentityDto.selfie_base64,
-      verifyIdentityDto.personal_data,
+      dto.id_front_base64,
+      dto.id_back_base64,
+      dto.selfie_base64,
+      dto.personal_data,
     );
   }
 
@@ -74,7 +77,7 @@ export class AuthController {
       email: fullUser.email,
       full_name: fullUser.full_name,
       phone: fullUser.phone,
-      identity_verified: fullUser.identity_verified,
+      documento_registrado: fullUser.documento_registrado,
       reputation_score: fullUser.reputation_score,
       role: fullUser.role,
       is_suspended: fullUser.is_suspended,

@@ -8,7 +8,7 @@ export interface LoginResponse {
     id: string;
     email: string;
     full_name: string;
-    identity_verified: boolean;
+    documento_registrado: boolean;
   };
 }
 
@@ -17,7 +17,7 @@ export interface User {
   email: string;
   full_name: string;
   phone: string;
-  identity_verified: boolean;
+  documento_registrado: boolean;
   reputation_score: number;
   role: 'citizen' | 'admin' | 'moderator';
   is_suspended: boolean;
@@ -55,7 +55,7 @@ class AuthService {
     await storage.removeItem('userId');
   }
 
-  async verifyIdCard(payload: {
+  async extraerDatosDocumento(payload: {
     id_front_base64: string;
     id_back_base64: string;
     personal_data: {
@@ -65,10 +65,10 @@ class AuthService {
       birth_date: string;
     };
   }): Promise<any> {
-    return apiClient.post('/auth/verify-id', payload);
+    return apiClient.post('/auth/documento/extraer', payload);
   }
 
-  async verifyIdentity(payload: {
+  async registrarDocumento(payload: {
     id_front_base64: string;
     id_back_base64: string;
     selfie_base64: string;
@@ -79,7 +79,7 @@ class AuthService {
       birth_date: string;
     };
   }): Promise<any> {
-    return apiClient.post('/auth/verify-identity', payload);
+    return apiClient.post('/auth/documento/registrar', payload);
   }
 
   async getProfile(): Promise<User> {

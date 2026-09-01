@@ -74,7 +74,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         full_name: user.full_name,
-        identity_verified: user.identity_verified,
+        documento_registrado: user.documento_registrado,
       },
     };
   }

@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, Index } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { User } from './user.entity';
 
 @Entity('refresh_tokens')
@@ -22,6 +22,9 @@ export class RefreshToken {
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;
 
+  // Sin @JoinColumn, TypeORM crea una columna "userId" aparte y cuelga de ella
+  // la llave foránea, dejando sin proteger la user_id que escribe el código.
   @ManyToOne(() => User, (user) => user.refresh_tokens, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
   user!: User;
 }

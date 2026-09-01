@@ -42,11 +42,15 @@ export class UsersService {
     return this.findById(id);
   }
 
-  async setIdentityVerified(id: string, ciHash: string): Promise<User> {
+  /**
+   * Deja constancia de que la persona registró un documento con estos datos.
+   * No afirma que la identidad haya sido autenticada: el OCR extrae datos.
+   */
+  async registrarDocumento(id: string, ciHash: string): Promise<User> {
     await this.usersRepository.update(id, {
-      identity_verified: true,
+      documento_registrado: true,
       ci_hash: ciHash,
-      identity_verified_at: new Date(),
+      documento_registrado_en: new Date(),
     });
     return this.findById(id);
   }

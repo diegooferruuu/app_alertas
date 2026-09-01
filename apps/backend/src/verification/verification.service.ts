@@ -1,8 +1,16 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { UsersService } from '../users/users.service';
-import { PersonalDataDto } from './dto/verify-identity.dto';
+import { PersonalDataDto } from './dto/documento.dto';
 
+/**
+ * Registro de documentos de identidad.
+ *
+ * El OCR **extrae datos**; no autentica. Este servicio no establece que una
+ * persona sea quien dice ser: deja constancia de que registró un documento
+ * cuyos datos extraídos coinciden con los que declaró. La terminología importa
+ * porque de ella depende lo que el sistema puede afirmar después.
+ */
 @Injectable()
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
@@ -10,84 +18,85 @@ export class VerificationService {
   constructor(private usersService: UsersService) {}
 
   /**
-   * Step intermedio: valida que las imágenes del carnet tengan buena calidad
-   * y que los datos ingresados coincidan con el OCR. No marca al usuario como
-   * verificado todavía (eso ocurre tras la selfie).
+   * Paso intermedio: comprueba que las imágenes del documento sean legibles y
+   * que los datos declarados coincidan con los datos extraídos. No deja
+   * constancia todavía; eso ocurre tras la selfie.
    */
-  async verifyIdCard(
+  async extraerDatosDocumento(
     userId: string,
     idFrontBase64: string,
     idBackBase64: string,
-    personalData: PersonalDataDto,
-  ): Promise<{ valid: boolean; message: string }> {
-    const extractedText = await this.extractTextFromId(idFrontBase64);
-    this.logger.debug(`OCR extracted ${extractedText.length} characters`);
+    datosDeclarados: PersonalDataDto,
+  ): Promise<{ coincide: boolean; message: string }> {
+    const textoExtraido = await this.extraerTextoDelDocumento(idFrontBase64);
+    this.logger.debug(`OCR extrajo ${textoExtraido.length} caracteres`);
 
-    const dataMatch = this.validatePersonalData(extractedText, personalData);
-    if (!dataMatch.valid) {
+    const comparacion = this.compararDatosExtraidos(textoExtraido, datosDeclarados);
+    if (!comparacion.coincide) {
       throw new BadRequestException(
-        `Los datos no coinciden con el carnet: ${dataMatch.reason}`,
+        `Los datos declarados no coinciden con los extraídos del documento: ${comparacion.motivo}`,
       );
     }
 
-    // Chequeo temprano de duplicados para no hacer perder tiempo al usuario
-    const ciHash = createHash('sha256')
-      .update(personalData.ci_number.trim())
-      .digest('hex');
-    const existingUser = await this.usersService.findByCiHash(ciHash);
-    if (existingUser && existingUser.id !== userId) {
+    // Chequeo temprano de duplicados para no hacer perder tiempo a la persona
+    const ciHash = this.hashDeCi(datosDeclarados.ci_number);
+    const usuarioExistente = await this.usersService.findByCiHash(ciHash);
+    if (usuarioExistente && usuarioExistente.id !== userId) {
       throw new BadRequestException(
-        'Este carnet ya está registrado en otra cuenta',
+        'Este documento ya está registrado en otra cuenta',
       );
     }
 
     return {
-      valid: true,
-      message: 'Datos del carnet verificados correctamente',
+      coincide: true,
+      message: 'Los datos declarados coinciden con los extraídos del documento',
     };
   }
 
-  async verifyIdentity(
+  /**
+   * Deja constancia del documento en la cuenta. A partir de aquí la persona
+   * puede denunciar, porque sus denuncias quedan atribuidas a este documento.
+   */
+  async registrarDocumento(
     userId: string,
     idFrontBase64: string,
     idBackBase64: string,
     selfieBase64: string,
-    personalData: PersonalDataDto,
+    datosDeclarados: PersonalDataDto,
   ): Promise<any> {
-    // Step 1: OCR on ID front image
-    const extractedText = await this.extractTextFromId(idFrontBase64);
-    this.logger.debug(`OCR extracted ${extractedText.length} characters`);
+    const textoExtraido = await this.extraerTextoDelDocumento(idFrontBase64);
+    this.logger.debug(`OCR extrajo ${textoExtraido.length} caracteres`);
 
-    // Step 2: Validate personal data matches OCR
-    const dataMatch = this.validatePersonalData(extractedText, personalData);
-    if (!dataMatch.valid) {
+    const comparacion = this.compararDatosExtraidos(textoExtraido, datosDeclarados);
+    if (!comparacion.coincide) {
       throw new BadRequestException(
-        `Los datos no coinciden con el carnet: ${dataMatch.reason}`,
+        `Los datos declarados no coinciden con los extraídos del documento: ${comparacion.motivo}`,
       );
     }
 
-    // Step 3: Hash CI and check for duplicates
-    const ciHash = createHash('sha256')
-      .update(personalData.ci_number.trim())
-      .digest('hex');
+    const ciHash = this.hashDeCi(datosDeclarados.ci_number);
 
-    const existingUser = await this.usersService.findByCiHash(ciHash);
-    if (existingUser && existingUser.id !== userId) {
+    const usuarioExistente = await this.usersService.findByCiHash(ciHash);
+    if (usuarioExistente && usuarioExistente.id !== userId) {
       throw new BadRequestException(
-        'Este carnet ya está registrado en otra cuenta',
+        'Este documento ya está registrado en otra cuenta',
       );
     }
 
-    // Step 4: Mark user as verified
-    await this.usersService.setIdentityVerified(userId, ciHash);
+    await this.usersService.registrarDocumento(userId, ciHash);
 
     return {
-      verified: true,
-      message: 'Identidad verificada correctamente',
+      documento_registrado: true,
+      message: 'Documento registrado correctamente',
     };
   }
 
-  private async extractTextFromId(imageBase64: string): Promise<string> {
+  /** El número de documento nunca se almacena en claro, solo su hash. */
+  private hashDeCi(ciNumber: string): string {
+    return createHash('sha256').update(ciNumber.trim()).digest('hex');
+  }
+
+  private async extraerTextoDelDocumento(imageBase64: string): Promise<string> {
     try {
       const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('spa');
@@ -97,16 +106,21 @@ export class VerificationService {
       return data.text;
     } catch (error) {
       throw new BadRequestException(
-        `OCR fallido: ${(error as Error).message}`,
+        `No se pudo leer el documento: ${(error as Error).message}`,
       );
     }
   }
 
-  private validatePersonalData(
-    ocrText: string,
-    personalData: PersonalDataDto,
-  ): { valid: boolean; reason?: string } {
-    const normalize = (s: string) =>
+  /**
+   * Compara los datos declarados contra el texto extraído por OCR.
+   * Coincidencia no significa autenticidad: el documento pudo ser de otra
+   * persona. Significa que lo declarado es consistente con lo que se leyó.
+   */
+  private compararDatosExtraidos(
+    textoExtraido: string,
+    datosDeclarados: PersonalDataDto,
+  ): { coincide: boolean; motivo?: string } {
+    const normalizar = (s: string) =>
       s
         .toLowerCase()
         .normalize('NFD')
@@ -114,27 +128,25 @@ export class VerificationService {
         .replace(/[^a-z0-9\s]/g, '')
         .trim();
 
-    const text = normalize(ocrText);
+    const texto = normalizar(textoExtraido);
 
-    // Validate CI number
-    const ciNormalized = personalData.ci_number.replace(/\D/g, '');
-    if (!text.includes(ciNormalized)) {
+    const ciNormalizado = datosDeclarados.ci_number.replace(/\D/g, '');
+    if (!texto.includes(ciNormalizado)) {
       return {
-        valid: false,
-        reason: `CI ${ciNormalized} no encontrado en el carnet`,
+        coincide: false,
+        motivo: `el número ${ciNormalizado} no aparece en el documento`,
       };
     }
 
-    // Validate at least one name part (>3 chars) appears in OCR
-    const nameParts = normalize(personalData.full_name)
+    const partesDelNombre = normalizar(datosDeclarados.full_name)
       .split(' ')
       .filter((p) => p.length > 3);
 
-    const nameFound = nameParts.some((part) => text.includes(part));
-    if (!nameFound) {
-      return { valid: false, reason: 'Nombre no encontrado en el carnet' };
+    const nombreEncontrado = partesDelNombre.some((parte) => texto.includes(parte));
+    if (!nombreEncontrado) {
+      return { coincide: false, motivo: 'el nombre no aparece en el documento' };
     }
 
-    return { valid: true };
+    return { coincide: true };
   }
 }

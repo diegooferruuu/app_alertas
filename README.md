@@ -68,9 +68,36 @@ This starts:
 - PostgreSQL with PostGIS enabled
 - pgAdmin for database management (http://localhost:5050)
 
-The database will be automatically initialized with the schema from `docker/init.sql`.
+`docker/init.sql` only enables the required extensions (`uuid-ossp`, `postgis`).
+The schema itself comes from migrations — see the next step.
 
-### 4. Verify Database Connection
+### 4. Run Database Migrations
+
+The schema is defined by versioned migrations, **not** by `synchronize`. After
+starting the database, apply them:
+
+```bash
+cd apps/backend
+pnpm migration:run
+```
+
+| Command | What it does |
+| --- | --- |
+| `pnpm migration:run` | Applies every pending migration |
+| `pnpm migration:revert` | Rolls back the last applied migration |
+| `pnpm migration:show` | Lists migrations and which ones are applied |
+| `pnpm migration:generate src/database/migrations/MyChange` | Writes a migration from the diff between entities and the database |
+| `pnpm migration:create src/database/migrations/MyChange` | Creates an empty migration to write by hand |
+
+**Never turn `synchronize` back on.** It alters the database to match the
+entities with no record of what changed and no way to roll back. Changing an
+entity is only half the job — the paired migration is the other half.
+
+When a change renames a column, write the migration by hand with
+`ALTER TABLE ... RENAME COLUMN`. The generator emits `DROP` + `ADD` for renames,
+which silently discards the data in that column.
+
+### 5. Verify Database Connection
 
 Check that PostgreSQL is running:
 ```bash

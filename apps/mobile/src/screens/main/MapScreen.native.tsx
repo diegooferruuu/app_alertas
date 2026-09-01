@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
 import { useAuth } from '../../hooks/useAuth';
-import incidentService, { Incident, CATEGORY_META } from '../../services/incident.service';
+import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
 
 // La Paz, Bolivia como ubicación por defecto si no hay GPS
 const DEFAULT_REGION = {
@@ -16,15 +16,15 @@ const DEFAULT_REGION = {
 };
 
 const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { identityVerified } = useAuth();
+  const { documentoRegistrado } = useAuth();
   const [region, setRegion] = useState(DEFAULT_REGION);
-  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [denuncias, setDenuncias] = useState<Denuncia[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadNearby = useCallback(async (lat: number, lng: number) => {
     try {
-      const data = await incidentService.getNearby(lat, lng, 10000);
-      setIncidents(data);
+      const data = await denunciaService.getNearby(lat, lng, 10000);
+      setDenuncias(data);
     } catch {
       // silencioso
     }
@@ -60,15 +60,15 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   );
 
   const handleReport = () => {
-    if (identityVerified) {
-      navigation.navigate('ReportIncident');
+    if (documentoRegistrado) {
+      navigation.navigate('ReportarDenuncia');
     } else {
       Alert.alert(
-        'Verificación requerida',
-        'Para reportar incidentes primero debes verificar tu identidad.',
+        'Documento requerido',
+        'Para reportar primero debes registrar tu documento de identidad.',
         [
           { text: 'Ahora no', style: 'cancel' },
-          { text: 'Verificar', onPress: () => navigation.navigate('PersonalData') },
+          { text: 'Registrar', onPress: () => navigation.navigate('PersonalData') },
         ],
       );
     }
@@ -82,8 +82,8 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </View>
       ) : (
         <MapView style={styles.map} region={region} showsUserLocation>
-          {incidents.map((inc) => {
-            const meta = CATEGORY_META[inc.category];
+          {denuncias.map((inc) => {
+            const meta = DENUNCIA_META;
             return (
               <Marker
                 key={inc.id}

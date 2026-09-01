@@ -8,10 +8,10 @@ import { PersonalDataScreen } from './src/screens/auth/PersonalDataScreen';
 import { IDPhotoScreen } from './src/screens/auth/IDPhotoScreen';
 import { SelfieScreen } from './src/screens/auth/SelfieScreen';
 import { MainTabs } from './src/navigation/MainTabs';
-import { ReportIncidentScreen } from './src/screens/main/ReportIncidentScreen';
-import { IncidentDetailScreen } from './src/screens/main/IncidentDetailScreen';
-import { EditIncidentScreen } from './src/screens/main/EditIncidentScreen';
-import { MyIncidentsScreen } from './src/screens/main/MyIncidentsScreen';
+import { ReportarDenunciaScreen } from './src/screens/main/ReportarDenunciaScreen';
+import { DenunciaDetailScreen } from './src/screens/main/DenunciaDetailScreen';
+import { EditDenunciaScreen } from './src/screens/main/EditDenunciaScreen';
+import { MisDenunciasScreen } from './src/screens/main/MisDenunciasScreen';
 import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
 
@@ -76,40 +76,40 @@ export default function App() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
-              name="ReportIncident"
-              component={ReportIncidentScreen}
+              name="ReportarDenuncia"
+              component={ReportarDenunciaScreen}
               options={{ title: 'Reportar', presentation: 'modal' }}
             />
             <Stack.Screen
-              name="IncidentDetail"
-              component={IncidentDetailScreen}
+              name="DenunciaDetail"
+              component={DenunciaDetailScreen}
               options={{ title: 'Detalle de la denuncia' }}
             />
             <Stack.Screen
-              name="EditIncident"
-              component={EditIncidentScreen}
+              name="EditDenuncia"
+              component={EditDenunciaScreen}
               options={{ title: 'Editar denuncia' }}
             />
             <Stack.Screen
-              name="MyIncidents"
-              component={MyIncidentsScreen}
+              name="MisDenuncias"
+              component={MisDenunciasScreen}
               options={{ title: 'Mis denuncias' }}
             />
             {/* Flujo de verificación de identidad (on-demand) */}
             <Stack.Screen
               name="PersonalData"
               component={PersonalDataScreen}
-              options={{ title: 'Verificación: datos' }}
+              options={{ title: 'Documento: datos' }}
             />
             <Stack.Screen
               name="IDPhoto"
               component={IDPhotoScreen}
-              options={{ title: 'Verificación: carnet' }}
+              options={{ title: 'Documento: fotos' }}
             />
             <Stack.Screen
               name="Selfie"
               component={SelfieScreen}
-              options={{ title: 'Verificación: selfie' }}
+              options={{ title: 'Documento: selfie' }}
             />
           </Stack.Group>
         )}

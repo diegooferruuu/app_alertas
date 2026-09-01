@@ -14,7 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/auth.store';
 
 const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { verifyIdCard, isLoading } = useAuthStore();
+  const { extraerDatosDocumento, isLoading } = useAuthStore();
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -96,11 +96,11 @@ const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
     try {
       // Valida calidad de imagen + coincidencia de datos contra el OCR del backend
-      await verifyIdCard(frontImage, backImage);
+      await extraerDatosDocumento(frontImage, backImage);
       navigation.navigate('Selfie');
     } catch (err: any) {
       Alert.alert(
-        'Verificación del carnet fallida',
+        'No se pudieron leer los datos',
         err?.response?.data?.message ||
           err?.message ||
           'No pudimos leer tus datos del carnet. Asegúrate de que la foto sea clara y legible.',

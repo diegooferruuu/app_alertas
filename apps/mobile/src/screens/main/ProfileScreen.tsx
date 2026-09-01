@@ -5,32 +5,32 @@ import { useAuth } from '../../hooks/useAuth';
 
 const getRoleInfo = (
   role: string | undefined,
-  verified: boolean,
+  documentoRegistrado: boolean,
 ): { label: string; color: string; desc: string } => {
   if (role === 'moderator') {
     return {
       label: 'Moderador',
       color: '#AF52DE',
-      desc: 'Puedes moderar incidentes y la comunidad.',
+      desc: 'Puedes señalar denuncias presuntamente falsas.',
     };
   }
-  if (verified) {
+  if (documentoRegistrado) {
     return {
       label: 'Ciudadano',
       color: '#34C759',
-      desc: 'Puedes reportar incidentes, calificar y recibir notificaciones.',
+      desc: 'Puedes reportar denuncias, calificar y recibir alertas.',
     };
   }
   return {
     label: 'Visitante',
     color: '#FF9500',
-    desc: 'Puedes ver el mapa y la lista. Verifícate para reportar.',
+    desc: 'Puedes ver el mapa y la lista. Registra tu documento para reportar.',
   };
 };
 
 const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { user, identityVerified, logout } = useAuth();
-  const roleInfo = getRoleInfo(user?.role, identityVerified);
+  const { user, documentoRegistrado, logout } = useAuth();
+  const roleInfo = getRoleInfo(user?.role, documentoRegistrado);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -55,30 +55,30 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </View>
         <View style={styles.statCard}>
           <Ionicons
-            name={identityVerified ? 'checkmark-circle' : 'close-circle'}
+            name={documentoRegistrado ? 'checkmark-circle' : 'close-circle'}
             size={28}
-            color={identityVerified ? '#34C759' : '#FF3B30'}
+            color={documentoRegistrado ? '#34C759' : '#FF3B30'}
           />
-          <Text style={styles.statLabel}>Verificado</Text>
+          <Text style={styles.statLabel}>Documento</Text>
         </View>
       </View>
 
       <TouchableOpacity
         style={styles.menuItem}
-        onPress={() => navigation.navigate('MyIncidents')}
+        onPress={() => navigation.navigate('MisDenuncias')}
       >
         <Ionicons name="document-text-outline" size={20} color="#007AFF" />
         <Text style={styles.menuItemText}>Mis denuncias</Text>
         <Ionicons name="chevron-forward" size={18} color="#ccc" />
       </TouchableOpacity>
 
-      {!identityVerified && (
+      {!documentoRegistrado && (
         <TouchableOpacity
           style={styles.verifyButton}
           onPress={() => navigation.navigate('PersonalData')}
         >
           <Ionicons name="shield-checkmark" size={18} color="#fff" />
-          <Text style={styles.verifyButtonText}>Verificar mi identidad</Text>
+          <Text style={styles.verifyButtonText}>Registrar mi documento</Text>
         </TouchableOpacity>
       )}
 
