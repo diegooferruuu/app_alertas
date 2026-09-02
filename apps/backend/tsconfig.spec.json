@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // El arnés de integración vive en test/, fuera del rootDir de la app.
+    "rootDir": ".",
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

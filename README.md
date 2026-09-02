@@ -93,6 +93,16 @@ pnpm migration:run
 entities with no record of what changed and no way to roll back. Changing an
 entity is only half the job — the paired migration is the other half.
 
+After adding a migration, confirm entities and schema still agree:
+
+```bash
+pnpm migration:generate src/database/migrations/Check
+```
+
+It should answer *"No changes in database schema were found"*. If it produces a
+file instead, entities and schema have drifted — delete the file and fix the
+mismatch rather than applying it.
+
 When a change renames a column, write the migration by hand with
 `ALTER TABLE ... RENAME COLUMN`. The generator emits `DROP` + `ADD` for renames,
 which silently discards the data in that column.
@@ -107,6 +117,35 @@ docker ps
 Access pgAdmin at http://localhost:5050 with:
 - Email: admin@example.com
 - Password: admin
+
+## Testing
+
+Two suites, split by what they need to run:
+
+```bash
+cd apps/backend
+
+pnpm test              # unit — pure logic, no database, fast
+pnpm test:integration  # integration — real PostgreSQL
+pnpm test:all          # both
+pnpm typecheck         # type-checks src/ and test/ together
+```
+
+| Suite | Files | Needs |
+| --- | --- | --- |
+| Unit | `*.spec.ts` | nothing |
+| Integration | `*.int-spec.ts` | Docker running |
+
+Integration tests use their own database, `app_alertas_test`, created and
+migrated automatically on first run — your development data is never touched.
+Each test starts from empty tables, so tests can't leak state into each other.
+
+They run the real migrations rather than letting TypeORM build the schema from
+the entities. That way every run also confirms the migrations produce the schema
+the code expects.
+
+Write an integration test when the behaviour lives in the database and a mock
+would prove nothing: check constraints, generated columns, geographic queries.
 
 ## Development
 

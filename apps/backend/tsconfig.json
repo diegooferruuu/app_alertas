@@ -28,5 +28,14 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  // Las pruebas no se empaquetan: no tienen nada que hacer en dist/, y el
+  // arnés de integración vive fuera de rootDir. Para verificar sus tipos se
+  // usa tsconfig.spec.json.
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*.spec.ts",
+    "**/*.int-spec.ts"
+  ]
 }
