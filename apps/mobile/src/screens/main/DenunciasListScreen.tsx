@@ -14,7 +14,7 @@ import * as Location from 'expo-location';
 import denunciaService, {
   Denuncia,
   DENUNCIA_META,
-  NIVEL_META,
+  situacionDe,
 } from '../../services/denuncia.service';
 
 // La Paz, Bolivia por defecto si no hay GPS
@@ -164,8 +164,8 @@ const DenunciasListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   <Text style={styles.description} numberOfLines={2}>
                     {item.description}
                   </Text>
-                  <Text style={[styles.status, { color: NIVEL_META[item.nivel_confianza].color }]}>
-                    {NIVEL_META[item.nivel_confianza].label}
+                  <Text style={[styles.status, { color: situacionDe(item).color }]}>
+                    {situacionDe(item).label}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#ccc" />

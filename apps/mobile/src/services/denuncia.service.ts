@@ -33,6 +33,35 @@ export interface CreateDenunciaPayload {
   photo_base64?: string;
 }
 
+/**
+ * Cómo se le explica a una persona el estado de su denuncia.
+ *
+ * Una denuncia caducada conserva su nivel de confianza —es el registro de hasta
+ * dónde se difundió—, así que mostrar el nivel a secas diría «Difundida» sobre
+ * una alerta que ya no se está difundiendo. Cuando el estado no es ACTIVA, manda
+ * el estado.
+ */
+export const ESTADO_META: Record<
+  Exclude<EstadoDenuncia, 'ACTIVA'>,
+  { label: string; desc: string; color: string }
+> = {
+  CADUCADA: {
+    label: 'Alerta vencida',
+    desc: 'Dejó de difundirse por falta de respaldo. El caso sigue registrado.',
+    color: '#8E8E93',
+  },
+  INVALIDADA: {
+    label: 'Alerta retirada',
+    desc: 'La persona reportada retiró esta alerta.',
+    color: '#B32C24',
+  },
+  CERRADA: {
+    label: 'Caso cerrado',
+    desc: 'Este caso terminó.',
+    color: '#0E7247',
+  },
+};
+
 /** Cómo se le explica a una persona el nivel de confianza de su denuncia. */
 export const NIVEL_META: Record<
   NivelConfianza,
@@ -100,6 +129,17 @@ class DenunciaService {
 }
 
 export default new DenunciaService();
+
+/**
+ * Qué mostrarle a una persona sobre su denuncia: el estado cuando dejó de estar
+ * activa, y el nivel de confianza mientras siga en curso.
+ */
+export const situacionDe = (
+  denuncia: Pick<Denuncia, 'estado' | 'nivel_confianza'>,
+): { label: string; desc: string; color: string } =>
+  denuncia.estado === 'ACTIVA'
+    ? NIVEL_META[denuncia.nivel_confianza]
+    : ESTADO_META[denuncia.estado];
 
 /**
  * Presentación de una denuncia en la interfaz. El sistema atiende un único tipo

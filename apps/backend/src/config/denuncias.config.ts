@@ -37,6 +37,15 @@ export interface DenunciasConfig {
   restriccionPrimeraDesactivacionH: number;
 
   /**
+   * Cada cuántos minutos el planificador marca las alertas vencidas.
+   *
+   * No determina cuándo deja de difundirse una denuncia —de eso se encarga el
+   * filtro por `expira_en` en cada consulta—, solo cada cuánto se refleja el
+   * vencimiento en la columna `estado`.
+   */
+  intervaloCaducidadMin: number;
+
+  /**
    * Precisión del geohash de un avistamiento. 6 caracteres ≈ 1.2 × 0.6 km,
    * que es la resolución de ~1 km que pide §3.3. Subirlo estrecha la zona y
    * acerca el dato a una ubicación identificable: no aumentar sin motivo.
@@ -78,6 +87,8 @@ export const denunciasConfig = registerAs(
       process.env.RESTRICCION_PRIMERA_DESACTIVACION_H,
       720,
     ),
+
+    intervaloCaducidadMin: entero(process.env.INTERVALO_CADUCIDAD_MIN, 5),
 
     precisionGeohash: entero(process.env.PRECISION_GEOHASH, 6),
   }),

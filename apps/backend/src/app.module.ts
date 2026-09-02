@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
@@ -39,6 +40,9 @@ import { denunciasConfig } from './config/denuncias.config';
         logging: process.env.NODE_ENV === 'development',
       }),
     }),
+    // Habilita el procesamiento en segundo plano: hoy la caducidad de alertas,
+    // que ocurre sola sin que ningún usuario la dispare.
+    ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,
     VerificationModule,

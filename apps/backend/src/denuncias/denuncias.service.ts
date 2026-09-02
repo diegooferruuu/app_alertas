@@ -120,7 +120,41 @@ export class DenunciasService {
     return this.denunciasRepository.save(denuncia);
   }
 
-  /** Denuncias creadas por un usuario (sección «Mis denuncias»). */
+  /**
+   * Marca como CADUCADAS las denuncias cuya alerta venció.
+   *
+   * Muere la alerta, no el caso: no se borra nada y el autor la sigue viendo,
+   * como cuando estaba en nivel REGISTRADA. Se conservan `radio_actual_m` y
+   * `expira_en` porque son el registro de hasta dónde y hasta cuándo se
+   * difundió, dato que la validación del sistema necesita.
+   *
+   * Es un solo UPDATE y no un cargar-modificar-guardar por fila: la cantidad de
+   * vencidas en un tick puede ser grande y no hay nada que decidir por caso.
+   *
+   * Devuelve cuántas caducaron, para que quien lo invoque pueda registrarlo.
+   */
+  async caducarVencidas(): Promise<number> {
+    const resultado = await this.denunciasRepository
+      .createQueryBuilder()
+      .update(Denuncia)
+      .set({ estado: EstadoDenuncia.CADUCADA })
+      .where('estado = :activa', { activa: EstadoDenuncia.ACTIVA })
+      .andWhere('nivel_confianza != :registrada', {
+        registrada: NivelConfianza.REGISTRADA,
+      })
+      .andWhere('expira_en IS NOT NULL')
+      .andWhere('expira_en <= now()')
+      .execute();
+
+    return resultado.affected ?? 0;
+  }
+
+  /**
+   * Denuncias creadas por un usuario (sección «Mis denuncias»).
+   *
+   * Sin filtrar por estado a propósito: su autor sigue viendo las caducadas y
+   * las invalidadas. Caducar retira la alerta, no el caso.
+   */
   async findMine(userId: string): Promise<Denuncia[]> {
     return this.denunciasRepository.find({
       where: { denunciante_id: userId },

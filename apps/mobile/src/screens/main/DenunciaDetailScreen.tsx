@@ -14,7 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import denunciaService, {
   Denuncia,
   DENUNCIA_META,
-  NIVEL_META,
+  situacionDe,
 } from '../../services/denuncia.service';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -111,8 +111,7 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
         <View style={styles.metaRow}>
           <Ionicons name="flag-outline" size={16} color="#888" />
           <Text style={styles.metaText}>
-            {NIVEL_META[denuncia.nivel_confianza].label} ·{' '}
-            {NIVEL_META[denuncia.nivel_confianza].desc}
+            {situacionDe(denuncia).label} · {situacionDe(denuncia).desc}
           </Text>
         </View>
 
