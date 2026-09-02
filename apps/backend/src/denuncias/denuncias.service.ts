@@ -193,20 +193,17 @@ export class DenunciasService {
   }
 
   /**
-   * Borra una denuncia; solo su autor puede hacerlo.
+   * No existe forma de eliminar una denuncia, y es deliberado (invariante I7).
    *
-   * TODO(H1.5): esta ruta contradice el invariante I7 —ningún rol puede
-   * eliminar una denuncia— y debe desaparecer junto con los botones del cliente
-   * móvil, en un mismo incremento para no romper la app.
+   * Una denuncia queda atribuida a la identidad de quien la firmó: poder
+   * borrarla permitiría reportar a alguien, difundir la alerta y hacer
+   * desaparecer el rastro. Lo que sí ocurre —solo por mecanismos automáticos—
+   * es que la alerta deje de difundirse: por caducidad o por desactivación de
+   * la persona reportada. La información no se borra nunca.
+   *
+   * Si en el futuro hiciera falta retirar contenido, la vía correcta es una
+   * transición de estado, no un DELETE.
    */
-  async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
-    const denuncia = await this.findOne(id);
-    if (denuncia.denunciante_id !== userId) {
-      throw new ForbiddenException('Solo puedes borrar tus propias denuncias');
-    }
-    await this.denunciasRepository.remove(denuncia);
-    return { deleted: true };
-  }
 
   /**
    * Denuncias que se difunden y alcanzan un punto dado.

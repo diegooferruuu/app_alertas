@@ -3,7 +3,6 @@ import {
   Get,
   Post,
   Patch,
-  Delete,
   Body,
   Param,
   Query,
@@ -67,8 +66,7 @@ export class DenunciasController {
     return this.denunciasService.update(user.userId, id, dto);
   }
 
-  @Delete(':id')
-  async remove(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.denunciasService.remove(user.userId, id);
-  }
+  // No hay DELETE, y no es un olvido: el invariante I7 dice que ningún rol
+  // puede eliminar una denuncia. Una alerta deja de difundirse por caducidad o
+  // por desactivación de la persona reportada, nunca borrando la fila.
 }

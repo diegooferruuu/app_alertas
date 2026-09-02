@@ -123,9 +123,8 @@ class DenunciaService {
     return response.data;
   }
 
-  async remove(id: string): Promise<void> {
-    await apiClient.delete(`/denuncias/${id}`);
-  }
+  // No hay método para eliminar: el servidor no expone esa operación. Una
+  // denuncia queda atribuida a quien la firmó y no se puede hacer desaparecer.
 }
 
 export default new DenunciaService();

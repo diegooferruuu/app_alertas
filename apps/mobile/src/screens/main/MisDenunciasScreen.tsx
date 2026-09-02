@@ -6,12 +6,15 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
+import denunciaService, {
+  Denuncia,
+  DENUNCIA_META,
+  situacionDe,
+} from '../../services/denuncia.service';
 
 const MisDenunciasScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [denuncias, setDenuncias] = useState<Denuncia[]>([]);
@@ -35,24 +38,6 @@ const MisDenunciasScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       load();
     }, [load]),
   );
-
-  const handleDelete = (id: string) => {
-    Alert.alert('Borrar denuncia', '¿Seguro que quieres borrar esta denuncia?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Borrar',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await denunciaService.remove(id);
-            setDenuncias((prev) => prev.filter((i) => i.id !== id));
-          } catch (err: any) {
-            Alert.alert('Error', err?.response?.data?.message || 'No se pudo borrar.');
-          }
-        },
-      },
-    ]);
-  };
 
   if (loading) {
     return (
@@ -91,20 +76,20 @@ const MisDenunciasScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             </View>
             <View style={styles.body}>
               <Text style={styles.name}>{item.nombre_persona_buscada || 'Sin nombre'}</Text>
-              <Text style={styles.desc} numberOfLines={1}>
-                {item.description}
+              <Text style={[styles.situacion, { color: situacionDe(item).color }]}>
+                {situacionDe(item).label}
               </Text>
             </View>
             <View style={styles.actions}>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('EditDenuncia', { denuncia: item })}
-                hitSlop={8}
-              >
-                <Ionicons name="create-outline" size={22} color="#007AFF" />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDelete(item.id)} hitSlop={8}>
-                <Ionicons name="trash-outline" size={22} color="#FF3B30" />
-              </TouchableOpacity>
+              {item.nivel_confianza === 'REGISTRADA' && (
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('EditDenuncia', { denuncia: item })}
+                  hitSlop={8}
+                >
+                  <Ionicons name="create-outline" size={22} color="#007AFF" />
+                </TouchableOpacity>
+              )}
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </View>
           </TouchableOpacity>
         );
@@ -138,7 +123,7 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1 },
   name: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginBottom: 2 },
-  desc: { fontSize: 13, color: '#888' },
+  situacion: { fontSize: 12, fontWeight: '600' },
   actions: { flexDirection: 'row', gap: 16, marginLeft: 8 },
 });
 

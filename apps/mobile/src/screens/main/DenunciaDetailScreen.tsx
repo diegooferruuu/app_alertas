@@ -44,24 +44,6 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
     }, [load]),
   );
 
-  const handleDelete = () => {
-    Alert.alert('Borrar denuncia', '¿Seguro que quieres borrar esta denuncia?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Borrar',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await denunciaService.remove(id);
-            navigation.goBack();
-          } catch (err: any) {
-            Alert.alert('Error', err?.response?.data?.message || 'No se pudo borrar.');
-          }
-        },
-      },
-    ]);
-  };
-
   if (loading || !denuncia) {
     return (
       <View style={styles.center}>
@@ -72,6 +54,9 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
 
   const meta = DENUNCIA_META;
   const isOwner = user?.id === denuncia.denunciante_id;
+  // Una vez firmada, el contenido queda sellado por su hash: editarlo rompería
+  // la cadena probatoria.
+  const editable = denuncia.nivel_confianza === 'REGISTRADA';
   const date = new Date(denuncia.created_at).toLocaleString();
 
   return (
@@ -117,17 +102,24 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
 
         {isOwner && (
           <View style={styles.ownerActions}>
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={() => navigation.navigate('EditDenuncia', { denuncia })}
-            >
-              <Ionicons name="create-outline" size={18} color="#007AFF" />
-              <Text style={styles.editText}>Editar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-              <Ionicons name="trash-outline" size={18} color="#fff" />
-              <Text style={styles.deleteText}>Borrar</Text>
-            </TouchableOpacity>
+            {editable ? (
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => navigation.navigate('EditDenuncia', { denuncia })}
+              >
+                <Ionicons name="create-outline" size={18} color="#007AFF" />
+                <Text style={styles.editText}>Editar</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.aviso}>
+                <Ionicons name="lock-closed-outline" size={16} color="#8F5600" />
+                <Text style={styles.avisoText}>
+                  Ya declaraste esta denuncia bajo juramento, así que su contenido
+                  quedó sellado. Las denuncias no se eliminan: la alerta deja de
+                  difundirse al vencer su plazo.
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -157,7 +149,16 @@ const styles = StyleSheet.create({
   description: { fontSize: 15, color: '#333', lineHeight: 22, marginBottom: 20 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   metaText: { fontSize: 13, color: '#888' },
-  ownerActions: { flexDirection: 'row', gap: 12, marginTop: 24 },
+  ownerActions: { marginTop: 24 },
+  aviso: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    backgroundColor: '#F9EEDA',
+    borderRadius: 10,
+    padding: 14,
+  },
+  avisoText: { flex: 1, fontSize: 13, color: '#6B4300', lineHeight: 19 },
   editButton: {
     flex: 1,
     flexDirection: 'row',
@@ -170,17 +171,6 @@ const styles = StyleSheet.create({
     borderColor: '#007AFF',
   },
   editText: { color: '#007AFF', fontWeight: '600' },
-  deleteButton: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 13,
-    borderRadius: 10,
-    backgroundColor: '#FF3B30',
-  },
-  deleteText: { color: '#fff', fontWeight: '600' },
 });
 
 export { DenunciaDetailScreen };
