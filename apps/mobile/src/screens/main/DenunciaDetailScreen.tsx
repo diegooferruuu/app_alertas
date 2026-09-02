@@ -15,6 +15,7 @@ import denunciaService, {
   Denuncia,
   DENUNCIA_META,
   situacionDe,
+  primeraFotografia,
 } from '../../services/denuncia.service';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -57,13 +58,14 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   // Una vez firmada, el contenido queda sellado por su hash: editarlo rompería
   // la cadena probatoria.
   const editable = denuncia.nivel_confianza === 'REGISTRADA';
+  const fotografia = primeraFotografia(denuncia);
   const date = new Date(denuncia.created_at).toLocaleString();
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {denuncia.photo_base64 ? (
+      {fotografia ? (
         <Image
-          source={{ uri: `data:image/jpeg;base64,${denuncia.photo_base64}` }}
+          source={{ uri: `data:image/jpeg;base64,${fotografia}` }}
           style={styles.photo}
         />
       ) : (

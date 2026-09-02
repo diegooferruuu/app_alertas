@@ -8,8 +8,10 @@ import {
   JoinColumn,
   Index,
   Check,
+  OneToMany,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { FotografiaDenuncia } from './fotografia-denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from '../domain/estados';
 
 /**
@@ -93,10 +95,15 @@ export class Denuncia {
   })
   ubicacion!: string;
 
-  // Fotografía opcional. Se traslada a tabla propia en H1.6: esta tabla es
-  // sobre la que corre la consulta de proximidad y su tamaño la degrada.
-  @Column({ type: 'text', nullable: true })
-  photo_base64!: string | null;
+  /**
+   * Fotografías de la persona buscada, en tabla aparte.
+   *
+   * Nunca se cargan solas: quien las necesite —solo la vista de detalle— las
+   * pide explícitamente. Es lo que mantiene ligeras las filas sobre las que
+   * corre la consulta de proximidad.
+   */
+  @OneToMany(() => FotografiaDenuncia, (foto) => foto.denuncia)
+  fotografias!: FotografiaDenuncia[];
 
   /**
    * Cuánto respaldo tiene el caso. Nace REGISTRADA: existe pero no se difunde.

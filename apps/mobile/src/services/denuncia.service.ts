@@ -13,7 +13,14 @@ export interface Denuncia {
   description: string;
   latitude: number;
   longitude: number;
-  photo_base64: string | null;
+  /**
+   * Solo llega en el detalle de una denuncia.
+   *
+   * Las consultas de listado y de cercanía no traen el contenido de las
+   * imágenes: son la ruta crítica del sistema y no pueden arrastrar cientos de
+   * kilobytes por fila.
+   */
+  fotografias?: Array<{ id: string; contenido: string }>;
   nivel_confianza: NivelConfianza;
   estado: EstadoDenuncia;
   radio_actual_m: number | null;
@@ -30,7 +37,7 @@ export interface CreateDenunciaPayload {
   description: string;
   latitude: number;
   longitude: number;
-  photo_base64?: string;
+  fotografia_base64?: string;
 }
 
 /**
@@ -87,7 +94,7 @@ export const NIVEL_META: Record<
 export interface UpdateDenunciaPayload {
   nombre_persona_buscada?: string;
   description?: string;
-  photo_base64?: string;
+  fotografia_base64?: string;
 }
 
 class DenunciaService {
@@ -128,6 +135,10 @@ class DenunciaService {
 }
 
 export default new DenunciaService();
+
+/** Primera fotografía de una denuncia, si el detalle la trajo. */
+export const primeraFotografia = (denuncia: Denuncia): string | null =>
+  denuncia.fotografias?.[0]?.contenido ?? null;
 
 /**
  * Qué mostrarle a una persona sobre su denuncia: el estado cuando dejó de estar

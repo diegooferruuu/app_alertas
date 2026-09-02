@@ -85,7 +85,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         description: description.trim(),
         latitude: coords!.lat,
         longitude: coords!.lng,
-        photo_base64: photo ?? undefined,
+        fotografia_base64: photo ?? undefined,
       });
       Alert.alert('Denuncia registrada', 'Por ahora solo tú la ves. Firma la declaración para que se alerte a la zona.', [
         { text: 'OK', onPress: () => navigation.goBack() },

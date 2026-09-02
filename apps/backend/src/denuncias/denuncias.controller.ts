@@ -52,9 +52,18 @@ export class DenunciasController {
     return this.denunciasService.findRecent();
   }
 
+  /**
+   * Detalle de una denuncia, con sus fotografías.
+   *
+   * Es el único punto que devuelve el contenido de las imágenes: las consultas
+   * de listado y de cercanía no lo traen, para no arrastrar cientos de
+   * kilobytes por fila en la ruta crítica del sistema.
+   */
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    return this.denunciasService.findOne(id);
+    const denuncia = await this.denunciasService.findOne(id);
+    const fotografias = await this.denunciasService.fotografiasDe(id);
+    return { ...denuncia, fotografias };
   }
 
   @Patch(':id')

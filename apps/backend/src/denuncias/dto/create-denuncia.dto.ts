@@ -46,5 +46,5 @@ export class CreateDenunciaDto {
 
   @IsOptional()
   @IsBase64()
-  photo_base64?: string;
+  fotografia_base64?: string;
 }

@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { Denuncia } from './entities/denuncia.entity';
+import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { CreateDenunciaDto } from './dto/create-denuncia.dto';
 import { UpdateDenunciaDto } from './dto/update-denuncia.dto';
 import {
@@ -23,6 +24,8 @@ export class DenunciasService {
   constructor(
     @InjectRepository(Denuncia)
     private denunciasRepository: Repository<Denuncia>,
+    @InjectRepository(FotografiaDenuncia)
+    private fotografiasRepository: Repository<FotografiaDenuncia>,
     private usersService: UsersService,
   ) {}
 
@@ -57,7 +60,6 @@ export class DenunciasService {
       description: dto.description,
       latitude: dto.latitude,
       longitude: dto.longitude,
-      photo_base64: dto.photo_base64 ?? null,
       nivel_confianza: NivelConfianza.REGISTRADA,
       estado: EstadoDenuncia.ACTIVA,
       // Sin radio ni caducidad: todavía no se difunde nada.
@@ -65,7 +67,45 @@ export class DenunciasService {
       expira_en: null,
     });
 
-    return this.denunciasRepository.save(denuncia);
+    const guardada = await this.denunciasRepository.save(denuncia);
+
+    if (dto.fotografia_base64) {
+      await this.reemplazarFotografia(guardada.id, dto.fotografia_base64);
+    }
+
+    return guardada;
+  }
+
+  /**
+   * Deja una sola fotografía por denuncia.
+   *
+   * La tabla admite varias —una desaparición suele tener más de una imagen—,
+   * pero el formulario actual envía una. Reemplazar en lugar de acumular evita
+   * que editar dos veces deje fotos huérfanas de versiones anteriores.
+   */
+  private async reemplazarFotografia(
+    denunciaId: string,
+    contenido: string,
+  ): Promise<void> {
+    await this.fotografiasRepository.delete({ denuncia_id: denunciaId });
+    await this.fotografiasRepository.save(
+      this.fotografiasRepository.create({ denuncia_id: denunciaId, contenido }),
+    );
+  }
+
+  /**
+   * Fotografías de una denuncia, con su contenido.
+   *
+   * El contenido está marcado `select: false`, así que hay que pedirlo de forma
+   * explícita: es justamente lo que impide que se cuele en otras consultas.
+   */
+  async fotografiasDe(denunciaId: string): Promise<FotografiaDenuncia[]> {
+    return this.fotografiasRepository
+      .createQueryBuilder('foto')
+      .addSelect('foto.contenido')
+      .where('foto.denuncia_id = :denunciaId', { denunciaId })
+      .orderBy('foto.creada_en', 'ASC')
+      .getMany();
   }
 
   /**
@@ -187,9 +227,14 @@ export class DenunciasService {
       denuncia.nombre_persona_buscada = dto.nombre_persona_buscada;
     }
     if (dto.description !== undefined) denuncia.description = dto.description;
-    if (dto.photo_base64 !== undefined) denuncia.photo_base64 = dto.photo_base64;
 
-    return this.denunciasRepository.save(denuncia);
+    const actualizada = await this.denunciasRepository.save(denuncia);
+
+    if (dto.fotografia_base64 !== undefined) {
+      await this.reemplazarFotografia(id, dto.fotografia_base64);
+    }
+
+    return actualizada;
   }
 
   /**

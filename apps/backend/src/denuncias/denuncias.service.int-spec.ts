@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { DenunciasService } from './denuncias.service';
 import { Denuncia } from './entities/denuncia.entity';
+import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from './domain/estados';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
@@ -30,7 +31,13 @@ describe('DenunciasService (integración)', () => {
   beforeAll(async () => {
     ctx = await crearContexto({
       imports: [
-        TypeOrmModule.forFeature([Denuncia, User, RefreshToken, ReputationEvent]),
+        TypeOrmModule.forFeature([
+          Denuncia,
+          FotografiaDenuncia,
+          User,
+          RefreshToken,
+          ReputationEvent,
+        ]),
       ],
       providers: [DenunciasService, UsersService],
     });
@@ -275,6 +282,94 @@ describe('DenunciasService (integración)', () => {
       await expect(
         service.update(ajeno.id, id, { description: 'No es mía' }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('fotografías', () => {
+    const UNA_IMAGEN = Buffer.from('contenido-de-imagen').toString('base64');
+
+    it('guarda la fotografía en su propia tabla, no en la fila de la denuncia', async () => {
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        fotografia_base64: UNA_IMAGEN,
+      });
+
+      const columnas = await denuncias.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'denuncias' AND column_name = 'photo_base64'`,
+      );
+      expect(columnas).toHaveLength(0);
+
+      const fotos = await service.fotografiasDe(id);
+      expect(fotos).toHaveLength(1);
+      expect(fotos[0].contenido).toBe(UNA_IMAGEN);
+    });
+
+    it('la consulta de cercanía no arrastra el contenido de las imágenes', async () => {
+      // Es la razón de ser de esta tabla: la consulta de proximidad es la ruta
+      // crítica del sistema y no puede cargar cientos de kilobytes por fila.
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        fotografia_base64: UNA_IMAGEN,
+      });
+      await denuncias.update(id, {
+        nivel_confianza: NivelConfianza.PROVISIONAL,
+        radio_actual_m: 2000,
+        expira_en: new Date(Date.now() + 3_600_000),
+      });
+
+      const cercanas = await service.findNearby(LA_PAZ.lat, LA_PAZ.lng, 5000);
+
+      expect(cercanas).toHaveLength(1);
+      expect(JSON.stringify(cercanas)).not.toContain(UNA_IMAGEN);
+    });
+
+    it('«mis denuncias» tampoco arrastra el contenido', async () => {
+      const autor = await crearDenunciante();
+      await service.create(autor.id, {
+        ...datosDeDenuncia,
+        fotografia_base64: UNA_IMAGEN,
+      });
+
+      const mias = await service.findMine(autor.id);
+
+      expect(JSON.stringify(mias)).not.toContain(UNA_IMAGEN);
+    });
+
+    it('reemplaza la imagen al editar, sin dejar la anterior huérfana', async () => {
+      const OTRA = Buffer.from('imagen-corregida').toString('base64');
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        fotografia_base64: UNA_IMAGEN,
+      });
+
+      await service.update(autor.id, id, { fotografia_base64: OTRA });
+
+      const fotos = await service.fotografiasDe(id);
+      expect(fotos).toHaveLength(1);
+      expect(fotos[0].contenido).toBe(OTRA);
+    });
+
+    it('borrar la denuncia se lleva sus fotografías', async () => {
+      // No hay ruta que borre denuncias (invariante I7), pero la cascada debe
+      // existir igual: si un usuario se elimina, su denuncia cae con él y las
+      // imágenes no pueden quedar sueltas.
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        fotografia_base64: UNA_IMAGEN,
+      });
+
+      await denuncias.delete(id);
+
+      const [{ count }] = await denuncias.query(
+        `SELECT COUNT(*)::int AS count FROM fotografias_denuncia WHERE denuncia_id = $1`,
+        [id],
+      );
+      expect(count).toBe(0);
     });
   });
 

@@ -13,7 +13,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import denunciaService, { Denuncia } from '../../services/denuncia.service';
+import denunciaService, {
+  Denuncia,
+  primeraFotografia,
+} from '../../services/denuncia.service';
 
 const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -22,7 +25,8 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
   const denuncia: Denuncia = route.params.denuncia;
   const [nombrePersonaBuscada, setNombrePersonaBuscada] = useState(denuncia.nombre_persona_buscada || '');
   const [description, setDescription] = useState(denuncia.description);
-  const [photo, setPhoto] = useState<string | null>(denuncia.photo_base64);
+  const fotografiaOriginal = primeraFotografia(denuncia);
+  const [photo, setPhoto] = useState<string | null>(fotografiaOriginal);
   const [saving, setSaving] = useState(false);
 
   const pickPhoto = async () => {
@@ -54,7 +58,11 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
         nombre_persona_buscada: nombrePersonaBuscada.trim(),
         description: description.trim(),
         // Solo enviamos la foto si cambió a una nueva (base64 sin prefijo data:)
-        ...(photo && photo !== denuncia.photo_base64 ? { photo_base64: photo } : {}),
+        // Solo se envía si cambió: reenviar la misma imagen la reescribiría sin
+        // motivo, y son cientos de kilobytes.
+        ...(photo && photo !== fotografiaOriginal
+          ? { fotografia_base64: photo }
+          : {}),
       });
       Alert.alert('Guardado', 'La denuncia fue actualizada.', [
         { text: 'OK', onPress: () => navigation.goBack() },

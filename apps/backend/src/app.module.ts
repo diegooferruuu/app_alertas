@@ -6,10 +6,6 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
 import { DenunciasModule } from './denuncias/denuncias.module';
-import { User } from './users/entities/user.entity';
-import { RefreshToken } from './users/entities/refresh-token.entity';
-import { ReputationEvent } from './users/entities/reputation-event.entity';
-import { Denuncia } from './denuncias/entities/denuncia.entity';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
 
@@ -30,7 +26,11 @@ import { denunciasConfig } from './config/denuncias.config';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        entities: [User, RefreshToken, ReputationEvent, Denuncia],
+        // Se reutiliza el glob del DataSource en vez de listar las entidades a
+        // mano. Con una lista manual, olvidar una entidad nueva rompe el
+        // arranque —y las pruebas no lo detectan, porque su DataSource sí usa
+        // el glob y las encuentra todas.
+        entities: baseDataSourceOptions.entities,
         migrations: baseDataSourceOptions.migrations,
         migrationsTableName: baseDataSourceOptions.migrationsTableName,
         // El esquema se cambia solo por migraciones versionadas. Nunca activar
