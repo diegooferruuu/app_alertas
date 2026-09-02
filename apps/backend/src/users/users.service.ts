@@ -45,11 +45,19 @@ export class UsersService {
   /**
    * Deja constancia de que la persona registró un documento con estos datos.
    * No afirma que la identidad haya sido autenticada: el OCR extrae datos.
+   *
+   * El nombre se guarda porque es la referencia contra la que se comparará la
+   * confirmación escrita a mano al firmar una declaración jurada.
    */
-  async registrarDocumento(id: string, ciHash: string): Promise<User> {
+  async registrarDocumento(
+    id: string,
+    ciHash: string,
+    nombreDocumento: string,
+  ): Promise<User> {
     await this.usersRepository.update(id, {
       documento_registrado: true,
       ci_hash: ciHash,
+      nombre_documento: nombreDocumento,
       documento_registrado_en: new Date(),
     });
     return this.findById(id);

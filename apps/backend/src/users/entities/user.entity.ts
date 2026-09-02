@@ -36,6 +36,21 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   documento_registrado_en!: Date;
 
+  /**
+   * Nombre asociado al documento registrado.
+   *
+   * Es el nombre que la persona declaró y que se comprobó consistente con el
+   * texto leído del carnet. No es un dato «extraído» en sentido estricto: el
+   * OCR devuelve texto crudo del que no se puede aislar un nombre estructurado
+   * de forma fiable, así que se conserva el declarado una vez contrastado.
+   *
+   * Existe para la confirmación escrita a mano de la declaración jurada: es el
+   * dato contra el que se compara lo que la persona teclea al firmar. Sin él esa
+   * comprobación no tendría referencia.
+   */
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  nombre_documento!: string | null;
+
   // Reputation system
   @Column({ type: 'integer', default: 100 })
   reputation_score!: number;

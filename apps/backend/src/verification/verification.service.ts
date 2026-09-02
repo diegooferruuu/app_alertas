@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { UsersService } from '../users/users.service';
 import { PersonalDataDto } from './dto/documento.dto';
+import { nombreConsistenteConDocumento } from './domain/nombres';
 
 /**
  * Registro de documentos de identidad.
@@ -83,7 +84,13 @@ export class VerificationService {
       );
     }
 
-    await this.usersService.registrarDocumento(userId, ciHash);
+    // El nombre queda registrado como referencia de la firma escrita a mano
+    // que exige la declaración jurada.
+    await this.usersService.registrarDocumento(
+      userId,
+      ciHash,
+      datosDeclarados.full_name.trim(),
+    );
 
     return {
       documento_registrado: true,
@@ -113,6 +120,7 @@ export class VerificationService {
 
   /**
    * Compara los datos declarados contra el texto extraído por OCR.
+   *
    * Coincidencia no significa autenticidad: el documento pudo ser de otra
    * persona. Significa que lo declarado es consistente con lo que se leyó.
    */
@@ -120,33 +128,17 @@ export class VerificationService {
     textoExtraido: string,
     datosDeclarados: PersonalDataDto,
   ): { coincide: boolean; motivo?: string } {
-    const normalizar = (s: string) =>
-      s
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-z0-9\s]/g, '')
-        .trim();
-
-    const texto = normalizar(textoExtraido);
-
     const ciNormalizado = datosDeclarados.ci_number.replace(/\D/g, '');
-    if (!texto.includes(ciNormalizado)) {
+    if (!textoExtraido.replace(/\D/g, '').includes(ciNormalizado)) {
       return {
         coincide: false,
         motivo: `el número ${ciNormalizado} no aparece en el documento`,
       };
     }
 
-    const partesDelNombre = normalizar(datosDeclarados.full_name)
-      .split(' ')
-      .filter((p) => p.length > 3);
-
-    const nombreEncontrado = partesDelNombre.some((parte) => texto.includes(parte));
-    if (!nombreEncontrado) {
-      return { coincide: false, motivo: 'el nombre no aparece en el documento' };
-    }
-
-    return { coincide: true };
+    return nombreConsistenteConDocumento(
+      datosDeclarados.full_name,
+      textoExtraido,
+    );
   }
 }
