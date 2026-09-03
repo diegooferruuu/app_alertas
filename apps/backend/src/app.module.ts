@@ -8,6 +8,7 @@ import { VerificationModule } from './verification/verification.module';
 import { DenunciasModule } from './denuncias/denuncias.module';
 import { DeclaracionesModule } from './declaraciones/declaraciones.module';
 import { AlertasModule } from './alertas/alertas.module';
+import { DesactivacionesModule } from './desactivaciones/desactivaciones.module';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
 
@@ -51,6 +52,7 @@ import { denunciasConfig } from './config/denuncias.config';
     DenunciasModule,
     DeclaracionesModule,
     AlertasModule,
+    DesactivacionesModule,
   ],
 })
 export class AppModule {}

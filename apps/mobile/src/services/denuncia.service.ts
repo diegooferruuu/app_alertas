@@ -8,7 +8,14 @@ export type EstadoDenuncia = 'ACTIVA' | 'CADUCADA' | 'INVALIDADA' | 'CERRADA';
 
 export interface Denuncia {
   id: string;
-  denunciante_id: string;
+  /**
+   * Si la firmó quien está usando la aplicación.
+   *
+   * El servidor no envía el identificador de quien denunció, ni siquiera al
+   * propio autor: era el primer eslabón para llegar desde una denuncia hasta la
+   * ficha de quien la puso. Lo único que hacía falta de aquel campo era esto.
+   */
+  es_mia: boolean;
   nombre_persona_buscada: string | null;
   description: string;
   latitude: number;

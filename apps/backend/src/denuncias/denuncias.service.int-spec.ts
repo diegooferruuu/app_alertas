@@ -68,7 +68,13 @@ describe('DenunciasService (integración)', () => {
     await ctx.limpiar();
   });
 
-  /** Crea un usuario con documento registrado, que es quien puede denunciar. */
+  /**
+   * Crea un usuario con documento registrado, que es quien puede denunciar.
+   *
+   * El hash se deriva del correo y no de un número fijo: cada denunciante de la
+   * suite necesita el suyo —la columna es única— y así ninguno coincide por
+   * accidente con el documento de una persona reportada.
+   */
   const crearDenunciante = async (email = 'denunciante@test.com') =>
     usuarios.save(
       usuarios.create({
@@ -76,6 +82,7 @@ describe('DenunciasService (integración)', () => {
         email,
         password_hash: 'x',
         documento_registrado: true,
+        ci_hash: createHash('sha256').update(email).digest('hex'),
       }),
     );
 

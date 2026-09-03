@@ -17,14 +17,12 @@ import denunciaService, {
   situacionDe,
   primeraFotografia,
 } from '../../services/denuncia.service';
-import { useAuth } from '../../hooks/useAuth';
 
 const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
   const { id } = route.params;
-  const { user } = useAuth();
   const [denuncia, setDenuncia] = useState<Denuncia | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -54,7 +52,7 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   }
 
   const meta = DENUNCIA_META;
-  const isOwner = user?.id === denuncia.denunciante_id;
+  const isOwner = denuncia.es_mia;
   // Una vez firmada, el contenido queda sellado por su hash: editarlo rompería
   // la cadena probatoria.
   const editable = denuncia.nivel_confianza === 'REGISTRADA';

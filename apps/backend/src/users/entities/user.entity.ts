@@ -1,8 +1,21 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, OneToMany, Unique } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, OneToMany, Unique, Check } from 'typeorm';
 import { RefreshToken } from './refresh-token.entity';
 import { ReputationEvent } from './reputation-event.entity';
 
 @Entity('users')
+/**
+ * Un documento registrado siempre tiene hash.
+ *
+ * El código ya escribe las dos columnas juntas, pero de eso depende algo que no
+ * puede quedar en manos de una convención: el interruptor de desactivación
+ * reconoce a la persona reportada comparando `ci_hash`. Una cuenta marcada como
+ * verificada sin hash podría denunciar y jamás ser identificada como
+ * denunciante, ni retirar una alerta sobre sí misma.
+ */
+@Check(
+  'chk_users_documento_con_hash',
+  `((documento_registrado = false) OR (ci_hash IS NOT NULL))`,
+)
 @Index('idx_users_email', ['email'])
 @Index('idx_users_ci_hash', ['ci_hash'])
 @Index('idx_users_push_token', ['push_token'], { where: '"push_token" IS NOT NULL' })
