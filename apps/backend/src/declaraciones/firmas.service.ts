@@ -26,6 +26,7 @@ import {
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { NivelConfianza, EstadoDenuncia } from '../denuncias/domain/estados';
 import { UsersService } from '../users/users.service';
+import { estaSuspendida } from '../users/domain/estado-cuenta';
 import { nombreEscritoCoincide } from '../verification/domain/nombres';
 import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
 import { AlertasService } from '../alertas/alertas.service';
@@ -82,7 +83,10 @@ export class FirmasService {
         'Debes registrar tu documento antes de firmar una declaración jurada',
       );
     }
-    if (usuario.is_suspended) {
+    // Solo la suspensión cierra la firma: firmar es lo que hace difundir. Una
+    // cuenta apenas RESTRINGIDA conserva el resto de funciones (§5.4), y firmar
+    // una denuncia que ya existía no es crear una nueva.
+    if (estaSuspendida(usuario.estado_cuenta)) {
       throw new ForbiddenException('Tu cuenta está suspendida');
     }
 

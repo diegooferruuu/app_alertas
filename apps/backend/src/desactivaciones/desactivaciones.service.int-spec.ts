@@ -5,10 +5,13 @@ import { createHash } from 'crypto';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { DesactivacionesService } from './desactivaciones.service';
 import { Desactivacion } from './entities/desactivacion.entity';
+import { DocumentoBloqueado } from './entities/documento-bloqueado.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from '../denuncias/domain/estados';
 import { EmisionAlerta } from '../alertas/entities/emision-alerta.entity';
 import { User } from '../users/entities/user.entity';
+import { ReputationEvent } from '../users/entities/reputation-event.entity';
+import { EstadoCuenta } from '../users/domain/estado-cuenta';
 import { UsersService } from '../users/users.service';
 
 const LA_PAZ = { lat: -16.5, lng: -68.15 };
@@ -22,11 +25,20 @@ describe('Interruptor de desactivación (integración)', () => {
   let denuncias: Repository<Denuncia>;
   let emisiones: Repository<EmisionAlerta>;
   let desactivaciones: Repository<Desactivacion>;
+  let bloqueados: Repository<DocumentoBloqueado>;
+  let reputacion: Repository<ReputationEvent>;
 
   beforeAll(async () => {
     ctx = await crearContexto({
       imports: [
-        TypeOrmModule.forFeature([Desactivacion, Denuncia, EmisionAlerta, User]),
+        TypeOrmModule.forFeature([
+          Desactivacion,
+          DocumentoBloqueado,
+          Denuncia,
+          EmisionAlerta,
+          User,
+          ReputationEvent,
+        ]),
       ],
       providers: [DesactivacionesService, UsersService],
     });
@@ -35,6 +47,8 @@ describe('Interruptor de desactivación (integración)', () => {
     denuncias = ctx.module.get(getRepositoryToken(Denuncia));
     emisiones = ctx.module.get(getRepositoryToken(EmisionAlerta));
     desactivaciones = ctx.module.get(getRepositoryToken(Desactivacion));
+    bloqueados = ctx.module.get(getRepositoryToken(DocumentoBloqueado));
+    reputacion = ctx.module.get(getRepositoryToken(ReputationEvent));
   });
 
   afterAll(async () => ctx.cerrar());
@@ -444,6 +458,128 @@ describe('Interruptor de desactivación (integración)', () => {
            VALUES ('Fantasma', 'fantasma@t.bo', 'x', true, NULL)`,
         ),
       ).rejects.toThrow(/chk_users_documento_con_hash/);
+    });
+  });
+
+  /**
+   * H4.5 — Sanción graduada (§5.4, invariante I9).
+   *
+   * Un evento único no puede acarrear sanción permanente —la desactivación no es
+   * verificable—, así que la primera restringe temporalmente y solo el patrón
+   * suspende. El sistema lo detecta por sí mismo, dentro de la misma transacción.
+   */
+  describe('sanción graduada al denunciante (H4.5)', () => {
+    const estadoCuentaDe = async (id: string) =>
+      (await usuarios.findOneOrFail({ where: { id } })).estado_cuenta;
+
+    it('la primera desactivación restringe temporalmente, no suspende', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const reportada = await crearUsuario('reportada@t.bo', '222');
+      const denuncia = await crearDenunciaDifundida(autor.id, '222');
+
+      await servicio.desactivar(reportada.id, denuncia.id);
+
+      const denunciante = await usuarios.findOneOrFail({ where: { id: autor.id } });
+      expect(denunciante.estado_cuenta).toBe(EstadoCuenta.RESTRINGIDA);
+      expect(denunciante.restringida_hasta).toBeInstanceOf(Date);
+      expect(denunciante.restringida_hasta!.getTime()).toBeGreaterThan(Date.now());
+      // Restringida no es bloqueada: el documento sigue libre.
+      expect(await bloqueados.count()).toBe(0);
+    });
+
+    it('descuenta reputación en la desactivación, con suelo en cero', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const reportada = await crearUsuario('reportada@t.bo', '222');
+      const denuncia = await crearDenunciaDifundida(autor.id, '222');
+
+      const antes = (await usuarios.findOneOrFail({ where: { id: autor.id } }))
+        .reputation_score;
+      await servicio.desactivar(reportada.id, denuncia.id);
+      const despues = (await usuarios.findOneOrFail({ where: { id: autor.id } }))
+        .reputation_score;
+
+      expect(despues).toBeLessThan(antes);
+      expect(despues).toBeGreaterThanOrEqual(0);
+      const eventos = await reputacion.find({ where: { user_id: autor.id } });
+      expect(eventos).toHaveLength(1);
+      expect(eventos[0].delta).toBeLessThan(0);
+      expect(eventos[0].reference_id).toBe(denuncia.id);
+    });
+
+    it('la segunda desactivación, de otro caso, suspende y bloquea el documento', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const a = await crearUsuario('a@t.bo', '222');
+      const b = await crearUsuario('b@t.bo', '333');
+      const d1 = await crearDenunciaDifundida(autor.id, '222');
+      const d2 = await crearDenunciaDifundida(autor.id, '333');
+
+      await servicio.desactivar(a.id, d1.id);
+      expect(await estadoCuentaDe(autor.id)).toBe(EstadoCuenta.RESTRINGIDA);
+
+      await servicio.desactivar(b.id, d2.id);
+      const denunciante = await usuarios.findOneOrFail({ where: { id: autor.id } });
+      expect(denunciante.estado_cuenta).toBe(EstadoCuenta.SUSPENDIDA);
+      // La suspensión no lleva plazo.
+      expect(denunciante.restringida_hasta).toBeNull();
+
+      const bloqueo = await bloqueados.findOneOrFail({
+        where: { ci_hash: hashDe('111') },
+      });
+      expect(bloqueo.usuario_id).toBe(autor.id);
+      expect(bloqueo.motivo).toBe('segunda_desactivacion');
+    });
+
+    it('denunciar dos veces a la misma persona y que la retire suspende de inmediato', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const reportada = await crearUsuario('reportada@t.bo', '222');
+      const d1 = await crearDenunciaDifundida(autor.id, '222');
+      const d2 = await crearDenunciaDifundida(autor.id, '222');
+
+      await servicio.desactivar(reportada.id, d1.id);
+      await servicio.desactivar(reportada.id, d2.id);
+
+      expect(await estadoCuentaDe(autor.id)).toBe(EstadoCuenta.SUSPENDIDA);
+      const bloqueo = await bloqueados.findOneOrFail({
+        where: { ci_hash: hashDe('111') },
+      });
+      expect(bloqueo.motivo).toBe('reincidencia_dirigida');
+    });
+
+    it('bloquear el documento es idempotente: una tercera desactivación no falla', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const a = await crearUsuario('a@t.bo', '222');
+      const b = await crearUsuario('b@t.bo', '333');
+      const c = await crearUsuario('c@t.bo', '444');
+      const d1 = await crearDenunciaDifundida(autor.id, '222');
+      const d2 = await crearDenunciaDifundida(autor.id, '333');
+      const d3 = await crearDenunciaDifundida(autor.id, '444');
+
+      await servicio.desactivar(a.id, d1.id);
+      await servicio.desactivar(b.id, d2.id);
+      // La tercera intentaría bloquear un documento ya bloqueado: no debe fallar.
+      await expect(servicio.desactivar(c.id, d3.id)).resolves.toBeDefined();
+
+      expect(await bloqueados.count()).toBe(1);
+      expect(await estadoCuentaDe(autor.id)).toBe(EstadoCuenta.SUSPENDIDA);
+    });
+
+    it('la sanción viaja en la misma transacción: si la desactivación se revierte, no queda sanción', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const reportada = await crearUsuario('reportada@t.bo', '222');
+      const denuncia = await crearDenunciaDifundida(autor.id, '222');
+      // Ocupa de antemano la fila única de desactivación: el paso 4 chocará y
+      // arrastrará consigo la sanción del paso 5.
+      await desactivaciones.insert({
+        denuncia_id: denuncia.id,
+        ci_hash_denunciante: hashDe('111'),
+        ci_hash_persona_buscada: hashDe('222'),
+      });
+
+      await expect(servicio.desactivar(reportada.id, denuncia.id)).rejects.toThrow();
+
+      expect(await estadoCuentaDe(autor.id)).toBe(EstadoCuenta.ACTIVA);
+      expect(await reputacion.count({ where: { user_id: autor.id } })).toBe(0);
+      expect(await bloqueados.count()).toBe(0);
     });
   });
 });

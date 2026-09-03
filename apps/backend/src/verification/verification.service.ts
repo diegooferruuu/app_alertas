@@ -1,7 +1,10 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { UsersService } from '../users/users.service';
 import { AlertasService } from '../alertas/alertas.service';
+import { DocumentoBloqueado } from '../desactivaciones/entities/documento-bloqueado.entity';
 import { PersonalDataDto } from './dto/documento.dto';
 import { nombreConsistenteConDocumento } from './domain/nombres';
 
@@ -20,7 +23,26 @@ export class VerificationService {
   constructor(
     private usersService: UsersService,
     private alertasService: AlertasService,
+    @InjectRepository(DocumentoBloqueado)
+    private documentosBloqueados: Repository<DocumentoBloqueado>,
   ) {}
+
+  /**
+   * Un documento bloqueado no puede registrarse (§3.4, sanción 5.4).
+   *
+   * Corta el intento de esquivar una suspensión con otra cuenta. Se comprueba
+   * antes que el duplicado —da un motivo claro— y por hash, nunca por número.
+   */
+  private async rechazarSiBloqueado(ciHash: string): Promise<void> {
+    const bloqueado = await this.documentosBloqueados.countBy({
+      ci_hash: ciHash,
+    });
+    if (bloqueado > 0) {
+      throw new BadRequestException(
+        'Este documento está bloqueado y no puede registrarse',
+      );
+    }
+  }
 
   /**
    * Paso intermedio: comprueba que las imágenes del documento sean legibles y
@@ -45,6 +67,7 @@ export class VerificationService {
 
     // Chequeo temprano de duplicados para no hacer perder tiempo a la persona
     const ciHash = this.hashDeCi(datosDeclarados.ci_number);
+    await this.rechazarSiBloqueado(ciHash);
     const usuarioExistente = await this.usersService.findByCiHash(ciHash);
     if (usuarioExistente && usuarioExistente.id !== userId) {
       throw new BadRequestException(
@@ -81,6 +104,7 @@ export class VerificationService {
 
     const ciHash = this.hashDeCi(datosDeclarados.ci_number);
 
+    await this.rechazarSiBloqueado(ciHash);
     const usuarioExistente = await this.usersService.findByCiHash(ciHash);
     if (usuarioExistente && usuarioExistente.id !== userId) {
       throw new BadRequestException(

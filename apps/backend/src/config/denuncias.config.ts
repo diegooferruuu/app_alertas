@@ -37,6 +37,15 @@ export interface DenunciasConfig {
   restriccionPrimeraDesactivacionH: number;
 
   /**
+   * Puntos de reputación que se descuentan por cada desactivación recibida.
+   *
+   * Es una penalización, no la sanción en sí: la sanción es el cambio de estado
+   * de cuenta (5.4). Se descuenta en cada desactivación para que el puntaje
+   * refleje el patrón, del que depende después el rol (fase 7).
+   */
+  penalizacionReputacionDesactivacion: number;
+
+  /**
    * Cada cuántos minutos el planificador marca las alertas vencidas.
    *
    * No determina cuándo deja de difundirse una denuncia —de eso se encarga el
@@ -103,6 +112,11 @@ export const denunciasConfig = registerAs(
     restriccionPrimeraDesactivacionH: entero(
       process.env.RESTRICCION_PRIMERA_DESACTIVACION_H,
       720,
+    ),
+
+    penalizacionReputacionDesactivacion: entero(
+      process.env.PENALIZACION_REPUTACION_DESACTIVACION,
+      50,
     ),
 
     intervaloCaducidadMin: entero(process.env.INTERVALO_CADUCIDAD_MIN, 5),

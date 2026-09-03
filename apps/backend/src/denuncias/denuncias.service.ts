@@ -19,6 +19,7 @@ import {
 } from './domain/estados';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
+import { EstadoCuenta, puedeCrearDenuncia } from '../users/domain/estado-cuenta';
 import { AlertasService } from '../alertas/alertas.service';
 
 @Injectable()
@@ -53,8 +54,16 @@ export class DenunciasService {
         'Debes registrar tu documento de identidad para reportar',
       );
     }
-    if (user.is_suspended) {
-      throw new ForbiddenException('Tu cuenta está suspendida');
+    // La sanción graduada (§5.4) muerde aquí: crear denuncias es justo lo que
+    // pierde una cuenta restringida o suspendida. La restricción es temporal y
+    // se interpreta contra su plazo, así que una cuenta cuya restricción venció
+    // vuelve a poder sin que nada le haya cambiado el estado.
+    if (!puedeCrearDenuncia(user.estado_cuenta, user.restringida_hasta)) {
+      throw new ForbiddenException(
+        user.estado_cuenta === EstadoCuenta.SUSPENDIDA
+          ? 'Tu cuenta está suspendida y no puede crear denuncias'
+          : 'Tu cuenta está restringida temporalmente y no puede crear denuncias nuevas',
+      );
     }
 
     const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);

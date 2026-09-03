@@ -182,7 +182,9 @@ export class AlertasService {
         `u.last_location_at > now() - make_interval(hours => :antiguedad)`,
       )
       .andWhere('u.id != :autor', { autor: denuncia.denunciante_id })
-      .andWhere('u.is_suspended = false')
+      // Una cuenta suspendida no recibe alertas; una apenas restringida sí,
+      // porque conserva el resto de funciones (§5.4).
+      .andWhere(`u.estado_cuenta <> 'SUSPENDIDA'`)
       .setParameters({
         lat: denuncia.latitude,
         lng: denuncia.longitude,

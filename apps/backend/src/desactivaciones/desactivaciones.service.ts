@@ -5,9 +5,12 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Desactivacion } from './entities/desactivacion.entity';
+import { DocumentoBloqueado } from './entities/documento-bloqueado.entity';
+import { sancionPor } from './domain/sancion';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import {
   EstadoDenuncia,
@@ -16,7 +19,10 @@ import {
 } from '../denuncias/domain/estados';
 import { EmisionAlerta } from '../alertas/entities/emision-alerta.entity';
 import { User } from '../users/entities/user.entity';
+import { ReputationEvent } from '../users/entities/reputation-event.entity';
+import { EstadoCuenta } from '../users/domain/estado-cuenta';
 import { UsersService } from '../users/users.service';
+import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
 
 /** Una denuncia que identifica a quien consulta, tal como puede vérsela. */
 export interface DenunciaQueMeIdentifica {
@@ -46,7 +52,12 @@ export class DesactivacionesService {
     private desactivacionesRepository: Repository<Desactivacion>,
     private dataSource: DataSource,
     private usersService: UsersService,
+    private configService: ConfigService,
   ) {}
+
+  private get config(): DenunciasConfig {
+    return this.configService.getOrThrow<DenunciasConfig>(DENUNCIAS_CONFIG);
+  }
 
   /**
    * Denuncias vivas que identifican a la persona autenticada.
@@ -186,14 +197,77 @@ export class DesactivacionesService {
         where: { id: denuncia.denunciante_id },
         select: { id: true, ci_hash: true },
       });
+      // El denunciante registró su documento para poder denunciar, y la
+      // restricción de la base garantiza el hash. Nunca es nulo aquí.
+      const ciHashDenunciante = denunciante.ci_hash!;
 
-      await manager.getRepository(Desactivacion).insert({
+      const desactivaciones = manager.getRepository(Desactivacion);
+      await desactivaciones.insert({
         denuncia_id: denunciaId,
-        ci_hash_denunciante: denunciante.ci_hash,
+        ci_hash_denunciante: ciHashDenunciante,
         ci_hash_persona_buscada: denuncia.ci_hash_persona_buscada,
       });
 
-      // 5. La sanción graduada al denunciante (invariante I9) llega en H4.5.
+      // 5. Sanción graduada al denunciante (§5.4, invariante I9).
+      //
+      //    El recuento se hace DENTRO de la transacción, con la desactivación
+      //    recién insertada ya visible: si se contara fuera, una segunda
+      //    desactivación simultánea podría no ver a la primera y quedarse ambas
+      //    en «primera», sin llegar nunca a suspender.
+      const recibidas = await desactivaciones.countBy({
+        ci_hash_denunciante: ciHashDenunciante,
+      });
+      const dirigidas = await desactivaciones.countBy({
+        ci_hash_denunciante: ciHashDenunciante,
+        ci_hash_persona_buscada: denuncia.ci_hash_persona_buscada,
+      });
+      const sancion = sancionPor(recibidas, dirigidas);
+
+      // La reputación baja en cada desactivación recibida —refleja el patrón del
+      // que luego depende el rol (fase 7)—, con suelo en cero. Es la penalización;
+      // la sanción en sí es el cambio de estado de la cuenta.
+      await manager.getRepository(ReputationEvent).insert({
+        user_id: denuncia.denunciante_id,
+        delta: -this.config.penalizacionReputacionDesactivacion,
+        reason: `desactivacion:${sancion.razon}`,
+        reference_id: denunciaId,
+      });
+      await manager.query(
+        `UPDATE users SET reputation_score = GREATEST(reputation_score - $1, 0) WHERE id = $2`,
+        [this.config.penalizacionReputacionDesactivacion, denuncia.denunciante_id],
+      );
+
+      // El estado solo escala: `sancionPor` es monótono en el número de
+      // desactivaciones, que solo crece, así que nunca degrada una suspensión a
+      // restricción. La restricción lleva plazo; la suspensión no.
+      const restringidaHasta =
+        sancion.estado === EstadoCuenta.RESTRINGIDA
+          ? new Date(
+              Date.now() +
+                this.config.restriccionPrimeraDesactivacionH * 3_600_000,
+            )
+          : null;
+      await manager.getRepository(User).update(denuncia.denunciante_id, {
+        estado_cuenta: sancion.estado,
+        restringida_hasta: restringidaHasta,
+      });
+
+      // Al suspender, se bloquea el documento para impedir el re-registro. Con
+      // `orIgnore` es idempotente: otra denuncia del mismo autor que se retire
+      // después no falla al intentar bloquear un documento ya bloqueado.
+      if (sancion.bloquearDocumento) {
+        await manager
+          .getRepository(DocumentoBloqueado)
+          .createQueryBuilder()
+          .insert()
+          .values({
+            ci_hash: ciHashDenunciante,
+            usuario_id: denuncia.denunciante_id,
+            motivo: sancion.razon,
+          })
+          .orIgnore()
+          .execute();
+      }
     });
 
     // Sin identificadores de personas: este registro lo lee un operador.

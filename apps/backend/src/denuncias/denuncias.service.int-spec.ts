@@ -8,6 +8,7 @@ import { DenunciasService } from './denuncias.service';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from './domain/estados';
+import { EstadoCuenta } from '../users/domain/estado-cuenta';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from '../users/entities/refresh-token.entity';
@@ -119,6 +120,36 @@ describe('DenunciasService (integración)', () => {
       await expect(service.create(visitante.id, datosDeDenuncia)).rejects.toThrow(
         ForbiddenException,
       );
+    });
+
+    it('rechaza a una cuenta suspendida (sanción 5.4)', async () => {
+      const autor = await crearDenunciante();
+      await usuarios.update(autor.id, { estado_cuenta: EstadoCuenta.SUSPENDIDA });
+
+      await expect(service.create(autor.id, datosDeDenuncia)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rechaza a una cuenta con restricción vigente, pero no si ya venció', async () => {
+      const autor = await crearDenunciante();
+
+      // Restricción vigente: no puede crear.
+      await usuarios.update(autor.id, {
+        estado_cuenta: EstadoCuenta.RESTRINGIDA,
+        restringida_hasta: new Date(Date.now() + 3_600_000),
+      });
+      await expect(service.create(autor.id, datosDeDenuncia)).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      // Mismo estado, plazo vencido: la restricción se levanta sola.
+      await usuarios.update(autor.id, {
+        restringida_hasta: new Date(Date.now() - 3_600_000),
+      });
+      await expect(
+        service.create(autor.id, datosDeDenuncia),
+      ).resolves.toBeDefined();
     });
 
     it('guarda el documento de la persona buscada solo como hash', async () => {

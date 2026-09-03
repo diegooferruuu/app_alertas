@@ -1,6 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, OneToMany, Unique, Check } from 'typeorm';
 import { RefreshToken } from './refresh-token.entity';
 import { ReputationEvent } from './reputation-event.entity';
+import { EstadoCuenta } from '../domain/estado-cuenta';
 
 @Entity('users')
 /**
@@ -15,6 +16,13 @@ import { ReputationEvent } from './reputation-event.entity';
 @Check(
   'chk_users_documento_con_hash',
   `((documento_registrado = false) OR (ci_hash IS NOT NULL))`,
+)
+// Segunda línea tras el enum del dominio: una escritura directa no puede dejar
+// la cuenta en un estado que el código no sabe interpretar. Expresión en la
+// forma normalizada de Postgres para que `migration:generate` no la recree.
+@Check(
+  'chk_users_estado_cuenta',
+  `((estado_cuenta)::text = ANY ((ARRAY['ACTIVA'::character varying, 'RESTRINGIDA'::character varying, 'SUSPENDIDA'::character varying])::text[]))`,
 )
 @Index('idx_users_email', ['email'])
 @Index('idx_users_ci_hash', ['ci_hash'])
@@ -68,14 +76,20 @@ export class User {
   @Column({ type: 'integer', default: 100 })
   reputation_score!: number;
 
-  @Column({ type: 'boolean', default: false })
-  is_suspended!: boolean;
+  /**
+   * Estado frente a las sanciones (§5.4). Reemplaza al antiguo `is_suspended`:
+   * la sanción es graduada, así que un booleano no alcanza.
+   */
+  @Column({ type: 'varchar', length: 20, default: EstadoCuenta.ACTIVA })
+  estado_cuenta!: EstadoCuenta;
 
+  /**
+   * Hasta cuándo dura la restricción de la primera desactivación. Nulo salvo
+   * mientras la cuenta esté RESTRINGIDA con plazo vigente; la suspensión no lleva
+   * plazo, así que también es nulo cuando el estado es SUSPENDIDA.
+   */
   @Column({ type: 'timestamptz', nullable: true })
-  suspended_at!: Date;
-
-  @Column({ type: 'text', nullable: true })
-  suspension_reason!: string;
+  restringida_hasta!: Date | null;
 
   // Push notifications
   @Column({ type: 'varchar', length: 255, nullable: true })
