@@ -14,6 +14,33 @@ import { useFocusEffect } from '@react-navigation/native';
 import desactivacionService, {
   DenunciaQueMeIdentifica,
 } from '../../services/desactivacion.service';
+import constanciaService from '../../services/constancia.service';
+
+/** Cómo se le presenta a la persona el estado de una denuncia que la identifica. */
+const situacionDe = (d: DenunciaQueMeIdentifica) => {
+  if (d.estado === 'INVALIDADA') {
+    return {
+      etiqueta: 'Retirada por ti',
+      icono: 'checkmark-circle',
+      color: '#0E7247',
+      fondo: '#E2F2EA',
+    };
+  }
+  if (d.se_esta_difundiendo) {
+    return {
+      etiqueta: 'Se está alertando a tu zona',
+      icono: 'radio',
+      color: '#B32C24',
+      fondo: '#FAE5E3',
+    };
+  }
+  return {
+    etiqueta: 'No se está difundiendo',
+    icono: 'pause-circle-outline',
+    color: '#8E8E93',
+    fondo: '#EFEFF0',
+  };
+};
 
 /**
  * El interruptor de desactivación, del lado de la persona reportada.
@@ -25,11 +52,12 @@ import desactivacionService, {
  * Deliberadamente no muestra nada de quien denunció. Ver el detalle del porqué
  * en `desactivacion.service.ts`.
  */
-const AlertasSobreMiScreen: React.FC<{ navigation: any }> = () => {
+const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [alertas, setAlertas] = useState<DenunciaQueMeIdentifica[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [retirando, setRetirando] = useState<string | null>(null);
+  const [pidiendo, setPidiendo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -83,6 +111,34 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = () => {
     );
   };
 
+  const pedirConstancia = async (alerta: DenunciaQueMeIdentifica) => {
+    setPidiendo(alerta.id);
+    try {
+      const constancia = await constanciaService.solicitar(alerta.id);
+      navigation.navigate('Constancia', { constancia });
+    } catch (err: any) {
+      Alert.alert(
+        'No se pudo obtener la constancia',
+        err?.response?.data?.message || 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setPidiendo(null);
+    }
+  };
+
+  const confirmarConstancia = (alerta: DenunciaQueMeIdentifica) => {
+    Alert.alert(
+      '¿Solicitar la constancia?',
+      'Verás la identidad de quien firmó esta denuncia. Quien la presentó aceptó ' +
+        'quedar identificado como condición para difundirla.\n\n' +
+        'La solicitud queda registrada. No hace falta que expliques por qué la pides.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Solicitar', onPress: () => pedirConstancia(alerta) },
+      ],
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -124,30 +180,17 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = () => {
       }
       renderItem={({ item }) => (
         <View style={styles.card}>
-          <View
-            style={[
-              styles.badge,
-              {
-                backgroundColor: item.se_esta_difundiendo ? '#FAE5E3' : '#EFEFF0',
-              },
-            ]}
-          >
-            <Ionicons
-              name={item.se_esta_difundiendo ? 'radio' : 'pause-circle-outline'}
-              size={14}
-              color={item.se_esta_difundiendo ? '#B32C24' : '#8E8E93'}
-            />
-            <Text
-              style={[
-                styles.badgeText,
-                { color: item.se_esta_difundiendo ? '#B32C24' : '#8E8E93' },
-              ]}
-            >
-              {item.se_esta_difundiendo
-                ? 'Se está alertando a tu zona'
-                : 'No se está difundiendo'}
-            </Text>
-          </View>
+          {(() => {
+            const estado = situacionDe(item);
+            return (
+              <View style={[styles.badge, { backgroundColor: estado.fondo }]}>
+                <Ionicons name={estado.icono as any} size={14} color={estado.color} />
+                <Text style={[styles.badgeText, { color: estado.color }]}>
+                  {estado.etiqueta}
+                </Text>
+              </View>
+            );
+          })()}
 
           <Text style={styles.name}>
             {item.nombre_persona_buscada || 'Sin nombre'}
@@ -159,21 +202,47 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = () => {
 
           {/* Una caducada puede revivir si alguien la corrobora tarde, así que
               también se puede retirar: por eso el botón no depende de que se
-              esté difundiendo ahora mismo. */}
-          <TouchableOpacity
-            style={styles.retirarButton}
-            onPress={() => confirmarRetiro(item)}
-            disabled={retirando !== null}
-          >
-            {retirando === item.id ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="hand-left-outline" size={18} color="#fff" />
-                <Text style={styles.retirarText}>Retirar esta alerta</Text>
-              </>
-            )}
-          </TouchableOpacity>
+              esté difundiendo ahora mismo. Una ya retirada no reaparece aquí
+              como accionable —INVALIDADA es terminal— pero sigue en la lista
+              porque su constancia no caduca. */}
+          {item.puede_retirarse && (
+            <TouchableOpacity
+              style={styles.retirarButton}
+              onPress={() => confirmarRetiro(item)}
+              disabled={retirando !== null}
+            >
+              {retirando === item.id ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="hand-left-outline" size={18} color="#fff" />
+                  <Text style={styles.retirarText}>Retirar esta alerta</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* La constancia solo existe si alguien firmó bajo juramento: una
+              denuncia en REGISTRADA todavía no tiene declaración que mostrar. */}
+          {item.nivel_confianza !== 'REGISTRADA' && (
+            <TouchableOpacity
+              style={[
+                styles.constanciaButton,
+                item.puede_retirarse && styles.constanciaSecundario,
+              ]}
+              onPress={() => confirmarConstancia(item)}
+              disabled={pidiendo !== null}
+            >
+              {pidiendo === item.id ? (
+                <ActivityIndicator size="small" color="#1B44BB" />
+              ) : (
+                <>
+                  <Ionicons name="document-text-outline" size={18} color="#1B44BB" />
+                  <Text style={styles.constanciaText}>Solicitar constancia</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       )}
     />
@@ -220,6 +289,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#B32C24',
   },
   retirarText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  constanciaButton: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1F4FD8',
+  },
+  constanciaSecundario: { marginTop: 10 },
+  constanciaText: { color: '#1B44BB', fontWeight: '600', fontSize: 15 },
 });
 
 export { AlertasSobreMiScreen };

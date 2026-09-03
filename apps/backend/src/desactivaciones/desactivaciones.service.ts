@@ -32,6 +32,8 @@ export interface DenunciaQueMeIdentifica {
   nivel_confianza: NivelConfianza;
   estado: EstadoDenuncia;
   se_esta_difundiendo: boolean;
+  /** Si todavía admite el interruptor. Falso en las ya retiradas. */
+  puede_retirarse: boolean;
   created_at: Date;
 }
 
@@ -70,6 +72,12 @@ export class DesactivacionesService {
    * Incluye las CADUCADAS a propósito. Una denuncia caducada no se está
    * difundiendo, pero puede revivir con una corroboración tardía; ocultarla aquí
    * dejaría a la persona sin forma de apagar algo que va a volver a encenderse.
+   *
+   * E incluye también las **INVALIDADAS**, las ya retiradas. No para volver a
+   * retirarlas —eso es terminal— sino porque la constancia probatoria está
+   * disponible de forma indefinida (§6.1) y esta lista es el único sitio desde
+   * donde la persona puede llegar a ella. Si desaparecieran al retirarlas, ese
+   * derecho quedaría accesible solo durante el instante del retiro.
    */
   async denunciasQueMeIdentifican(
     userId: string,
@@ -80,7 +88,11 @@ export class DesactivacionesService {
     const denuncias = await this.dataSource.getRepository(Denuncia).find({
       where: {
         ci_hash_persona_buscada: usuario.ci_hash,
-        estado: In([EstadoDenuncia.ACTIVA, EstadoDenuncia.CADUCADA]),
+        estado: In([
+          EstadoDenuncia.ACTIVA,
+          EstadoDenuncia.CADUCADA,
+          EstadoDenuncia.INVALIDADA,
+        ]),
       },
       order: { created_at: 'DESC' },
     });
@@ -94,8 +106,13 @@ export class DesactivacionesService {
       se_esta_difundiendo:
         d.estado === EstadoDenuncia.ACTIVA &&
         d.nivel_confianza !== NivelConfianza.REGISTRADA,
+      puede_retirarse: puedeTransicionarEstado(
+        d.estado,
+        EstadoDenuncia.INVALIDADA,
+      ),
       created_at: d.created_at,
-      // Deliberadamente ausente: quién la presentó.
+      // Deliberadamente ausente: quién la presentó. Esa identidad solo se
+      // entrega por la vía deliberada de la constancia.
     }));
   }
 

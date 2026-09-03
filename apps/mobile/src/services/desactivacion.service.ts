@@ -19,6 +19,14 @@ export interface DenunciaQueMeIdentifica {
   estado: EstadoDenuncia;
   /** Si ahora mismo se está alertando a la zona. Una caducada aparece en false. */
   se_esta_difundiendo: boolean;
+  /**
+   * Si todavía admite el interruptor.
+   *
+   * Las ya retiradas siguen apareciendo en la lista —la constancia probatoria
+   * está disponible de forma indefinida y este es el camino hacia ella— pero no
+   * se pueden volver a retirar: INVALIDADA es terminal.
+   */
+  puede_retirarse: boolean;
   created_at: string;
 }
 

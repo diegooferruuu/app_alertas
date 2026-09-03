@@ -13,6 +13,7 @@ import { DenunciaDetailScreen } from './src/screens/main/DenunciaDetailScreen';
 import { EditDenunciaScreen } from './src/screens/main/EditDenunciaScreen';
 import { MisDenunciasScreen } from './src/screens/main/MisDenunciasScreen';
 import { AlertasSobreMiScreen } from './src/screens/main/AlertasSobreMiScreen';
+import { ConstanciaScreen } from './src/screens/main/ConstanciaScreen';
 import { TextoLegalScreen } from './src/screens/main/TextoLegalScreen';
 import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScreen';
 import { ActivityIndicator, View } from 'react-native';
@@ -111,6 +112,13 @@ export default function App() {
               name="AlertasSobreMi"
               component={AlertasSobreMiScreen}
               options={{ title: 'Alertas sobre mí' }}
+            />
+            {/* La constancia probatoria: la única pantalla que revela la
+                identidad de quien denunció, y solo se llega pidiéndola. */}
+            <Stack.Screen
+              name="Constancia"
+              component={ConstanciaScreen}
+              options={{ title: 'Constancia' }}
             />
             {/* Declaración jurada: leer el texto, luego declarar y firmar. */}
             <Stack.Screen

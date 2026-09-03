@@ -370,14 +370,37 @@ describe('Interruptor de desactivación (integración)', () => {
       expect(lista[0].se_esta_difundiendo).toBe(false);
     });
 
-    it('deja de listarla una vez retirada', async () => {
+    it('sigue listándola tras retirarla, pero ya no como retirable', async () => {
+      // No desaparece a propósito: la constancia probatoria está disponible de
+      // forma indefinida (§6.1) y esta lista es el único camino hacia ella. Si
+      // se esfumara al retirarla, ese derecho duraría un instante.
       const autor = await crearUsuario('autor@t.bo', '111');
       const reportada = await crearUsuario('reportada@t.bo', '222');
       const denuncia = await crearDenunciaDifundida(autor.id, '222');
 
       await servicio.desactivar(reportada.id, denuncia.id);
 
-      expect(await servicio.denunciasQueMeIdentifican(reportada.id)).toEqual([]);
+      const lista = await servicio.denunciasQueMeIdentifican(reportada.id);
+      expect(lista).toHaveLength(1);
+      expect(lista[0].estado).toBe(EstadoDenuncia.INVALIDADA);
+      expect(lista[0].se_esta_difundiendo).toBe(false);
+      expect(lista[0].puede_retirarse).toBe(false);
+    });
+
+    it('marca como retirables solo las que aún lo admiten', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const reportada = await crearUsuario('reportada@t.bo', '222');
+      const activa = await crearDenunciaDifundida(autor.id, '222');
+      const caducada = await crearDenunciaDifundida(autor.id, '222');
+      await denuncias.update(caducada.id, { estado: EstadoDenuncia.CADUCADA });
+
+      const lista = await servicio.denunciasQueMeIdentifican(reportada.id);
+      const por = (id: string) => lista.find((d) => d.id === id)!;
+
+      // Una caducada puede revivir por corroboración tardía, así que sigue
+      // siendo retirable.
+      expect(por(activa.id).puede_retirarse).toBe(true);
+      expect(por(caducada.id).puede_retirarse).toBe(true);
     });
 
     it('el resultado no nombra al denunciante pero sí anuncia la constancia', async () => {
