@@ -415,4 +415,153 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       expect(resultado.registros).toBe(0);
     });
   });
+
+  describe('corroboración', () => {
+    /** Deja una denuncia firmada y difundida, lista para ser corroborada. */
+    const denunciaDifundida = async () => {
+      const autor = await crearDenunciante('autor@test.com');
+      const denuncia = await crearDenuncia(autor.id);
+      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      return { autor, denuncia };
+    };
+
+    it('amplía el radio y extiende el plazo al corroborarse', async () => {
+      const { denuncia } = await denunciaDifundida();
+      const testigo = await crearDenunciante('testigo@test.com');
+
+      const antes = await denuncias.findOneByOrFail({ id: denuncia.id });
+      const resultado = await firmas.corroborar(
+        testigo.id,
+        denuncia.id,
+        firmaValida({ vinculo_declarado: VinculoDeclarado.HERMANO_A }) as never,
+      );
+
+      expect(resultado.nivel_confianza).toBe(NivelConfianza.CORROBORADA);
+      const despues = await denuncias.findOneByOrFail({ id: denuncia.id });
+      expect(despues.radio_actual_m).toBe(10000);
+      expect(despues.expira_en!.getTime()).toBeGreaterThan(
+        antes.expira_en!.getTime(),
+      );
+    });
+
+    it('quien corrobora firma su propio paquete probatorio', async () => {
+      // No es un «me consta» ligero: compromete igual que la denuncia original.
+      const { denuncia } = await denunciaDifundida();
+      const testigo = await crearDenunciante('testigo@test.com');
+
+      await firmas.corroborar(testigo.id, denuncia.id, firmaValida() as never);
+
+      const declaracionesDeLaDenuncia = await firmas.deLaDenuncia(denuncia.id);
+      expect(declaracionesDeLaDenuncia).toHaveLength(2);
+      expect(declaracionesDeLaDenuncia[0].tipo).toBe('original');
+      expect(declaracionesDeLaDenuncia[1].tipo).toBe('corroboracion');
+      expect(declaracionesDeLaDenuncia[1].usuario_id).toBe(testigo.id);
+    });
+
+    it('la cadena sigue verificándose tras corroborar', async () => {
+      const { denuncia } = await denunciaDifundida();
+      const testigo = await crearDenunciante('testigo@test.com');
+
+      await firmas.corroborar(testigo.id, denuncia.id, firmaValida() as never);
+
+      const resultado = await firmas.verificarCadenaCompleta();
+      expect(resultado.intacta).toBe(true);
+      expect(resultado.registros).toBe(2);
+    });
+
+    it('nadie corrobora su propia denuncia', async () => {
+      // Sería la misma persona diciendo dos veces lo mismo: no es respaldo.
+      const { autor, denuncia } = await denunciaDifundida();
+
+      await expect(
+        firmas.corroborar(autor.id, denuncia.id, firmaValida() as never),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('no se puede corroborar dos veces', async () => {
+      const { denuncia } = await denunciaDifundida();
+      const testigo = await crearDenunciante('testigo@test.com');
+
+      await firmas.corroborar(testigo.id, denuncia.id, firmaValida() as never);
+
+      await expect(
+        firmas.corroborar(testigo.id, denuncia.id, firmaValida() as never),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('no se corrobora una denuncia que su autor aún no firmó', async () => {
+      const autor = await crearDenunciante('autor@test.com');
+      const denuncia = await crearDenuncia(autor.id);
+      const testigo = await crearDenunciante('testigo@test.com');
+
+      await expect(
+        firmas.corroborar(testigo.id, denuncia.id, firmaValida() as never),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('no se corrobora una denuncia invalidada', async () => {
+      const { denuncia } = await denunciaDifundida();
+      const testigo = await crearDenunciante('testigo@test.com');
+      await denuncias.update(denuncia.id, { estado: EstadoDenuncia.INVALIDADA });
+
+      await expect(
+        firmas.corroborar(testigo.id, denuncia.id, firmaValida() as never),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('una corroboración tardía revive una alerta caducada', async () => {
+      // Muere la alerta, no el caso: si aparece respaldo, vuelve a difundirse.
+      const { denuncia } = await denunciaDifundida();
+      await denuncias.update(denuncia.id, { estado: EstadoDenuncia.CADUCADA });
+      const testigo = await crearDenunciante('testigo@test.com');
+
+      await firmas.corroborar(testigo.id, denuncia.id, firmaValida() as never);
+
+      const despues = await denuncias.findOneByOrFail({ id: denuncia.id });
+      expect(despues.estado).toBe(EstadoDenuncia.ACTIVA);
+      expect(despues.nivel_confianza).toBe(NivelConfianza.CORROBORADA);
+    });
+  });
+
+  describe('corroboración por caso de la FELCC', () => {
+    const denunciaDifundida = async () => {
+      const autor = await crearDenunciante('autor@test.com');
+      const denuncia = await crearDenuncia(autor.id);
+      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      return { autor, denuncia };
+    };
+
+    it('registrar el número de caso amplía el alcance', async () => {
+      const { autor, denuncia } = await denunciaDifundida();
+
+      const resultado = await firmas.registrarCasoFelcc(
+        autor.id,
+        denuncia.id,
+        'FELCC-2026-0451',
+      );
+
+      expect(resultado.nivel_confianza).toBe(NivelConfianza.CORROBORADA);
+      const despues = await denuncias.findOneByOrFail({ id: denuncia.id });
+      expect(despues.numero_caso_felcc).toBe('FELCC-2026-0451');
+      expect(despues.radio_actual_m).toBe(10000);
+    });
+
+    it('no crea declaración jurada: el respaldo viene de una autoridad', async () => {
+      const { autor, denuncia } = await denunciaDifundida();
+
+      await firmas.registrarCasoFelcc(autor.id, denuncia.id, 'FELCC-2026-0451');
+
+      // Solo la original: nadie más se comprometió personalmente.
+      expect(await firmas.deLaDenuncia(denuncia.id)).toHaveLength(1);
+    });
+
+    it('solo el autor puede registrar el número de caso', async () => {
+      const { denuncia } = await denunciaDifundida();
+      const ajeno = await crearDenunciante('ajeno@test.com');
+
+      await expect(
+        firmas.registrarCasoFelcc(ajeno.id, denuncia.id, 'FELCC-2026-0451'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
 });

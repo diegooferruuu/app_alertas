@@ -6,8 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { DeclaracionJurada } from './entities/declaracion-jurada.entity';
+import { DataSource, EntityManager, Repository } from 'typeorm';
+import {
+  DeclaracionJurada,
+  TipoDeclaracion,
+} from './entities/declaracion-jurada.entity';
 import { FirmarDeclaracionDto } from './dto/firmar-declaracion.dto';
 import { DeclaracionesService } from './declaraciones.service';
 import {
@@ -67,18 +70,11 @@ export class FirmasService {
   }
 
   /**
-   * Firma la declaración y difunde la denuncia.
+   * Comprobaciones comunes a todo acto de firma, original o corroboración.
    *
-   * Todo ocurre en una transacción con un cerrojo: la cadena de hashes exige que
-   * los registros se sellen en serie. Sin el cerrojo, dos firmas simultáneas
-   * leerían el mismo «último registro» y ambas apuntarían al mismo eslabón,
-   * dejando la cadena bifurcada y por lo tanto inverificable.
+   * Devuelve el usuario y la versión del texto para no releerlos después.
    */
-  async firmar(
-    userId: string,
-    denunciaId: string,
-    dto: FirmarDeclaracionDto,
-  ): Promise<{ firmada: boolean; nivel_confianza: NivelConfianza }> {
+  private async validarFirmante(userId: string, dto: FirmarDeclaracionDto) {
     const usuario = await this.usersService.findById(userId);
 
     if (!usuario.documento_registrado || !usuario.nombre_documento) {
@@ -104,24 +100,114 @@ export class FirmasService {
     const version = await this.declaracionesService.versionPorId(
       dto.version_texto_legal_id,
     );
+
+    return { usuario, version };
+  }
+
+  /**
+   * Sella un registro en la cadena.
+   *
+   * Es el mismo acto para una declaración original y para una corroboración:
+   * ambas comprometen igual a quien firma, y por eso comparten paquete
+   * probatorio en lugar de vivir en tablas distintas.
+   *
+   * Debe llamarse dentro de una transacción que ya tomó el cerrojo de la cadena.
+   */
+  private async sellar(
+    manager: EntityManager,
+    datos: {
+      denuncia: Denuncia;
+      usuario: { id: string; ci_hash: string };
+      versionId: string;
+      hashTextoLegal: string;
+      vinculo: VinculoDeclarado;
+      nombreEscrito: string;
+      deviceId: string | null;
+      tipo: TipoDeclaracion;
+    },
+  ): Promise<void> {
+    const declaraciones = manager.getRepository(DeclaracionJurada);
+
+    const ultima = await declaraciones
+      .createQueryBuilder('d')
+      .orderBy('d.firmada_en', 'DESC')
+      .addOrderBy('d.id', 'DESC')
+      .limit(1)
+      .getOne();
+
+    // La marca temporal la pone el servidor, nunca el cliente: es parte de lo
+    // que la constancia acredita.
+    const firmadaEn = new Date();
+
+    const campos = {
+      denuncia_id: datos.denuncia.id,
+      usuario_id: datos.usuario.id,
+      ci_hash_declarante: datos.usuario.ci_hash,
+      vinculo_declarado: datos.vinculo,
+      tipo: datos.tipo,
+      version_texto_legal_id: datos.versionId,
+      hash_texto_legal: datos.hashTextoLegal,
+      texto_firmado: datos.nombreEscrito,
+      hash_contenido_denuncia: calcularHashContenido({
+        nombre_persona_buscada: datos.denuncia.nombre_persona_buscada,
+        ci_hash_persona_buscada: datos.denuncia.ci_hash_persona_buscada,
+        description: datos.denuncia.description,
+        latitude: datos.denuncia.latitude,
+        longitude: datos.denuncia.longitude,
+      }),
+      firmada_en: firmadaEn.toISOString(),
+      device_id: datos.deviceId,
+      hash_anterior: ultima?.hash_registro ?? null,
+    };
+
+    await declaraciones.insert({
+      ...campos,
+      tipo: datos.tipo,
+      vinculo_declarado: datos.vinculo,
+      firmada_en: firmadaEn,
+      hash_registro: calcularHashRegistro(campos),
+    });
+  }
+
+  /** Carga la denuncia con el hash de la persona buscada, que no viaja por defecto. */
+  private async denunciaCompleta(
+    manager: EntityManager,
+    denunciaId: string,
+  ): Promise<Denuncia> {
+    const denuncia = await manager
+      .getRepository(Denuncia)
+      .createQueryBuilder('denuncia')
+      .addSelect('denuncia.ci_hash_persona_buscada')
+      .where('denuncia.id = :id', { id: denunciaId })
+      .getOne();
+
+    if (!denuncia) throw new BadRequestException('Denuncia no encontrada');
+    return denuncia;
+  }
+
+  /**
+   * Firma la declaración original y difunde la denuncia.
+   *
+   * Todo ocurre en una transacción con un cerrojo: la cadena de hashes exige que
+   * los registros se sellen en serie. Sin el cerrojo, dos firmas simultáneas
+   * leerían el mismo «último registro» y ambas apuntarían al mismo eslabón,
+   * dejando la cadena bifurcada y por lo tanto inverificable.
+   */
+  async firmar(
+    userId: string,
+    denunciaId: string,
+    dto: FirmarDeclaracionDto,
+  ): Promise<{ firmada: boolean; nivel_confianza: NivelConfianza }> {
+    const { usuario, version } = await this.validarFirmante(userId, dto);
     const vinculo = dto.vinculo_declarado as VinculoDeclarado;
 
     return this.dataSource.transaction(async (manager) => {
-      // Serializa el sellado de la cadena entre peticiones concurrentes.
       await manager.query('SELECT pg_advisory_xact_lock($1)', [
         FirmasService.CERROJO_CADENA,
       ]);
 
-      const denuncias = manager.getRepository(Denuncia);
-      const denuncia = await denuncias
-        .createQueryBuilder('denuncia')
-        .addSelect('denuncia.ci_hash_persona_buscada')
-        .where('denuncia.id = :id', { id: denunciaId })
-        .getOne();
+      const denuncia = await this.denunciaCompleta(manager, denunciaId);
 
-      if (!denuncia) {
-        throw new BadRequestException('Denuncia no encontrada');
-      }
       if (denuncia.denunciante_id !== userId) {
         throw new ForbiddenException('Solo puedes firmar tus propias denuncias');
       }
@@ -134,51 +220,21 @@ export class FirmasService {
         throw new ConflictException('Esta denuncia ya fue declarada bajo juramento');
       }
 
-      const declaraciones = manager.getRepository(DeclaracionJurada);
-      const ultima = await declaraciones
-        .createQueryBuilder('d')
-        .orderBy('d.firmada_en', 'DESC')
-        .addOrderBy('d.id', 'DESC')
-        .limit(1)
-        .getOne();
-
-      // La marca temporal la pone el servidor, nunca el cliente: es parte de lo
-      // que la constancia acredita.
-      const firmadaEn = new Date();
-
-      const campos = {
-        denuncia_id: denuncia.id,
-        usuario_id: userId,
-        ci_hash_declarante: usuario.ci_hash,
-        vinculo_declarado: vinculo,
+      await this.sellar(manager, {
+        denuncia,
+        usuario: { id: userId, ci_hash: usuario.ci_hash },
+        versionId: version.id,
+        hashTextoLegal: version.hash_texto,
+        vinculo,
+        nombreEscrito: dto.nombre_escrito,
+        deviceId: dto.device_id ?? null,
         tipo: 'original',
-        version_texto_legal_id: version.id,
-        hash_texto_legal: version.hash_texto,
-        texto_firmado: dto.nombre_escrito,
-        hash_contenido_denuncia: calcularHashContenido({
-          nombre_persona_buscada: denuncia.nombre_persona_buscada,
-          ci_hash_persona_buscada: denuncia.ci_hash_persona_buscada,
-          description: denuncia.description,
-          latitude: denuncia.latitude,
-          longitude: denuncia.longitude,
-        }),
-        firmada_en: firmadaEn.toISOString(),
-        device_id: dto.device_id ?? null,
-        hash_anterior: ultima?.hash_registro ?? null,
-      };
-
-      await declaraciones.insert({
-        ...campos,
-        tipo: 'original' as const,
-        vinculo_declarado: vinculo,
-        firmada_en: firmadaEn,
-        hash_registro: calcularHashRegistro(campos),
       });
 
       const { radio_m, horas } = this.alcanceSegunVinculo(vinculo);
-      const expiraEn = new Date(firmadaEn.getTime() + horas * 3_600_000);
+      const expiraEn = new Date(Date.now() + horas * 3_600_000);
 
-      await denuncias.update(denuncia.id, {
+      await manager.getRepository(Denuncia).update(denuncia.id, {
         nivel_confianza: NivelConfianza.PROVISIONAL,
         radio_actual_m: radio_m,
         expira_en: expiraEn,
@@ -191,6 +247,167 @@ export class FirmasService {
       await this.alertasService.encolar(manager, denuncia.id, radio_m, 'firma');
 
       return { firmada: true, nivel_confianza: NivelConfianza.PROVISIONAL };
+    });
+  }
+
+
+  /**
+   * Amplía el alcance de una denuncia corroborada y vuelve a emitir.
+   *
+   * Se llama desde dentro de una transacción ya en curso. Al corroborarse, el
+   * plazo se cuenta desde ahora: un caso con respaldo merece empezar de nuevo su
+   * ventana, no heredar lo que quedaba de la anterior.
+   */
+  private async ampliarPorCorroboracion(
+    manager: EntityManager,
+    denuncia: Denuncia,
+  ): Promise<void> {
+    const { radioCorroboradoM, caducidadCorroboradaH } = this.config;
+
+    await manager.getRepository(Denuncia).update(denuncia.id, {
+      nivel_confianza: NivelConfianza.CORROBORADA,
+      radio_actual_m: radioCorroboradoM,
+      expira_en: new Date(Date.now() + caducidadCorroboradaH * 3_600_000),
+      // Reactiva la alerta si había caducado esperando respaldo: muere la
+      // alerta, no el caso, y una corroboración tardía es motivo para revivirla.
+      estado: EstadoDenuncia.ACTIVA,
+    });
+
+    await this.alertasService.encolar(
+      manager,
+      denuncia.id,
+      radioCorroboradoM,
+      'corroboracion',
+    );
+  }
+
+  /** Cuántas corroboraciones lleva una denuncia. Se deriva, no se cuenta aparte. */
+  private async corroboracionesDe(
+    manager: EntityManager,
+    denunciaId: string,
+  ): Promise<number> {
+    return manager.getRepository(DeclaracionJurada).count({
+      where: { denuncia_id: denunciaId, tipo: 'corroboracion' },
+    });
+  }
+
+  /**
+   * Corrobora una denuncia ajena firmando la propia declaración jurada.
+   *
+   * No es un «me consta» ligero: quien corrobora firma con el mismo peso que
+   * quien denunció, y su identidad queda igual de atribuida. Por eso comparte
+   * paquete probatorio y el mismo acto de firma.
+   */
+  async corroborar(
+    userId: string,
+    denunciaId: string,
+    dto: FirmarDeclaracionDto,
+  ): Promise<{ corroborada: boolean; nivel_confianza: NivelConfianza }> {
+    const { usuario, version } = await this.validarFirmante(userId, dto);
+    const vinculo = dto.vinculo_declarado as VinculoDeclarado;
+
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [
+        FirmasService.CERROJO_CADENA,
+      ]);
+
+      const denuncia = await this.denunciaCompleta(manager, denunciaId);
+
+      // Corroborarse a sí mismo no aporta respaldo alguno: es la misma persona
+      // diciendo dos veces lo mismo.
+      if (denuncia.denunciante_id === userId) {
+        throw new ForbiddenException(
+          'No puedes corroborar tu propia denuncia: la corroboración es el respaldo de otra persona',
+        );
+      }
+      if (denuncia.nivel_confianza === NivelConfianza.REGISTRADA) {
+        throw new ConflictException(
+          'Esta denuncia todavía no fue declarada bajo juramento por su autor',
+        );
+      }
+      if (
+        denuncia.estado === EstadoDenuncia.INVALIDADA ||
+        denuncia.estado === EstadoDenuncia.CERRADA
+      ) {
+        throw new ConflictException(
+          `Una denuncia ${denuncia.estado} no admite corroboración`,
+        );
+      }
+
+      const yaCorroboro = await manager.getRepository(DeclaracionJurada).count({
+        where: { denuncia_id: denunciaId, usuario_id: userId },
+      });
+      if (yaCorroboro > 0) {
+        throw new ConflictException('Ya firmaste una declaración sobre esta denuncia');
+      }
+
+      await this.sellar(manager, {
+        denuncia,
+        usuario: { id: userId, ci_hash: usuario.ci_hash },
+        versionId: version.id,
+        hashTextoLegal: version.hash_texto,
+        vinculo,
+        nombreEscrito: dto.nombre_escrito,
+        deviceId: dto.device_id ?? null,
+        tipo: 'corroboracion',
+      });
+
+      const corroboraciones = await this.corroboracionesDe(manager, denunciaId);
+      const suficientes = corroboraciones >= this.config.corroboradoresNecesarios;
+
+      if (suficientes && denuncia.nivel_confianza !== NivelConfianza.CORROBORADA) {
+        await this.ampliarPorCorroboracion(manager, denuncia);
+        return { corroborada: true, nivel_confianza: NivelConfianza.CORROBORADA };
+      }
+
+      // Firmó, pero todavía faltan respaldos para ampliar el alcance.
+      return { corroborada: false, nivel_confianza: denuncia.nivel_confianza };
+    });
+  }
+
+  /**
+   * Registra el número de caso de la FELCC: la otra vía de corroboración.
+   *
+   * Aquí no hay declaración jurada porque el respaldo no viene de una persona
+   * del sistema sino de una autoridad: lo que corrobora el caso es que exista
+   * una denuncia formal, no que alguien más se comprometa.
+   */
+  async registrarCasoFelcc(
+    userId: string,
+    denunciaId: string,
+    numeroCaso: string,
+  ): Promise<{ nivel_confianza: NivelConfianza }> {
+    return this.dataSource.transaction(async (manager) => {
+      const denuncia = await this.denunciaCompleta(manager, denunciaId);
+
+      if (denuncia.denunciante_id !== userId) {
+        throw new ForbiddenException(
+          'Solo el autor puede registrar el número de caso',
+        );
+      }
+      if (denuncia.nivel_confianza === NivelConfianza.REGISTRADA) {
+        throw new ConflictException(
+          'Firma primero la declaración jurada de esta denuncia',
+        );
+      }
+      if (
+        denuncia.estado === EstadoDenuncia.INVALIDADA ||
+        denuncia.estado === EstadoDenuncia.CERRADA
+      ) {
+        throw new ConflictException(
+          `Una denuncia ${denuncia.estado} no admite corroboración`,
+        );
+      }
+
+      await manager.getRepository(Denuncia).update(denuncia.id, {
+        numero_caso_felcc: numeroCaso.trim(),
+      });
+
+      if (denuncia.nivel_confianza !== NivelConfianza.CORROBORADA) {
+        await this.ampliarPorCorroboracion(manager, denuncia);
+      }
+
+      return { nivel_confianza: NivelConfianza.CORROBORADA };
     });
   }
 

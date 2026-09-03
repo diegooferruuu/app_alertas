@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { DeclaracionesService } from './declaraciones.service';
 import { FirmasService } from './firmas.service';
 import { FirmarDeclaracionDto } from './dto/firmar-declaracion.dto';
+import { RegistrarCasoFelccDto } from './dto/registrar-caso-felcc.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ETIQUETA_VINCULO, VINCULOS_VALIDOS } from './domain/vinculos';
@@ -53,5 +54,33 @@ export class DeclaracionesController {
     @Body() dto: FirmarDeclaracionDto,
   ) {
     return this.firmasService.firmar(user.userId, denunciaId, dto);
+  }
+
+  /**
+   * Corrobora la denuncia de otra persona firmando la propia declaración.
+   *
+   * Compromete igual que la original: quien corrobora también queda atribuido.
+   */
+  @Post('denuncias/:denunciaId/corroborar')
+  async corroborar(
+    @CurrentUser() user: any,
+    @Param('denunciaId') denunciaId: string,
+    @Body() dto: FirmarDeclaracionDto,
+  ) {
+    return this.firmasService.corroborar(user.userId, denunciaId, dto);
+  }
+
+  /** La otra vía de corroboración: el respaldo de una denuncia formal. */
+  @Post('denuncias/:denunciaId/caso-felcc')
+  async registrarCasoFelcc(
+    @CurrentUser() user: any,
+    @Param('denunciaId') denunciaId: string,
+    @Body() dto: RegistrarCasoFelccDto,
+  ) {
+    return this.firmasService.registrarCasoFelcc(
+      user.userId,
+      denunciaId,
+      dto.numero_caso,
+    );
   }
 }
