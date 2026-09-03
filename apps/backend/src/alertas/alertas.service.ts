@@ -77,6 +77,64 @@ export class AlertasService {
     });
   }
 
+  /**
+   * Avisa a una persona recién identificada de las denuncias activas que la
+   * señalan, y devuelve cuántas son.
+   *
+   * Es la otra mitad de H4.1. Aquella, al crear una denuncia, busca si la persona
+   * reportada ya tiene cuenta. Esta cubre el caso simétrico: alguien es denunciado
+   * *antes* de registrar su documento —o sin cuenta previa— y lo registra después.
+   * Sin esto, quien se registra tarde nunca recibiría el aviso que quien ya estaba
+   * registrado sí recibe, y el interruptor le quedaría escondido.
+   *
+   * No afecta al invariante I5: esto corre cuando actúa la persona reportada, no
+   * el denunciante, que ya obtuvo su respuesta idéntica al crear la denuncia.
+   *
+   * El número devuelto deja que el flujo de registro la encamine de inmediato al
+   * interruptor —«minutos, no horas»— sin depender de que la notificación push
+   * llegue: puede que aún no haya registrado ningún dispositivo.
+   */
+  async avisarPersonaReportada(
+    usuarioId: string,
+    ciHash: string,
+  ): Promise<number> {
+    return this.dataSource.transaction(async (manager) => {
+      const emisiones = manager.getRepository(EmisionAlerta);
+
+      const denuncias = await manager
+        .getRepository(Denuncia)
+        .createQueryBuilder('d')
+        // `ci_hash_persona_buscada` es `select: false`; filtrar por él en el
+        // WHERE no requiere seleccionarlo, y así no viaja de vuelta.
+        .where('d.ci_hash_persona_buscada = :ciHash', { ciHash })
+        // Solo activas: una alerta directa sobre una denuncia ya invalidada o
+        // cerrada la descartaría el worker, y sobre una caducada no hay nada que
+        // difundir. La persona ve igualmente las caducadas en la lista del
+        // interruptor, donde puede retirarlas por si reviven.
+        .andWhere('d.estado = :activa', { activa: EstadoDenuncia.ACTIVA })
+        .getMany();
+
+      for (const denuncia of denuncias) {
+        // Idempotente: no repetir un aviso ya encolado. Cubre que la persona
+        // rehaga el flujo de registro y que H4.1 ya la hubiera avisado al crear.
+        // Sin índice único sobre la tabla de emisiones, que es también el
+        // histórico de métricas y no debe rechazar reemisiones legítimas futuras.
+        const yaAvisada = await emisiones.count({
+          where: {
+            denuncia_id: denuncia.id,
+            usuario_objetivo_id: usuarioId,
+            motivo: 'coincidencia_documento',
+          },
+        });
+        if (yaAvisada > 0) continue;
+
+        await this.encolarAvisoDirecto(manager, denuncia.id, usuarioId);
+      }
+
+      return denuncias.length;
+    });
+  }
+
   /** Dispositivos de una persona concreta, para un aviso directo. */
   private async dispositivosDe(usuarioId: string): Promise<Destinatario[]> {
     return this.dataSource

@@ -280,4 +280,158 @@ describe('Emisión de alertas (integración)', () => {
       expect(emision.destinatarios).toBe(0);
     });
   });
+
+  /**
+   * H4.4 — Vía de acceso para la persona reportada sin cuenta previa.
+   *
+   * La denuncia pudo presentarse antes de que la persona registrara su documento.
+   * Al hacerlo, `avisarPersonaReportada` encola el aviso directo que H4.1 no pudo
+   * encolar entonces —no había a quién— y devuelve cuántas denuncias la señalan.
+   */
+  describe('aviso diferido a la persona reportada (H4.4)', () => {
+    const crearDenunciaContra = async (
+      autorId: string,
+      ciHashBuscada: string,
+      estado = EstadoDenuncia.ACTIVA,
+      nivel = NivelConfianza.PROVISIONAL,
+    ) => {
+      const difundible = nivel !== NivelConfianza.REGISTRADA;
+      return denuncias.save(
+        denuncias.create({
+          denunciante_id: autorId,
+          nombre_persona_buscada: 'Luis Mamani',
+          ci_hash_persona_buscada: ciHashBuscada,
+          description: 'Visto por última vez el martes',
+          latitude: LA_PAZ.lat,
+          longitude: LA_PAZ.lng,
+          nivel_confianza: nivel,
+          estado,
+          radio_actual_m: difundible ? 2000 : null,
+          expira_en: difundible ? new Date(Date.now() + 86_400_000) : null,
+        }),
+      );
+    };
+
+    const avisosDirectosA = (usuarioId: string) =>
+      emisiones.count({
+        where: { usuario_objetivo_id: usuarioId, motivo: 'coincidencia_documento' },
+      });
+
+    it('encola el aviso de una denuncia activa que ya identificaba a la persona', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearUsuario('reportada@test.com');
+      await crearDenunciaContra(autor.id, reportada.ci_hash);
+
+      const cuantas = await alertas.avisarPersonaReportada(
+        reportada.id,
+        reportada.ci_hash,
+      );
+
+      expect(cuantas).toBe(1);
+      expect(await avisosDirectosA(reportada.id)).toBe(1);
+    });
+
+    it('avisa aunque la denuncia siga en REGISTRADA: el aviso directo no espera a la difusión', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearUsuario('reportada@test.com');
+      await crearDenunciaContra(
+        autor.id,
+        reportada.ci_hash,
+        EstadoDenuncia.ACTIVA,
+        NivelConfianza.REGISTRADA,
+      );
+
+      expect(
+        await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash),
+      ).toBe(1);
+      expect(await avisosDirectosA(reportada.id)).toBe(1);
+    });
+
+    it('no encola nada si ninguna denuncia identifica a la persona', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearUsuario('reportada@test.com');
+      await crearDenunciaContra(autor.id, 'otro-' + 'a'.repeat(58));
+
+      expect(
+        await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash),
+      ).toBe(0);
+      expect(await avisosDirectosA(reportada.id)).toBe(0);
+    });
+
+    it('ignora denuncias ya invalidadas o cerradas: no hay alerta que activar', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearUsuario('reportada@test.com');
+      await crearDenunciaContra(
+        autor.id,
+        reportada.ci_hash,
+        EstadoDenuncia.INVALIDADA,
+      );
+      await crearDenunciaContra(
+        autor.id,
+        reportada.ci_hash,
+        EstadoDenuncia.CERRADA,
+      );
+
+      expect(
+        await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash),
+      ).toBe(0);
+      expect(await avisosDirectosA(reportada.id)).toBe(0);
+    });
+
+    it('avisa de cada denuncia activa cuando hay varias', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearUsuario('reportada@test.com');
+      await crearDenunciaContra(autor.id, reportada.ci_hash);
+      await crearDenunciaContra(autor.id, reportada.ci_hash);
+
+      expect(
+        await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash),
+      ).toBe(2);
+      expect(await avisosDirectosA(reportada.id)).toBe(2);
+    });
+
+    it('es idempotente: repetir el registro no duplica avisos', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearUsuario('reportada@test.com');
+      await crearDenunciaContra(autor.id, reportada.ci_hash);
+
+      await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash);
+      await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash);
+
+      expect(await avisosDirectosA(reportada.id)).toBe(1);
+    });
+
+    it('no duplica el aviso que H4.1 ya encoló al crear la denuncia', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearUsuario('reportada@test.com');
+      const denuncia = await crearDenunciaContra(autor.id, reportada.ci_hash);
+      // Simula el aviso que H4.1 encola en la misma transacción de creación.
+      await ctx.dataSource.transaction((manager) =>
+        alertas.encolarAvisoDirecto(manager, denuncia.id, reportada.id),
+      );
+
+      const cuantas = await alertas.avisarPersonaReportada(
+        reportada.id,
+        reportada.ci_hash,
+      );
+
+      // Cuenta la denuncia (existe y la identifica) pero no reencola el aviso.
+      expect(cuantas).toBe(1);
+      expect(await avisosDirectosA(reportada.id)).toBe(1);
+    });
+
+    it('el aviso encolado se procesa y alcanza el dispositivo de la persona', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      const reportada = await crearVecino('reportada@test.com');
+      await crearDenunciaContra(autor.id, reportada.ci_hash);
+
+      await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash);
+      await alertas.procesarPendientes();
+
+      const entregasSuyas = await entregas.count({
+        where: { usuario_id: reportada.id },
+      });
+      expect(entregasSuyas).toBe(1);
+    });
+  });
 });

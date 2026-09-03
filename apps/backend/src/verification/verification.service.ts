@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { UsersService } from '../users/users.service';
+import { AlertasService } from '../alertas/alertas.service';
 import { PersonalDataDto } from './dto/documento.dto';
 import { nombreConsistenteConDocumento } from './domain/nombres';
 
@@ -16,7 +17,10 @@ import { nombreConsistenteConDocumento } from './domain/nombres';
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
 
-  constructor(private usersService: UsersService) {}
+  constructor(
+    private usersService: UsersService,
+    private alertasService: AlertasService,
+  ) {}
 
   /**
    * Paso intermedio: comprueba que las imágenes del documento sean legibles y
@@ -92,9 +96,25 @@ export class VerificationService {
       datosDeclarados.full_name.trim(),
     );
 
+    // H4.4 — Vía de acceso para la persona reportada sin cuenta previa.
+    //
+    // Una denuncia pudo presentarse contra este documento antes de que la
+    // persona existiera en el sistema. Ahora que su `ci_hash` se conoce, se le
+    // avisa de las denuncias activas que la identifican. El registro del
+    // documento ya quedó guardado y la lista del interruptor
+    // (`GET /desactivaciones/denuncias`) la muestra igual, así que si este aviso
+    // fallara, el acceso no se pierde: se propaga el error y el reintento es
+    // seguro (idempotente), sin dejar el documento a medio registrar.
+    const denunciasQueLoIdentifican =
+      await this.alertasService.avisarPersonaReportada(userId, ciHash);
+
     return {
       documento_registrado: true,
       message: 'Documento registrado correctamente',
+      // Deja que la app lo lleve de inmediato al interruptor —«minutos, no
+      // horas»— sin esperar a que llegue la notificación push. No revela nada
+      // del denunciante (I8): es un recuento de denuncias sobre uno mismo.
+      denuncias_que_te_identifican: denunciasQueLoIdentifican,
     };
   }
 
