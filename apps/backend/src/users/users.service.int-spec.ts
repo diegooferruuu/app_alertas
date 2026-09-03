@@ -60,6 +60,27 @@ describe('UsersService · registro de documento (integración)', () => {
     expect(actualizada.documento_registrado_en).toBeInstanceOf(Date);
   });
 
+  it('el nombre verificado reemplaza al que se tecleó al crear la cuenta', async () => {
+    // El nombre de registro no lo comprueba nadie. Si quedaran ambos, la
+    // declaración jurada se firmaría con uno y el perfil mostraría el otro.
+    const cuenta = await usuarios.save(
+      usuarios.create({
+        full_name: 'Nombre Sin Comprobar',
+        email: 'sinverificar@test.com',
+        password_hash: 'x',
+      }),
+    );
+
+    const actualizada = await service.registrarDocumento(
+      cuenta.id,
+      'd'.repeat(64),
+      'María Fernanda Villarroel Quispe',
+    );
+
+    expect(actualizada.full_name).toBe('María Fernanda Villarroel Quispe');
+    expect(actualizada.full_name).toBe(actualizada.nombre_documento);
+  });
+
   it('el documento se guarda solo como hash, nunca en claro', async () => {
     const cuenta = await crearCuenta();
     const hash = 'b'.repeat(64);

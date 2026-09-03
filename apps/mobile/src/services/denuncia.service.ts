@@ -160,3 +160,20 @@ export const DENUNCIA_META = {
   icon: 'search',
   color: '#FF3B30',
 };
+
+/** Texto legal vigente de la declaración jurada. */
+export interface TextoLegal {
+  version_id: string;
+  version: string;
+  texto: string;
+  hash_texto: string;
+}
+
+class DeclaracionService {
+  async textoLegal(): Promise<TextoLegal> {
+    const response = await apiClient.get<TextoLegal>('/declaraciones/texto-legal');
+    return response.data;
+  }
+}
+
+export const declaracionService = new DeclaracionService();

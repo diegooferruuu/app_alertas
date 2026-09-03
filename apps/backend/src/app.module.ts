@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { VerificationModule } from './verification/verification.module';
 import { DenunciasModule } from './denuncias/denuncias.module';
+import { DeclaracionesModule } from './declaraciones/declaraciones.module';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
 
@@ -47,6 +48,7 @@ import { denunciasConfig } from './config/denuncias.config';
     UsersModule,
     VerificationModule,
     DenunciasModule,
+    DeclaracionesModule,
   ],
 })
 export class AppModule {}

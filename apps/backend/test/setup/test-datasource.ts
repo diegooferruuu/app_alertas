@@ -23,11 +23,18 @@ export const testDataSourceOptions = {
   logging: false,
 } as DataSourceOptions;
 
-/** Tablas que no deben vaciarse entre casos. */
+/**
+ * Tablas que no deben vaciarse entre casos.
+ *
+ * Son datos que forman parte del esquema, no de una prueba: las siembra una
+ * migración porque el sistema no puede funcionar sin ellas. Vaciarlas dejaría
+ * al resto de la suite corriendo contra un estado que no debería existir nunca.
+ */
 const TABLAS_PRESERVADAS = new Set([
   'migrations', // el registro de qué migraciones se aplicaron
   'typeorm_metadata', // expresiones de columnas generadas
   'spatial_ref_sys', // catálogo de PostGIS
+  'versiones_texto_legal', // sin una versión vigente no se puede firmar nada
 ]);
 
 export const esTablaDeDominio = (nombre: string): boolean =>

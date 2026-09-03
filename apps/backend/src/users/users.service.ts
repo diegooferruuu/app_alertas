@@ -58,6 +58,11 @@ export class UsersService {
       documento_registrado: true,
       ci_hash: ciHash,
       nombre_documento: nombreDocumento,
+      // El nombre tecleado al crear la cuenta no lo comprobó nadie. Este sí se
+      // contrastó contra el documento, así que pasa a ser el de la cuenta: dejar
+      // los dos conviviendo permitiría firmar una declaración jurada con un
+      // nombre y mostrar otro en el perfil.
+      full_name: nombreDocumento,
       documento_registrado_en: new Date(),
     });
     return this.findById(id);
