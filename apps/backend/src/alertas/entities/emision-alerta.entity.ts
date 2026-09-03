@@ -10,7 +10,16 @@ import {
 import { Denuncia } from '../../denuncias/entities/denuncia.entity';
 
 /** Por qué se emitió esta alerta. */
-export type MotivoEmision = 'firma' | 'corroboracion';
+export type MotivoEmision =
+  | 'firma'
+  | 'corroboracion'
+  /**
+   * Aviso directo a la persona que una denuncia identifica.
+   *
+   * No es una difusión por zona sino un mensaje a alguien concreto, así que no
+   * lleva radio ni consulta de proximidad: va a `usuario_objetivo_id`.
+   */
+  | 'coincidencia_documento';
 
 export type EstadoEmision = 'pendiente' | 'procesando' | 'completada' | 'fallida';
 
@@ -45,11 +54,27 @@ export class EmisionAlerta {
   @Column({ type: 'uuid' })
   denuncia_id!: string;
 
-  /** El radio vigente en el momento de emitir, no el actual de la denuncia. */
-  @Column({ type: 'integer' })
-  radio_m!: number;
+  /**
+   * El radio vigente en el momento de emitir, no el actual de la denuncia.
+   *
+   * Nulo en un aviso directo: ahí no hay zona que alcanzar, hay una persona a
+   * la que avisar.
+   */
+  @Column({ type: 'integer', nullable: true })
+  radio_m!: number | null;
 
-  @Column({ type: 'varchar', length: 20 })
+  /**
+   * Destinatario único de un aviso directo.
+   *
+   * Cuando está presente, la emisión no resuelve una consulta geográfica: va a
+   * los dispositivos de esta persona y de nadie más.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  usuario_objetivo_id!: string | null;
+
+  // 40 y no 20: «coincidencia_documento» ya ocupa 22 caracteres, y un motivo
+  // nuevo no debería obligar a otra migración de esquema.
+  @Column({ type: 'varchar', length: 40 })
   motivo!: MotivoEmision;
 
   @Column({ type: 'varchar', length: 20, default: 'pendiente' })

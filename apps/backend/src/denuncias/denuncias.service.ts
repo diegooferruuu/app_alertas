@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
@@ -18,6 +18,8 @@ import {
   puedeTransicionarNivel,
 } from './domain/estados';
 import { UsersService } from '../users/users.service';
+import { User } from '../users/entities/user.entity';
+import { AlertasService } from '../alertas/alertas.service';
 
 @Injectable()
 export class DenunciasService {
@@ -27,6 +29,8 @@ export class DenunciasService {
     @InjectRepository(FotografiaDenuncia)
     private fotografiasRepository: Repository<FotografiaDenuncia>,
     private usersService: UsersService,
+    private dataSource: DataSource,
+    private alertasService: AlertasService,
   ) {}
 
   /** El número de documento nunca se almacena en claro, solo su hash. */
@@ -53,25 +57,67 @@ export class DenunciasService {
       throw new ForbiddenException('Tu cuenta está suspendida');
     }
 
-    const denuncia = this.denunciasRepository.create({
-      denunciante_id: userId,
-      nombre_persona_buscada: dto.nombre_persona_buscada,
-      ci_hash_persona_buscada: this.hashDeCi(dto.ci_persona_buscada),
-      description: dto.description,
-      latitude: dto.latitude,
-      longitude: dto.longitude,
-      nivel_confianza: NivelConfianza.REGISTRADA,
-      estado: EstadoDenuncia.ACTIVA,
-      // Sin radio ni caducidad: todavía no se difunde nada.
-      radio_actual_m: null,
-      expira_en: null,
+    const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
+
+    const guardada = await this.dataSource.transaction(async (manager) => {
+      const denuncias = manager.getRepository(Denuncia);
+
+      const denuncia = await denuncias.save(
+        denuncias.create({
+          denunciante_id: userId,
+          nombre_persona_buscada: dto.nombre_persona_buscada,
+          ci_hash_persona_buscada: ciHashPersonaBuscada,
+          description: dto.description,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          nivel_confianza: NivelConfianza.REGISTRADA,
+          estado: EstadoDenuncia.ACTIVA,
+          // Sin radio ni caducidad: todavía no se difunde nada.
+          radio_actual_m: null,
+          expira_en: null,
+        }),
+      );
+
+      if (dto.fotografia_base64) {
+        await this.reemplazarFotografia(
+          dto.fotografia_base64,
+          denuncia.id,
+          manager,
+        );
+      }
+
+      // ---------------------------------------------------------------------
+      // Aviso a la persona reportada, si tiene cuenta.
+      //
+      // Se hace aquí, al crear, y no al difundir: quien es reportado tiene
+      // derecho a enterarse antes de que nada salga a la zona, no después.
+      //
+      // Nada de lo que ocurra en este bloque puede observarse desde fuera
+      // (invariante I5). El resultado devuelto es idéntico haya coincidencia o
+      // no: si el denunciante pudiera deducir que la persona tiene cuenta,
+      // habría convertido el sistema en un buscador de documentos.
+      // ---------------------------------------------------------------------
+      const reportado = await manager.getRepository(User).findOne({
+        where: { ci_hash: ciHashPersonaBuscada },
+        select: { id: true },
+      });
+
+      if (reportado) {
+        await this.alertasService.encolarAvisoDirecto(
+          manager,
+          denuncia.id,
+          reportado.id,
+        );
+      }
+
+      return denuncia;
     });
 
-    const guardada = await this.denunciasRepository.save(denuncia);
-
-    if (dto.fotografia_base64) {
-      await this.reemplazarFotografia(guardada.id, dto.fotografia_base64);
-    }
+    // `save()` rellena la columna generada con su representación binaria pese a
+    // estar marcada `select: false`. No es información nueva —se deriva de las
+    // coordenadas, que ya viajan— pero es ruido en cada respuesta y contradice
+    // la intención de la entidad.
+    delete (guardada as Partial<Denuncia>).ubicacion;
 
     return guardada;
   }
@@ -84,13 +130,16 @@ export class DenunciasService {
    * que editar dos veces deje fotos huérfanas de versiones anteriores.
    */
   private async reemplazarFotografia(
-    denunciaId: string,
     contenido: string,
+    denunciaId: string,
+    manager?: EntityManager,
   ): Promise<void> {
-    await this.fotografiasRepository.delete({ denuncia_id: denunciaId });
-    await this.fotografiasRepository.save(
-      this.fotografiasRepository.create({ denuncia_id: denunciaId, contenido }),
-    );
+    const repo = manager
+      ? manager.getRepository(FotografiaDenuncia)
+      : this.fotografiasRepository;
+
+    await repo.delete({ denuncia_id: denunciaId });
+    await repo.save(repo.create({ denuncia_id: denunciaId, contenido }));
   }
 
   /**
@@ -231,7 +280,7 @@ export class DenunciasService {
     const actualizada = await this.denunciasRepository.save(denuncia);
 
     if (dto.fotografia_base64 !== undefined) {
-      await this.reemplazarFotografia(id, dto.fotografia_base64);
+      await this.reemplazarFotografia(dto.fotografia_base64, id);
     }
 
     return actualizada;

@@ -6,9 +6,13 @@ import { CaducidadScheduler } from './caducidad.scheduler';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { UsersModule } from '../users/users.module';
+import { AlertasModule } from '../alertas/alertas.module';
+import { User } from '../users/entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Denuncia, FotografiaDenuncia]), UsersModule],
+  imports: [TypeOrmModule.forFeature([Denuncia, FotografiaDenuncia, User]),
+    UsersModule,
+    AlertasModule,],
   controllers: [DenunciasController],
   providers: [DenunciasService, CaducidadScheduler],
   exports: [DenunciasService],

@@ -1,6 +1,7 @@
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { createHash } from 'crypto';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { DenunciasService } from './denuncias.service';
@@ -11,6 +12,11 @@ import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from '../users/entities/refresh-token.entity';
 import { ReputationEvent } from '../users/entities/reputation-event.entity';
+import { AlertasService } from '../alertas/alertas.service';
+import { PasarelaPush, PasarelaPushSimulada } from '../alertas/pasarela-push';
+import { EmisionAlerta } from '../alertas/entities/emision-alerta.entity';
+import { EntregaAlerta } from '../alertas/entities/entrega-alerta.entity';
+import { Dispositivo } from '../alertas/entities/dispositivo.entity';
 
 /**
  * Pruebas contra Postgres real.
@@ -37,9 +43,17 @@ describe('DenunciasService (integración)', () => {
           User,
           RefreshToken,
           ReputationEvent,
+          EmisionAlerta,
+          EntregaAlerta,
+          Dispositivo,
         ]),
       ],
-      providers: [DenunciasService, UsersService],
+      providers: [
+        DenunciasService,
+        UsersService,
+        AlertasService,
+        { provide: PasarelaPush, useClass: PasarelaPushSimulada },
+      ],
     });
     service = ctx.module.get(DenunciasService);
     usuarios = ctx.module.get(getRepositoryToken(User));
@@ -415,6 +429,119 @@ describe('DenunciasService (integración)', () => {
           id,
         ]),
       ).rejects.toThrow(/chk_denuncias_estado/);
+    });
+  });
+
+  /**
+   * H4.1 — Aviso a la persona que la denuncia identifica.
+   * H4.2 — Y que el denunciante no pueda notar la diferencia (invariante I5).
+   */
+  describe('aviso por coincidencia de documento', () => {
+    const CI_REPORTADO = '5544332';
+    const hashDe = (ci: string) =>
+      createHash('sha256').update(ci.trim()).digest('hex');
+
+    const datosConCi = (ci: string) => ({ ...datosDeDenuncia, ci_persona_buscada: ci });
+
+    /** Alguien con cuenta cuyo documento coincide con el reportado. */
+    const crearPersonaReportada = async () =>
+      usuarios.save(
+        usuarios.create({
+          full_name: 'Luis Mamani',
+          email: 'reportado@test.com',
+          password_hash: 'x',
+          documento_registrado: true,
+          ci_hash: hashDe(CI_REPORTADO),
+        }),
+      );
+
+    it('encola un aviso directo cuando la persona reportada tiene cuenta', async () => {
+      const autor = await crearDenunciante();
+      const reportado = await crearPersonaReportada();
+
+      const denuncia = await service.create(autor.id, datosConCi(CI_REPORTADO));
+
+      const emisiones = await denuncias.manager.find(EmisionAlerta, {
+        where: { denuncia_id: denuncia.id },
+      });
+      expect(emisiones).toHaveLength(1);
+      expect(emisiones[0].motivo).toBe('coincidencia_documento');
+      expect(emisiones[0].usuario_objetivo_id).toBe(reportado.id);
+      // Un aviso personal no tiene zona que alcanzar.
+      expect(emisiones[0].radio_m).toBeNull();
+    });
+
+    it('no encola nada si la persona reportada no tiene cuenta', async () => {
+      const autor = await crearDenunciante();
+
+      const denuncia = await service.create(autor.id, datosConCi('1111111'));
+
+      expect(
+        await denuncias.manager.count(EmisionAlerta, {
+          where: { denuncia_id: denuncia.id },
+        }),
+      ).toBe(0);
+    });
+
+    it('avisa al crear, sin esperar a que la denuncia se difunda', async () => {
+      // Quien es reportado tiene derecho a enterarse antes de que nada salga a
+      // la zona. La denuncia sigue en REGISTRADA y el aviso ya está encolado.
+      const autor = await crearDenunciante();
+      await crearPersonaReportada();
+
+      const denuncia = await service.create(autor.id, datosConCi(CI_REPORTADO));
+
+      expect(denuncia.nivel_confianza).toBe(NivelConfianza.REGISTRADA);
+      expect(
+        await denuncias.manager.count(EmisionAlerta, {
+          where: { denuncia_id: denuncia.id },
+        }),
+      ).toBe(1);
+    });
+
+    it('la respuesta es indistinguible haya coincidencia o no', async () => {
+      // Invariante I5. Si el denunciante pudiera deducir que la persona tiene
+      // cuenta, el sistema se habría convertido en un buscador de documentos:
+      // bastaría probar números de carnet y observar la diferencia.
+      const autor = await crearDenunciante();
+      await crearPersonaReportada();
+
+      const conCoincidencia = await service.create(
+        autor.id,
+        datosConCi(CI_REPORTADO),
+      );
+      const sinCoincidencia = await service.create(autor.id, datosConCi('1111111'));
+
+      const forma = (d: typeof conCoincidencia) =>
+        Object.keys(d as object).sort();
+
+      expect(forma(conCoincidencia)).toEqual(forma(sinCoincidencia));
+      expect(conCoincidencia.nivel_confianza).toBe(sinCoincidencia.nivel_confianza);
+      expect(conCoincidencia.estado).toBe(sinCoincidencia.estado);
+      expect(conCoincidencia.radio_actual_m).toBe(sinCoincidencia.radio_actual_m);
+      // Y sobre todo: nada en la respuesta menciona la coincidencia.
+      expect(JSON.stringify(conCoincidencia)).not.toContain('usuario_objetivo');
+      expect(JSON.stringify(conCoincidencia)).not.toContain('coincidencia');
+    });
+
+    it('la columna geográfica generada no viaja en la respuesta', async () => {
+      // Se deriva de las coordenadas, así que no es información nueva, pero es
+      // ruido binario en cada respuesta y la entidad la marca `select: false`.
+      const autor = await crearDenunciante();
+
+      const denuncia = await service.create(autor.id, datosDeDenuncia);
+
+      expect(denuncia.ubicacion).toBeUndefined();
+    });
+
+    it('el hash del documento reportado tampoco viaja en la respuesta', async () => {
+      const autor = await crearDenunciante();
+      await crearPersonaReportada();
+
+      const denuncia = await service.create(autor.id, datosConCi(CI_REPORTADO));
+
+      expect(JSON.stringify(denuncia)).not.toContain(hashDe(CI_REPORTADO));
+      expect(JSON.stringify(denuncia)).not.toContain(CI_REPORTADO);
     });
   });
 });

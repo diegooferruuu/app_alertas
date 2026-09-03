@@ -56,6 +56,42 @@ export class AlertasService {
   }
 
   /**
+   * Encola el aviso directo a la persona que una denuncia identifica.
+   *
+   * Va en la misma transacción que la creación de la denuncia, por el mismo
+   * motivo que la difusión: si se encolara aparte, un fallo entre una operación
+   * y otra dejaría a alguien reportado sin enterarse nunca, que es justo lo que
+   * el interruptor de desactivación existe para evitar.
+   */
+  async encolarAvisoDirecto(
+    manager: EntityManager,
+    denunciaId: string,
+    usuarioObjetivoId: string,
+  ): Promise<void> {
+    await manager.getRepository(EmisionAlerta).insert({
+      denuncia_id: denunciaId,
+      usuario_objetivo_id: usuarioObjetivoId,
+      radio_m: null,
+      motivo: 'coincidencia_documento',
+      estado: 'pendiente',
+    });
+  }
+
+  /** Dispositivos de una persona concreta, para un aviso directo. */
+  private async dispositivosDe(usuarioId: string): Promise<Destinatario[]> {
+    return this.dataSource
+      .createQueryBuilder()
+      .select('d.usuario_id', 'usuario_id')
+      .addSelect('d.id', 'dispositivo_id')
+      .addSelect('d.push_token', 'push_token')
+      // Un aviso directo no depende de dónde esté la persona.
+      .addSelect('0', 'distancia_m')
+      .from('dispositivos', 'd')
+      .where('d.usuario_id = :usuarioId', { usuarioId })
+      .getRawMany<Destinatario>();
+  }
+
+  /**
    * Quiénes deben recibir la alerta de una denuncia.
    *
    * Tres condiciones, y ninguna es opcional:
@@ -145,10 +181,16 @@ export class AlertasService {
       // Entre encolar y procesar pudo caducar o ser desactivada. Emitir una
       // alerta que ya no debe difundirse sería exactamente lo que el diseño
       // impide, así que se descarta el trabajo en lugar de ejecutarlo.
-      if (
-        denuncia.estado !== EstadoDenuncia.ACTIVA ||
-        denuncia.nivel_confianza === NivelConfianza.REGISTRADA
-      ) {
+      // El aviso directo se envía aunque la denuncia esté REGISTRADA: la persona
+      // reportada tiene derecho a enterarse antes de que nada se difunda, no
+      // después. Solo se descarta si la denuncia ya dejó de estar activa.
+      const esAvisoDirecto = emision.motivo === 'coincidencia_documento';
+      const yaNoCorresponde = esAvisoDirecto
+        ? denuncia.estado !== EstadoDenuncia.ACTIVA
+        : denuncia.estado !== EstadoDenuncia.ACTIVA ||
+          denuncia.nivel_confianza === NivelConfianza.REGISTRADA;
+
+      if (yaNoCorresponde) {
         await this.emisionesRepository.update(emisionId, {
           estado: 'completada',
           destinatarios: 0,
@@ -158,10 +200,14 @@ export class AlertasService {
         return true;
       }
 
-      const destinatarios = await this.destinatariosDe(denuncia);
+      // Un aviso directo va a una persona concreta; una difusión resuelve la
+      // consulta geográfica. Es la única diferencia entre ambos recorridos.
+      const destinatarios = emision.usuario_objetivo_id
+        ? await this.dispositivosDe(emision.usuario_objetivo_id)
+        : await this.destinatariosDe(denuncia);
 
       if (destinatarios.length > 0) {
-        await this.enviarA(emisionId, denuncia, destinatarios);
+        await this.enviarA(emisionId, denuncia, destinatarios, emision.motivo);
       }
 
       await this.emisionesRepository.update(emisionId, {
@@ -192,11 +238,43 @@ export class AlertasService {
     }
   }
 
+  /**
+   * Qué dice la notificación.
+   *
+   * El aviso a la persona reportada **no revela quién la denunció** (I8): solo
+   * que la denuncia existe y que puede retirarla. Volcar la identidad del
+   * denunciante aquí obligaría a entrar en modo confrontación a quien quizá solo
+   * quiere que la alerta se detenga.
+   *
+   * Ninguno de los dos mensajes nombra a un tercero: la persona buscada es el
+   * único sujeto identificable del sistema (I3).
+   */
+  private contenidoSegunMotivo(
+    motivo: MotivoEmision,
+    denuncia: Denuncia,
+  ): { titulo: string; cuerpo: string } {
+    if (motivo === 'coincidencia_documento') {
+      return {
+        titulo: 'Existe una denuncia que te identifica',
+        cuerpo:
+          'Alguien te reportó como persona desaparecida. Si estás bien, puedes retirar la alerta desde la app.',
+      };
+    }
+
+    return {
+      titulo: 'Persona desaparecida cerca de ti',
+      cuerpo: denuncia.nombre_persona_buscada
+        ? `Se busca a ${denuncia.nombre_persona_buscada}. Toca para ver los detalles.`
+        : 'Hay una denuncia de desaparición en tu zona.',
+    };
+  }
+
   /** Envía y registra una entrega por destinatario, con su distancia. */
   private async enviarA(
     emisionId: string,
     denuncia: Denuncia,
     destinatarios: Destinatario[],
+    motivo: MotivoEmision,
   ): Promise<void> {
     const entregas = this.dataSource.getRepository(EntregaAlerta);
 
@@ -212,13 +290,8 @@ export class AlertasService {
 
     const mensajes: MensajePush[] = destinatarios.map((d) => ({
       push_token: d.push_token,
-      titulo: 'Persona desaparecida cerca de ti',
-      // El cuerpo no incluye datos de terceros ni la identidad de quien
-      // denunció: solo la persona buscada es sujeto nombrable (I3, I8).
-      cuerpo: denuncia.nombre_persona_buscada
-        ? `Se busca a ${denuncia.nombre_persona_buscada}. Toca para ver los detalles.`
-        : 'Hay una denuncia de desaparición en tu zona.',
-      datos: { denuncia_id: denuncia.id },
+      ...this.contenidoSegunMotivo(motivo, denuncia),
+      datos: { denuncia_id: denuncia.id, motivo },
     }));
 
     const resultados = await this.pasarela.enviar(mensajes);
