@@ -26,7 +26,8 @@ interface AuthStore {
   register: (email: string, password: string, full_name: string, phone: string) => Promise<void>;
   logout: () => Promise<void>;
   extraerDatosDocumento: (frontBase64: string, backBase64: string) => Promise<void>;
-  registrarDocumento: (selfieBase64: string) => Promise<void>;
+  /** Devuelve cuántas denuncias activas identifican a esta persona (H4.4). */
+  registrarDocumento: (selfieBase64: string) => Promise<number>;
   getProfile: () => Promise<void>;
   setError: (error: string | null) => void;
   setPersonalData: (data: PersonalData) => void;
@@ -149,7 +150,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         throw new Error('Datos de verificación incompletos. Reinicia el proceso.');
       }
 
-      await authService.registrarDocumento({
+      const resultado = await authService.registrarDocumento({
         id_front_base64: idFrontBase64,
         id_back_base64: idBackBase64,
         selfie_base64: selfieBase64,
@@ -166,6 +167,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         verificationDraft: { personalData: null, idFrontBase64: null, idBackBase64: null },
       });
       await get().getProfile();
+
+      return resultado.denuncias_que_te_identifican ?? 0;
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Verification failed';
       set({ error: errorMessage });

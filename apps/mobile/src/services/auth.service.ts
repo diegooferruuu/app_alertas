@@ -23,6 +23,20 @@ export interface User {
   is_suspended: boolean;
 }
 
+/**
+ * Lo que responde el servidor al registrar el documento.
+ *
+ * `denuncias_que_te_identifican` es la vía de acceso de H4.4: una denuncia pudo
+ * presentarse contra este documento antes de que la persona tuviera cuenta. El
+ * servidor lo dice aquí mismo para que la app pueda llevarla al interruptor de
+ * inmediato —«minutos, no horas»— sin depender de que llegue la notificación.
+ */
+export interface RegistroDocumentoResultado {
+  documento_registrado: boolean;
+  message: string;
+  denuncias_que_te_identifican: number;
+}
+
 class AuthService {
   async register(
     email: string,
@@ -78,8 +92,12 @@ class AuthService {
       birth_place: string;
       birth_date: string;
     };
-  }): Promise<any> {
-    return apiClient.post('/auth/documento/registrar', payload);
+  }): Promise<RegistroDocumentoResultado> {
+    const response = await apiClient.post<RegistroDocumentoResultado>(
+      '/auth/documento/registrar',
+      payload,
+    );
+    return response.data;
   }
 
   async getProfile(): Promise<User> {

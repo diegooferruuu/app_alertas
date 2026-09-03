@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
+import desactivacionService from '../../services/desactivacion.service';
 
 const getRoleInfo = (
   role: string | undefined,
@@ -31,6 +33,23 @@ const getRoleInfo = (
 const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, documentoRegistrado, logout } = useAuth();
   const roleInfo = getRoleInfo(user?.role, documentoRegistrado);
+  const [alertasSobreMi, setAlertasSobreMi] = useState(0);
+
+  // El interruptor tiene que ser encontrable sin depender de la notificación:
+  // quien reinstala la app, o desactiva los avisos, no dejaría de estar
+  // reportado por eso. El contador es lo que lo hace visible.
+  useFocusEffect(
+    useCallback(() => {
+      if (!documentoRegistrado) {
+        setAlertasSobreMi(0);
+        return;
+      }
+      desactivacionService
+        .misAlertas()
+        .then((a) => setAlertasSobreMi(a.length))
+        .catch(() => setAlertasSobreMi(0));
+    }, [documentoRegistrado]),
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -71,6 +90,26 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <Text style={styles.menuItemText}>Mis denuncias</Text>
         <Ionicons name="chevron-forward" size={18} color="#ccc" />
       </TouchableOpacity>
+
+      {documentoRegistrado && (
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('AlertasSobreMi')}
+        >
+          <Ionicons
+            name="shield-outline"
+            size={20}
+            color={alertasSobreMi > 0 ? '#B32C24' : '#007AFF'}
+          />
+          <Text style={styles.menuItemText}>Alertas sobre mí</Text>
+          {alertasSobreMi > 0 && (
+            <View style={styles.contador}>
+              <Text style={styles.contadorText}>{alertasSobreMi}</Text>
+            </View>
+          )}
+          <Ionicons name="chevron-forward" size={18} color="#ccc" />
+        </TouchableOpacity>
+      )}
 
       {!documentoRegistrado && (
         <TouchableOpacity
@@ -130,6 +169,16 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   menuItemText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  contador: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: '#B32C24',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contadorText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   verifyButton: {
     flexDirection: 'row',
     gap: 8,

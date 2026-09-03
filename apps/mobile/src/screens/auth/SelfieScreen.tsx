@@ -45,7 +45,30 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
 
     try {
-      await registrarDocumento(selfieImage);
+      const meIdentifican = await registrarDocumento(selfieImage);
+
+      // H4.4 — Vía de acceso para la persona reportada sin cuenta previa.
+      //
+      // Pudieron denunciarla antes de que existiera en el sistema. Ahora que su
+      // documento quedó registrado, el servidor ya sabe cuántas denuncias la
+      // identifican, y se la lleva al interruptor en el acto: es lo que hace
+      // real el «minutos, no horas» sin depender de la notificación push.
+      if (meIdentifican > 0) {
+        Alert.alert(
+          'Hay una alerta que te identifica',
+          meIdentifican === 1
+            ? 'Existe una denuncia que te identifica por tu documento. Si estás bien, puedes retirarla.'
+            : `Existen ${meIdentifican} denuncias que te identifican por tu documento. Si estás bien, puedes retirarlas.`,
+          [
+            {
+              text: 'Ver',
+              onPress: () => navigation.navigate('AlertasSobreMi'),
+            },
+          ],
+        );
+        return;
+      }
+
       // Registrado el documento, volvemos a la app principal: ya puede reportar,
       // porque sus denuncias quedan atribuidas a este documento.
       Alert.alert(
