@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { VinculoDeclarado } from '../domain/vinculos';
 import { VersionTextoLegal } from './version-texto-legal.entity';
+import { Denuncia } from '../../denuncias/entities/denuncia.entity';
 
 /** Distingue la declaración que difunde el caso de las que lo corroboran. */
 export type TipoDeclaracion = 'original' | 'corroboracion';
@@ -112,4 +113,15 @@ export class DeclaracionJurada {
   @ManyToOne(() => VersionTextoLegal)
   @JoinColumn({ name: 'version_texto_legal_id' })
   version_texto_legal!: VersionTextoLegal;
+
+  /**
+   * Sin cascada al borrar, a propósito.
+   *
+   * Con ON DELETE CASCADE, eliminar la denuncia arrastraría su paquete
+   * probatorio y burlaría el invariante I4 por la puerta de atrás. Aquí el
+   * borrado debe fallar.
+   */
+  @ManyToOne(() => Denuncia, { onDelete: 'NO ACTION' })
+  @JoinColumn({ name: 'denuncia_id' })
+  denuncia!: Denuncia;
 }

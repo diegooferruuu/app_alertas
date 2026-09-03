@@ -289,4 +289,116 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       expect(registro.hash_contenido_denuncia).toHaveLength(64);
     });
   });
+
+  /**
+   * Invariante I4: el paquete probatorio es append-only.
+   *
+   * Lo impone un disparador de la base, no la disciplina del código: un
+   * invariante que solo sostiene quien escribe se rompe en el primer refactor, y
+   * aquí lo que está en juego es que el registro sea creíble incluso frente a
+   * quien opera el servidor.
+   */
+  describe('append-only del paquete probatorio', () => {
+    const firmarUna = async () => {
+      const autor = await crearDenunciante();
+      const denuncia = await crearDenuncia(autor.id);
+      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      const [registro] = await firmas.deLaDenuncia(denuncia.id);
+      return { registro, denuncia };
+    };
+
+    it('rechaza modificar una declaración ya firmada', async () => {
+      const { registro } = await firmarUna();
+
+      await expect(
+        registros.query(
+          `UPDATE declaraciones_juradas SET vinculo_declarado = 'MADRE' WHERE id = $1`,
+          [registro.id],
+        ),
+      ).rejects.toThrow(/solo inserción/i);
+    });
+
+    it('rechaza modificar el hash para encubrir una alteración', async () => {
+      const { registro } = await firmarUna();
+
+      await expect(
+        registros.query(
+          `UPDATE declaraciones_juradas SET hash_registro = $2 WHERE id = $1`,
+          [registro.id, 'f'.repeat(64)],
+        ),
+      ).rejects.toThrow(/solo inserción/i);
+    });
+
+    it('rechaza eliminar una declaración', async () => {
+      const { registro } = await firmarUna();
+
+      await expect(
+        registros.query(`DELETE FROM declaraciones_juradas WHERE id = $1`, [
+          registro.id,
+        ]),
+      ).rejects.toThrow(/solo inserción/i);
+    });
+
+    it('impide borrar la denuncia para arrastrar su declaración', async () => {
+      // El camino indirecto: si la denuncia se pudiera borrar en cascada, el
+      // paquete probatorio desaparecería sin tocar la tabla protegida.
+      const { denuncia } = await firmarUna();
+
+      await expect(
+        registros.query(`DELETE FROM denuncias WHERE id = $1`, [denuncia.id]),
+      ).rejects.toThrow();
+    });
+
+    it('la declaración sigue ahí tras los intentos fallidos', async () => {
+      const { registro } = await firmarUna();
+
+      try {
+        await registros.query(`DELETE FROM declaraciones_juradas WHERE id = $1`, [
+          registro.id,
+        ]);
+      } catch {
+        // Se espera que falle: lo que se comprueba es que la fila sobrevive.
+      }
+
+      const [fila] = await registros.query(
+        `SELECT vinculo_declarado FROM declaraciones_juradas WHERE id = $1`,
+        [registro.id],
+      );
+      expect(fila.vinculo_declarado).toBe(VinculoDeclarado.PADRE);
+    });
+
+    it('sí permite insertar: corregir es firmar de nuevo, no editar', async () => {
+      await firmarUna();
+      const otro = await crearDenunciante('otro@test.com');
+      const otraDenuncia = await crearDenuncia(otro.id);
+
+      await expect(
+        firmas.firmar(otro.id, otraDenuncia.id, firmaValida() as never),
+      ).resolves.toBeTruthy();
+
+      expect((await firmas.verificarCadenaCompleta()).registros).toBe(2);
+    });
+  });
+
+  describe('verificación de la cadena completa', () => {
+    it('una cadena recién construida está intacta', async () => {
+      const uno = await crearDenunciante('uno@test.com');
+      const dos = await crearDenunciante('dos@test.com');
+      await firmas.firmar(uno.id, (await crearDenuncia(uno.id)).id, firmaValida() as never);
+      await firmas.firmar(dos.id, (await crearDenuncia(dos.id)).id, firmaValida() as never);
+
+      const resultado = await firmas.verificarCadenaCompleta();
+
+      expect(resultado.intacta).toBe(true);
+      expect(resultado.registros).toBe(2);
+      expect(resultado.primerEslabonRoto).toBeNull();
+    });
+
+    it('una cadena vacía está intacta: todavía no hay nada que verificar', async () => {
+      const resultado = await firmas.verificarCadenaCompleta();
+
+      expect(resultado.intacta).toBe(true);
+      expect(resultado.registros).toBe(0);
+    });
+  });
 });

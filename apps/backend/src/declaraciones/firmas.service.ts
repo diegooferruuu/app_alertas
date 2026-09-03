@@ -18,6 +18,7 @@ import {
   calcularHashContenido,
   calcularHashRegistro,
   contieneSeparador,
+  verificarCadena,
 } from './domain/cadena';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { NivelConfianza, EstadoDenuncia } from '../denuncias/domain/estados';
@@ -194,5 +195,50 @@ export class FirmasService {
       where: { denuncia_id: denunciaId },
       order: { firmada_en: 'ASC' },
     });
+  }
+
+  /** Convierte una fila en los campos que entran en su hash. */
+  private static camposDe(registro: DeclaracionJurada) {
+    return {
+      denuncia_id: registro.denuncia_id,
+      usuario_id: registro.usuario_id,
+      ci_hash_declarante: registro.ci_hash_declarante,
+      vinculo_declarado: registro.vinculo_declarado,
+      tipo: registro.tipo,
+      version_texto_legal_id: registro.version_texto_legal_id,
+      hash_texto_legal: registro.hash_texto_legal,
+      texto_firmado: registro.texto_firmado,
+      hash_contenido_denuncia: registro.hash_contenido_denuncia,
+      firmada_en: registro.firmada_en.toISOString(),
+      device_id: registro.device_id,
+      hash_anterior: registro.hash_anterior,
+      hash_registro: registro.hash_registro,
+    };
+  }
+
+  /**
+   * Verifica la cadena completa de declaraciones.
+   *
+   * Detecta tanto un registro alterado como uno suprimido: si falta un eslabón
+   * intermedio, el siguiente apunta a un hash que ya no está. Es la operación
+   * que sostiene la constancia probatoria de la fase 6, y la que permite a un
+   * tercero comprobar el registro sin confiar en quien opera el sistema.
+   */
+  async verificarCadenaCompleta(): Promise<{
+    intacta: boolean;
+    registros: number;
+    primerEslabonRoto: number | null;
+  }> {
+    const todas = await this.declaracionesRepository.find({
+      order: { firmada_en: 'ASC', id: 'ASC' },
+    });
+
+    const roto = verificarCadena(todas.map(FirmasService.camposDe));
+
+    return {
+      intacta: roto === null,
+      registros: todas.length,
+      primerEslabonRoto: roto,
+    };
   }
 }
