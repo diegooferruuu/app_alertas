@@ -98,6 +98,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isAuthenticated: true,
         documentoRegistrado: response.user.documento_registrado,
       });
+      // El login devuelve un usuario mínimo; el perfil completo trae el estado
+      // de cuenta y la reputación, sin los cuales no se puede explicar por qué
+      // una cuenta sancionada no puede reportar.
+      await get().getProfile();
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Login failed';
       set({ error: errorMessage });
@@ -116,6 +120,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isAuthenticated: true,
         documentoRegistrado: response.user.documento_registrado,
       });
+      await get().getProfile();
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Registration failed';
       set({ error: errorMessage });

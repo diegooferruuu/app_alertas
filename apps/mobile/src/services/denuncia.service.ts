@@ -211,6 +211,27 @@ class DeclaracionService {
       payload,
     );
   }
+
+  /**
+   * Corrobora la denuncia de otra persona.
+   *
+   * Misma ceremonia y mismo compromiso que firmar la propia: quien corrobora
+   * también queda atribuido. Por eso reutiliza la pantalla de firma en lugar de
+   * ofrecer un botón de "confirmar" barato.
+   */
+  async corroborar(denunciaId: string, payload: FirmarPayload): Promise<void> {
+    await apiClient.post(
+      `/declaraciones/denuncias/${denunciaId}/corroborar`,
+      payload,
+    );
+  }
+
+  /** La otra vía de corroboración: el respaldo de una denuncia formal. */
+  async registrarCasoFelcc(denunciaId: string, numeroCaso: string): Promise<void> {
+    await apiClient.post(`/declaraciones/denuncias/${denunciaId}/caso-felcc`, {
+      numero_caso: numeroCaso,
+    });
+  }
 }
 
 export const declaracionService = new DeclaracionService();

@@ -33,7 +33,8 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { denunciaId, versionId } = route.params;
+  const { denunciaId, versionId, modo = 'firmar' } = route.params;
+  const esCorroboracion = modo === 'corroborar';
   const { user } = useAuth();
 
   const [vinculos, setVinculos] = useState<Vinculo[]>([]);
@@ -63,16 +64,27 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   const firmar = async () => {
     setEnviando(true);
     try {
-      await declaracionService.firmar(denunciaId, {
+      const payload = {
         version_texto_legal_id: versionId,
         vinculo_declarado: vinculo!,
         nombre_escrito: nombreEscrito,
-      });
-      Alert.alert(
-        'Declaración firmada',
-        'Tu denuncia empezó a difundirse en la zona. La alerta caducará sola si nadie la corrobora.',
-        [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
-      );
+      };
+
+      if (esCorroboracion) {
+        await declaracionService.corroborar(denunciaId, payload);
+        Alert.alert(
+          'Declaración firmada',
+          'Corroboraste esta denuncia. La alerta pasa a difundirse en una zona más amplia y por más tiempo.',
+          [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
+        );
+      } else {
+        await declaracionService.firmar(denunciaId, payload);
+        Alert.alert(
+          'Declaración firmada',
+          'Tu denuncia empezó a difundirse en la zona. La alerta caducará sola si nadie la corrobora.',
+          [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
+        );
+      }
     } catch (err: any) {
       Alert.alert(
         'No se pudo firmar',
@@ -87,11 +99,17 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
     const etiqueta =
       vinculos.find((v) => v.valor === vinculo)?.etiqueta ?? 'la persona';
     Alert.alert(
-      '¿Firmar la declaración?',
-      `Declaras bajo juramento ser ${etiqueta} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.`,
+      esCorroboracion ? '¿Corroborar esta denuncia?' : '¿Firmar la declaración?',
+      esCorroboracion
+        ? `Declaras bajo juramento ser ${etiqueta} de la persona buscada.\n\nCorroborar compromete igual que denunciar: tu identidad queda asociada de forma permanente a esta denuncia, y la alerta ampliará su alcance.`
+        : `Declaras bajo juramento ser ${etiqueta} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.`,
       [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Firmar', style: 'destructive', onPress: firmar },
+        {
+          text: esCorroboracion ? 'Corroborar' : 'Firmar',
+          style: 'destructive',
+          onPress: firmar,
+        },
       ],
     );
   };
@@ -109,7 +127,9 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
       contentContainerStyle={styles.contenedor}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.titulo}>Firmar la declaración</Text>
+      <Text style={styles.titulo}>
+        {esCorroboracion ? 'Corroborar la denuncia' : 'Firmar la declaración'}
+      </Text>
 
       <Text style={styles.etiqueta}>¿Qué eres de la persona desaparecida?</Text>
       <View style={styles.opciones}>
@@ -174,7 +194,9 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
         {enviando ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.botonTexto}>Firmar declaración jurada</Text>
+          <Text style={styles.botonTexto}>
+            {esCorroboracion ? 'Corroborar bajo juramento' : 'Firmar declaración jurada'}
+          </Text>
         )}
       </TouchableOpacity>
 

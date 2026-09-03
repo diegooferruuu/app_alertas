@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
+import { sancionVigente } from '../../services/auth.service';
 import desactivacionService from '../../services/desactivacion.service';
 
 const getRoleInfo = (
@@ -33,6 +34,7 @@ const getRoleInfo = (
 const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, documentoRegistrado, logout } = useAuth();
   const roleInfo = getRoleInfo(user?.role, documentoRegistrado);
+  const sancion = sancionVigente(user);
   const [alertasSobreMi, setAlertasSobreMi] = useState(0);
 
   // El interruptor tiene que ser encontrable sin depender de la notificación:
@@ -66,6 +68,26 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <Text style={[styles.roleLabel, { color: roleInfo.color }]}>{roleInfo.label}</Text>
       </View>
       <Text style={styles.roleDesc}>{roleInfo.desc}</Text>
+
+      {/* Sin esto, una cuenta sancionada recibe un 403 al reportar y no tiene
+          dónde enterarse de por qué. La sanción es automática: no hay a quién
+          reclamarle, así que al menos debe ser legible. */}
+      {sancion && (
+        <View
+          style={[
+            styles.sancion,
+            { backgroundColor: `${sancion.color}15`, borderColor: `${sancion.color}40` },
+          ]}
+        >
+          <Ionicons name="alert-circle-outline" size={20} color={sancion.color} />
+          <View style={styles.sancionBody}>
+            <Text style={[styles.sancionTitulo, { color: sancion.color }]}>
+              {sancion.titulo}
+            </Text>
+            <Text style={styles.sancionDetalle}>{sancion.detalle}</Text>
+          </View>
+        </View>
+      )}
 
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
@@ -147,6 +169,19 @@ const styles = StyleSheet.create({
   roleBadge: { paddingVertical: 6, paddingHorizontal: 18, borderRadius: 20, marginBottom: 8 },
   roleLabel: { fontSize: 15, fontWeight: '700' },
   roleDesc: { fontSize: 13, color: '#777', textAlign: 'center', marginBottom: 24, paddingHorizontal: 12 },
+  sancion: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 20,
+  },
+  sancionBody: { flex: 1 },
+  sancionTitulo: { fontSize: 14, fontWeight: '700', marginBottom: 3 },
+  sancionDetalle: { fontSize: 13, color: '#555', lineHeight: 19 },
   statsRow: { flexDirection: 'row', gap: 16, marginBottom: 28 },
   statCard: {
     backgroundColor: '#f7f7f7',

@@ -12,6 +12,15 @@ export interface LoginResponse {
   };
 }
 
+/**
+ * Estado de la cuenta frente a las sanciones (§5.4).
+ *
+ * Sustituye al antiguo booleano `is_suspended`, que el servidor ya no devuelve:
+ * la sanción es graduada y un booleano no distinguía «restringida un tiempo» de
+ * «suspendida».
+ */
+export type EstadoCuenta = 'ACTIVA' | 'RESTRINGIDA' | 'SUSPENDIDA';
+
 export interface User {
   id: string;
   email: string;
@@ -20,7 +29,48 @@ export interface User {
   documento_registrado: boolean;
   reputation_score: number;
   role: 'citizen' | 'admin' | 'moderator';
-  is_suspended: boolean;
+  estado_cuenta: EstadoCuenta;
+  /** Hasta cuándo dura la restricción. Nulo si no hay plazo que cumplir. */
+  restringida_hasta: string | null;
+}
+
+export interface SancionVisible {
+  titulo: string;
+  detalle: string;
+  color: string;
+}
+
+/**
+ * Cómo se le explica a una persona su sanción, o `null` si no hay ninguna
+ * vigente.
+ *
+ * Espeja la regla del servidor: una restricción cuyo plazo ya venció **no
+ * restringe**, aunque la cuenta siga etiquetada como RESTRINGIDA. Avisar ahí le
+ * diría a alguien que no puede reportar cuando sí puede.
+ */
+export function sancionVigente(user: User | null): SancionVisible | null {
+  if (!user) return null;
+
+  if (user.estado_cuenta === 'SUSPENDIDA') {
+    return {
+      titulo: 'Cuenta suspendida',
+      detalle:
+        'No puedes crear denuncias ni firmar declaraciones. Sí puedes retirar alertas que te identifiquen.',
+      color: '#B32C24',
+    };
+  }
+
+  if (user.estado_cuenta === 'RESTRINGIDA') {
+    const hasta = user.restringida_hasta ? new Date(user.restringida_hasta) : null;
+    if (!hasta || hasta <= new Date()) return null;
+    return {
+      titulo: 'Cuenta restringida',
+      detalle: `No puedes crear denuncias nuevas hasta el ${hasta.toLocaleDateString()}. Conservas el resto de funciones.`,
+      color: '#8F5600',
+    };
+  }
+
+  return null;
 }
 
 /**

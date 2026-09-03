@@ -24,7 +24,10 @@ const TextoLegalScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { denunciaId } = route.params;
+  // `modo` distingue firmar la denuncia propia de corroborar la de otra
+  // persona. La ceremonia es la misma —y el compromiso también—, así que
+  // solo cambia a qué endpoint va al final.
+  const { denunciaId, modo = 'firmar' } = route.params;
   const [textoLegal, setTextoLegal] = useState<TextoLegal | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +129,7 @@ const TextoLegalScreen: React.FC<{ route: any; navigation: any }> = ({
         onPress={() =>
           navigation.navigate('FirmarDeclaracion', {
             denunciaId,
+            modo,
             versionId: textoLegal.version_id,
           })
         }
