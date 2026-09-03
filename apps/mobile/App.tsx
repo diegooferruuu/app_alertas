@@ -17,12 +17,18 @@ import { TextoLegalScreen } from './src/screens/main/TextoLegalScreen';
 import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScreen';
 import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
+import { navigationRef } from './src/navigation/navigationRef';
+import { useAlertas } from './src/hooks/useAlertas';
 
 const Stack = createStackNavigator();
 
 export default function App() {
   const { isAuthenticated, getProfile } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
+
+  // Registra el dispositivo e informa la ubicación: sin las dos cosas, la
+  // consulta de destinatarios del servidor no alcanza a esta cuenta.
+  useAlertas(isAuthenticated);
 
   useEffect(() => {
     const checkAuthStatus = async () => {
@@ -48,7 +54,7 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         screenOptions={{
           headerShown: true,
