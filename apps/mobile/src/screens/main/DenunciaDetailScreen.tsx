@@ -105,13 +105,28 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
         {isOwner && (
           <View style={styles.ownerActions}>
             {editable ? (
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => navigation.navigate('EditDenuncia', { denuncia })}
-              >
-                <Ionicons name="create-outline" size={18} color="#007AFF" />
-                <Text style={styles.editText}>Editar</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={styles.firmarButton}
+                  onPress={() =>
+                    navigation.navigate('TextoLegal', { denunciaId: denuncia.id })
+                  }
+                >
+                  <Ionicons name="shield-checkmark" size={18} color="#fff" />
+                  <Text style={styles.firmarText}>Firmar para difundir</Text>
+                </TouchableOpacity>
+                <Text style={styles.firmarAyuda}>
+                  Por ahora esta denuncia solo la ves tú. Al firmar la declaración
+                  jurada empezará a alertarse a la zona.
+                </Text>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => navigation.navigate('EditDenuncia', { denuncia })}
+                >
+                  <Ionicons name="create-outline" size={18} color="#007AFF" />
+                  <Text style={styles.editText}>Editar</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <View style={styles.aviso}>
                 <Ionicons name="lock-closed-outline" size={16} color="#8F5600" />
@@ -151,7 +166,18 @@ const styles = StyleSheet.create({
   description: { fontSize: 15, color: '#333', lineHeight: 22, marginBottom: 20 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   metaText: { fontSize: 13, color: '#888' },
-  ownerActions: { marginTop: 24 },
+  ownerActions: { marginTop: 24, gap: 12 },
+  firmarButton: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderRadius: 10,
+    backgroundColor: '#B32C24',
+  },
+  firmarText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  firmarAyuda: { fontSize: 13, color: '#777', lineHeight: 18, textAlign: 'center' },
   aviso: {
     flexDirection: 'row',
     gap: 10,

@@ -169,10 +169,40 @@ export interface TextoLegal {
   hash_texto: string;
 }
 
+export interface Vinculo {
+  valor: string;
+  etiqueta: string;
+}
+
+export interface FirmarPayload {
+  version_texto_legal_id: string;
+  vinculo_declarado: string;
+  nombre_escrito: string;
+  device_id?: string;
+}
+
 class DeclaracionService {
   async textoLegal(): Promise<TextoLegal> {
     const response = await apiClient.get<TextoLegal>('/declaraciones/texto-legal');
     return response.data;
+  }
+
+  /**
+   * Los vínculos los sirve el servidor.
+   *
+   * Mantener aquí una copia de la lista permitiría que se desincronizara y que
+   * la app ofreciera un valor que el servidor rechaza.
+   */
+  async vinculos(): Promise<Vinculo[]> {
+    const response = await apiClient.get<Vinculo[]>('/declaraciones/vinculos');
+    return response.data;
+  }
+
+  async firmar(denunciaId: string, payload: FirmarPayload): Promise<void> {
+    await apiClient.post(
+      `/declaraciones/denuncias/${denunciaId}/firmar`,
+      payload,
+    );
   }
 }
 

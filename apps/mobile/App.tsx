@@ -13,6 +13,7 @@ import { DenunciaDetailScreen } from './src/screens/main/DenunciaDetailScreen';
 import { EditDenunciaScreen } from './src/screens/main/EditDenunciaScreen';
 import { MisDenunciasScreen } from './src/screens/main/MisDenunciasScreen';
 import { TextoLegalScreen } from './src/screens/main/TextoLegalScreen';
+import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScreen';
 import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
 
@@ -96,13 +97,16 @@ export default function App() {
               component={MisDenunciasScreen}
               options={{ title: 'Mis denuncias' }}
             />
-            {/* Primer paso de la declaración jurada. Todavía no hay entrada
-                desde el detalle de una denuncia: se abrirá cuando los pasos de
-                vínculo y firma existan, para no dejar un flujo a medias. */}
+            {/* Declaración jurada: leer el texto, luego declarar y firmar. */}
             <Stack.Screen
               name="TextoLegal"
               component={TextoLegalScreen}
               options={{ title: 'Declaración jurada' }}
+            />
+            <Stack.Screen
+              name="FirmarDeclaracion"
+              component={FirmarDeclaracionScreen}
+              options={{ title: 'Firmar declaración' }}
             />
             {/* Flujo de verificación de identidad (on-demand) */}
             <Stack.Screen
