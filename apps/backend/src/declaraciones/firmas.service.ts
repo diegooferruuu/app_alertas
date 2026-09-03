@@ -25,6 +25,7 @@ import { NivelConfianza, EstadoDenuncia } from '../denuncias/domain/estados';
 import { UsersService } from '../users/users.service';
 import { nombreEscritoCoincide } from '../verification/domain/nombres';
 import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
+import { AlertasService } from '../alertas/alertas.service';
 
 /**
  * El acto de firma de una declaración jurada.
@@ -41,6 +42,7 @@ export class FirmasService {
     private declaracionesService: DeclaracionesService,
     private usersService: UsersService,
     private configService: ConfigService,
+    private alertasService: AlertasService,
   ) {}
 
   private get config(): DenunciasConfig {
@@ -181,6 +183,12 @@ export class FirmasService {
         radio_actual_m: radio_m,
         expira_en: expiraEn,
       });
+
+      // Se encola DENTRO de esta transacción, no después. Si el proceso muriera
+      // entre firmar y encolar, quedaría una denuncia declarada bajo juramento
+      // cuya alerta nunca se emite y de la que nadie se enteraría. Aquí o se
+      // guardan las tres cosas —declaración, difusión y trabajo— o ninguna.
+      await this.alertasService.encolar(manager, denuncia.id, radio_m, 'firma');
 
       return { firmada: true, nivel_confianza: NivelConfianza.PROVISIONAL };
     });

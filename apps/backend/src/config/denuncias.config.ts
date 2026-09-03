@@ -46,6 +46,23 @@ export interface DenunciasConfig {
   intervaloCaducidadMin: number;
 
   /**
+   * Antigüedad máxima de la ubicación de una persona para alertarla, en horas.
+   *
+   * La consulta opera sobre la última posición registrada, no sobre dónde está
+   * ahora: es una limitación conocida del enfoque. Este umbral la acota — a
+   * quien no reporta posición desde hace días no tiene sentido alertarlo por una
+   * zona en la que probablemente ya no está, y contarlo como destinatario
+   * falsearía la métrica de precisión de la segmentación.
+   */
+  antiguedadMaximaUbicacionH: number;
+
+  /** Cada cuántos minutos el worker busca emisiones pendientes. */
+  intervaloEmisionMin: number;
+
+  /** Reintentos de una emisión fallida antes de darla por perdida. */
+  maxIntentosEmision: number;
+
+  /**
    * Precisión del geohash de un avistamiento. 6 caracteres ≈ 1.2 × 0.6 km,
    * que es la resolución de ~1 km que pide §3.3. Subirlo estrecha la zona y
    * acerca el dato a una ubicación identificable: no aumentar sin motivo.
@@ -89,6 +106,10 @@ export const denunciasConfig = registerAs(
     ),
 
     intervaloCaducidadMin: entero(process.env.INTERVALO_CADUCIDAD_MIN, 5),
+
+    antiguedadMaximaUbicacionH: entero(process.env.ANTIGUEDAD_MAXIMA_UBICACION_H, 72),
+    intervaloEmisionMin: entero(process.env.INTERVALO_EMISION_MIN, 1),
+    maxIntentosEmision: entero(process.env.MAX_INTENTOS_EMISION, 3),
 
     precisionGeohash: entero(process.env.PRECISION_GEOHASH, 6),
   }),

@@ -15,6 +15,11 @@ import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from '../users/entities/refresh-token.entity';
 import { ReputationEvent } from '../users/entities/reputation-event.entity';
+import { AlertasService } from '../alertas/alertas.service';
+import { PasarelaPush, PasarelaPushSimulada } from '../alertas/pasarela-push';
+import { EmisionAlerta } from '../alertas/entities/emision-alerta.entity';
+import { EntregaAlerta } from '../alertas/entities/entrega-alerta.entity';
+import { Dispositivo } from '../alertas/entities/dispositivo.entity';
 
 const NOMBRE = 'María Fernanda Villarroel Quispe';
 
@@ -37,9 +42,18 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
           User,
           RefreshToken,
           ReputationEvent,
+          EmisionAlerta,
+          EntregaAlerta,
+          Dispositivo,
         ]),
       ],
-      providers: [FirmasService, DeclaracionesService, UsersService],
+      providers: [
+        FirmasService,
+        DeclaracionesService,
+        UsersService,
+        AlertasService,
+        { provide: PasarelaPush, useClass: PasarelaPushSimulada },
+      ],
     });
     firmas = ctx.module.get(FirmasService);
     declaraciones = ctx.module.get(DeclaracionesService);
