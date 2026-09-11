@@ -5,6 +5,7 @@ import { ConstanciasController } from './constancias.controller';
 import { SolicitudConstancia } from './entities/solicitud-constancia.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { DeclaracionJurada } from '../declaraciones/entities/declaracion-jurada.entity';
+import { VersionTextoLegal } from '../declaraciones/entities/version-texto-legal.entity';
 import { User } from '../users/entities/user.entity';
 import { UsersModule } from '../users/users.module';
 
@@ -14,6 +15,7 @@ import { UsersModule } from '../users/users.module';
       SolicitudConstancia,
       Denuncia,
       DeclaracionJurada,
+      VersionTextoLegal,
       User,
     ]),
     UsersModule,

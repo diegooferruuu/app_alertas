@@ -1,7 +1,15 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Constancia } from '../../services/constancia.service';
+import constanciaService, { Constancia } from '../../services/constancia.service';
 
 const ETIQUETA_TIPO: Record<string, string> = {
   original: 'Presentó la denuncia',
@@ -21,9 +29,24 @@ const ETIQUETA_TIPO: Record<string, string> = {
  */
 const ConstanciaScreen: React.FC<{ route: any }> = ({ route }) => {
   const constancia: Constancia = route.params.constancia;
+  const [exportando, setExportando] = useState(false);
   const sinFirmaCripto = constancia.firmantes.some(
     (f) => !f.con_firma_criptografica,
   );
+
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      await constanciaService.exportar(constancia);
+    } catch (err: any) {
+      Alert.alert(
+        'No se pudo exportar',
+        err?.message ?? 'Inténtalo de nuevo.',
+      );
+    } finally {
+      setExportando(false);
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.contenedor}>
@@ -110,6 +133,28 @@ const ConstanciaScreen: React.FC<{ route: any }> = ({ route }) => {
           </Text>
         </View>
       )}
+
+      {/* Lo que se entrega es el JSON, no una captura: es lo único que un
+          tercero puede verificar recalculando los hashes por su cuenta. */}
+      <TouchableOpacity
+        style={styles.exportar}
+        onPress={exportar}
+        disabled={exportando}
+      >
+        {exportando ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <>
+            <Ionicons name="share-outline" size={18} color="#fff" />
+            <Text style={styles.exportarTexto}>Exportar constancia</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      <Text style={styles.verificable}>
+        El archivo exportado incluye el procedimiento de verificación. Cualquiera
+        puede comprobar su integridad sin consultar a este sistema.
+      </Text>
     </ScrollView>
   );
 };
@@ -170,6 +215,24 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   advertenciaTexto: { flex: 1, fontSize: 13, color: '#6B4300', lineHeight: 19 },
+  exportar: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderRadius: 10,
+    backgroundColor: '#1F4FD8',
+    marginTop: 20,
+  },
+  exportarTexto: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  verificable: {
+    fontSize: 12,
+    color: '#8A93A3',
+    lineHeight: 17,
+    textAlign: 'center',
+    marginTop: 10,
+  },
 });
 
 export { ConstanciaScreen };

@@ -8,6 +8,11 @@ import { SolicitudConstancia } from './entities/solicitud-constancia.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from '../denuncias/domain/estados';
 import { DeclaracionJurada } from '../declaraciones/entities/declaracion-jurada.entity';
+import { VersionTextoLegal } from '../declaraciones/entities/version-texto-legal.entity';
+import {
+  calcularHashRegistro,
+  calcularHashContenido,
+} from '../declaraciones/domain/cadena';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 
@@ -36,6 +41,7 @@ describe('Constancia probatoria · solicitud (integración)', () => {
           SolicitudConstancia,
           Denuncia,
           DeclaracionJurada,
+          VersionTextoLegal,
           User,
         ]),
       ],
@@ -79,8 +85,13 @@ describe('Constancia probatoria · solicitud (integración)', () => {
       }),
     );
 
-  /** Una declaración jurada mínima pero completa para lo que la constancia usa. */
-  let contador = 0;
+  /**
+   * Una declaración jurada sellada **de verdad**, con los mismos hashes que
+   * produce el acto de firmar.
+   *
+   * Es lo que permite afirmar algo sobre la verificabilidad: con hashes de
+   * relleno, una prueba de «la constancia se puede verificar» no probaría nada.
+   */
   const firmar = async (
     denunciaId: string,
     usuarioId: string,
@@ -92,25 +103,46 @@ describe('Constancia probatoria · solicitud (integración)', () => {
       firmaCripto?: string | null;
     } = {},
   ) => {
-    contador += 1;
+    const [version] = await ctx.dataSource.query(
+      `SELECT id, texto FROM versiones_texto_legal WHERE vigente = true LIMIT 1`,
+    );
+    const denuncia = await denuncias
+      .createQueryBuilder('d')
+      .addSelect('d.ci_hash_persona_buscada')
+      .where('d.id = :id', { id: denunciaId })
+      .getOneOrFail();
+
+    const firmadaEn = new Date();
+    const campos = {
+      denuncia_id: denunciaId,
+      usuario_id: usuarioId,
+      ci_hash_declarante: hashDe(ci),
+      vinculo_declarado: opciones.vinculo ?? 'MADRE',
+      tipo: opciones.tipo ?? 'original',
+      version_texto_legal_id: version.id,
+      hash_texto_legal: createHash('sha256')
+        .update(version.texto, 'utf8')
+        .digest('hex'),
+      texto_firmado: opciones.texto ?? 'Ana Quispe',
+      hash_contenido_denuncia: calcularHashContenido({
+        nombre_persona_buscada: denuncia.nombre_persona_buscada,
+        ci_hash_persona_buscada: denuncia.ci_hash_persona_buscada,
+        description: denuncia.description,
+        latitude: Number(denuncia.latitude),
+        longitude: Number(denuncia.longitude),
+      }),
+      firmada_en: firmadaEn.toISOString(),
+      device_id: null as string | null,
+      hash_anterior: null as string | null,
+    };
+
     return declaraciones.save(
       declaraciones.create({
-        denuncia_id: denunciaId,
-        usuario_id: usuarioId,
-        ci_hash_declarante: hashDe(ci),
-        vinculo_declarado: (opciones.vinculo ?? 'MADRE') as any,
-        tipo: opciones.tipo ?? 'original',
-        version_texto_legal_id: (
-          await ctx.dataSource.query(
-            `SELECT id FROM versiones_texto_legal WHERE vigente = true LIMIT 1`,
-          )
-        )[0].id,
-        hash_texto_legal: 'a'.repeat(64),
-        texto_firmado: opciones.texto ?? 'Ana Quispe',
-        hash_contenido_denuncia: 'b'.repeat(64),
+        ...campos,
+        vinculo_declarado: campos.vinculo_declarado as any,
+        firmada_en: firmadaEn,
         firma_criptografica: opciones.firmaCripto ?? null,
-        hash_anterior: null,
-        hash_registro: `${contador}`.padStart(64, 'c'),
+        hash_registro: calcularHashRegistro(campos),
       }),
     );
   };
@@ -251,6 +283,97 @@ describe('Constancia probatoria · solicitud (integración)', () => {
       await expect(servicio.solicitar(luis.id, denuncia.id)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  /**
+   * H6.2 — Autoverificabilidad.
+   *
+   * Estas pruebas recalculan los hashes **solo con lo que el documento publica**,
+   * uniendo los campos con el separador y en el orden que él mismo declara. No
+   * usan ningún atajo del servidor: es exactamente lo que haría un tercero.
+   */
+  describe('documento autoverificable', () => {
+    const SEP = '\x1F';
+    const sha256 = (t: string) =>
+      createHash('sha256').update(t, 'utf8').digest('hex');
+    const unir = (obj: any, campos: readonly string[]) =>
+      campos.map((c) => obj[c] ?? '').join(SEP);
+
+    const constanciaDeEjemplo = async () => {
+      const ana = await crearUsuario('ana@t.bo', '111', 'Ana Quispe');
+      const luis = await crearUsuario('luis@t.bo', '222', 'Luis Mamani');
+      const denuncia = await crearDenuncia(ana.id, '222');
+      await firmar(denuncia.id, ana.id, '111');
+      return servicio.solicitar(luis.id, denuncia.id);
+    };
+
+    it('publica el procedimiento y el orden de los campos', async () => {
+      const c = await constanciaDeEjemplo();
+
+      expect(c.formato).toBe('constancia-denuncia/v1');
+      expect(c.verificacion.algoritmo).toBe('SHA-256');
+      expect(c.verificacion.separador).toBe('U+001F');
+      expect(c.verificacion.orden_campos_registro.length).toBeGreaterThan(0);
+      expect(c.verificacion.procedimiento.length).toBeGreaterThan(0);
+    });
+
+    it('el hash del registro se recalcula desde los campos publicados', async () => {
+      const c = await constanciaDeEjemplo();
+      const d = c.declaraciones[0];
+
+      const recalculado = sha256(unir(d, c.verificacion.orden_campos_registro));
+
+      expect(recalculado).toBe(d.hash_registro);
+    });
+
+    it('el hash del contenido se recalcula desde la denuncia publicada', async () => {
+      const c = await constanciaDeEjemplo();
+
+      const recalculado = sha256(
+        unir(c.denuncia, c.verificacion.orden_campos_contenido),
+      );
+
+      expect(recalculado).toBe(c.declaraciones[0].hash_contenido_denuncia);
+    });
+
+    it('incluye el texto legal entero, no una referencia', async () => {
+      // Sin el texto no se puede recalcular su hash, y habría que pedirle el
+      // original al sistema: justo lo que la constancia existe para evitar.
+      const c = await constanciaDeEjemplo();
+      const d = c.declaraciones[0];
+      const texto = c.textos_legales.find(
+        (t) => t.id === d.version_texto_legal_id,
+      );
+
+      expect(texto).toBeDefined();
+      expect(texto!.texto.length).toBeGreaterThan(100);
+      expect(sha256(texto!.texto)).toBe(d.hash_texto_legal);
+    });
+
+    it('altera un campo y el hash deja de cuadrar', async () => {
+      const c = await constanciaDeEjemplo();
+      const d = { ...c.declaraciones[0], vinculo_declarado: 'HERMANO_A' as any };
+
+      const recalculado = sha256(unir(d, c.verificacion.orden_campos_registro));
+
+      expect(recalculado).not.toBe(c.declaraciones[0].hash_registro);
+    });
+
+    it('las coordenadas viajan en la forma exacta que se selló', async () => {
+      // Como cadena ya redondeada: si viajaran como número, el verificador
+      // dependería de cómo su lenguaje imprime un flotante.
+      const c = await constanciaDeEjemplo();
+
+      expect(c.denuncia.latitude).toBe('-16.5000000');
+      expect(typeof c.denuncia.longitude).toBe('string');
+    });
+
+    it('declara con franqueza lo que no demuestra', async () => {
+      const c = await constanciaDeEjemplo();
+
+      expect(c.verificacion.limites.length).toBeGreaterThanOrEqual(2);
+      expect(c.verificacion.limites.join(' ')).toContain('firma');
     });
   });
 

@@ -7,9 +7,17 @@ import {
 } from './entities/solicitud-constancia.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { DeclaracionJurada } from '../declaraciones/entities/declaracion-jurada.entity';
+import { VersionTextoLegal } from '../declaraciones/entities/version-texto-legal.entity';
 import { VinculoDeclarado } from '../declaraciones/domain/vinculos';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
+import {
+  FORMATO_CONSTANCIA,
+  ORDEN_CAMPOS_REGISTRO,
+  ORDEN_CAMPOS_CONTENIDO,
+  PROCEDIMIENTO_VERIFICACION,
+  LIMITES_VERIFICACION,
+} from './domain/documento';
 
 /** Una firma, con la identidad de quien la puso. */
 export interface FirmanteDeLaConstancia {
@@ -37,16 +45,70 @@ export interface FirmanteDeLaConstancia {
   con_firma_criptografica: boolean;
 }
 
+/**
+ * Los campos sellados de una declaración, tal como entran en el hash.
+ *
+ * Se publican en crudo y en su forma canónica para que un tercero pueda
+ * recalcular `hash_registro` sin pedirle nada al sistema.
+ */
+export interface DeclaracionVerificable {
+  denuncia_id: string;
+  usuario_id: string;
+  ci_hash_declarante: string;
+  vinculo_declarado: VinculoDeclarado;
+  tipo: 'original' | 'corroboracion';
+  version_texto_legal_id: string;
+  hash_texto_legal: string;
+  texto_firmado: string;
+  hash_contenido_denuncia: string;
+  /** ISO-8601, exactamente como se serializó al sellar. */
+  firmada_en: string;
+  device_id: string | null;
+  hash_anterior: string | null;
+  hash_registro: string;
+  firma_criptografica: string | null;
+  clave_publica: string | null;
+}
+
 export interface Constancia {
+  formato: string;
   denuncia_id: string;
   alcance: AlcanceConstancia;
+  /**
+   * El contenido sellado, en forma canónica.
+   *
+   * `latitude` y `longitude` viajan como cadena ya redondeada a 7 decimales,
+   * que es exactamente lo que entró en el hash: así el verificador no depende
+   * de cómo su lenguaje imprima un flotante.
+   */
   denuncia: {
+    id: string;
     nombre_persona_buscada: string | null;
+    ci_hash_persona_buscada: string;
     description: string;
-    created_at: Date;
+    latitude: string;
+    longitude: string;
     estado: string;
+    created_at: Date;
   };
+  /** Para leer. Los datos que se verifican están en `declaraciones`. */
   firmantes: FirmanteDeLaConstancia[];
+  declaraciones: DeclaracionVerificable[];
+  /** El texto legal exacto que se mostró, no una referencia a él. */
+  textos_legales: Array<{
+    id: string;
+    version: string;
+    texto: string;
+    hash_texto: string;
+  }>;
+  verificacion: {
+    algoritmo: 'SHA-256';
+    separador: 'U+001F';
+    orden_campos_registro: readonly string[];
+    orden_campos_contenido: readonly string[];
+    procedimiento: string[];
+    limites: string[];
+  };
   emitida_en: Date;
 }
 
@@ -127,6 +189,7 @@ export class ConstanciasService {
     }
 
     const firmantes = await this.identificarFirmantes(entregadas);
+    const textosLegales = await this.textosLegalesDe(entregadas);
 
     await this.solicitudesRepository.insert({
       denuncia_id: denunciaId,
@@ -140,17 +203,72 @@ export class ConstanciasService {
     );
 
     return {
+      formato: FORMATO_CONSTANCIA,
       denuncia_id: denunciaId,
       alcance,
       denuncia: {
+        id: denuncia.id,
         nombre_persona_buscada: denuncia.nombre_persona_buscada,
+        ci_hash_persona_buscada: denuncia.ci_hash_persona_buscada,
         description: denuncia.description,
-        created_at: denuncia.created_at,
+        // La misma precisión con la que se selló; ver `calcularHashContenido`.
+        latitude: Number(denuncia.latitude).toFixed(7),
+        longitude: Number(denuncia.longitude).toFixed(7),
         estado: denuncia.estado,
+        created_at: denuncia.created_at,
       },
       firmantes,
+      declaraciones: entregadas.map((d) => ({
+        denuncia_id: d.denuncia_id,
+        usuario_id: d.usuario_id,
+        ci_hash_declarante: d.ci_hash_declarante,
+        vinculo_declarado: d.vinculo_declarado,
+        tipo: d.tipo,
+        version_texto_legal_id: d.version_texto_legal_id,
+        hash_texto_legal: d.hash_texto_legal,
+        texto_firmado: d.texto_firmado,
+        hash_contenido_denuncia: d.hash_contenido_denuncia,
+        // Se serializa igual que al sellar: de eso depende que el hash cuadre.
+        firmada_en: d.firmada_en.toISOString(),
+        device_id: d.device_id,
+        hash_anterior: d.hash_anterior,
+        hash_registro: d.hash_registro,
+        firma_criptografica: d.firma_criptografica,
+        // La clave pública del dispositivo llega con H6.3; sin ella la firma no
+        // se puede verificar aunque exista.
+        clave_publica: null as string | null,
+      })),
+      textos_legales: textosLegales,
+      verificacion: {
+        algoritmo: 'SHA-256',
+        separador: 'U+001F',
+        orden_campos_registro: ORDEN_CAMPOS_REGISTRO,
+        orden_campos_contenido: ORDEN_CAMPOS_CONTENIDO,
+        procedimiento: PROCEDIMIENTO_VERIFICACION,
+        limites: LIMITES_VERIFICACION,
+      },
       emitida_en: new Date(),
     };
+  }
+
+  /**
+   * El texto legal exacto que se mostró, no una referencia.
+   *
+   * Sin el texto entero, `hash_texto_legal` no se puede recalcular y habría que
+   * pedirle el original al sistema — justo lo que la constancia evita.
+   */
+  private async textosLegalesDe(declaraciones: DeclaracionJurada[]) {
+    const ids = [...new Set(declaraciones.map((d) => d.version_texto_legal_id))];
+    const versiones = await this.dataSource
+      .getRepository(VersionTextoLegal)
+      .findByIds(ids);
+
+    return versiones.map((v) => ({
+      id: v.id,
+      version: v.version,
+      texto: v.texto,
+      hash_texto: v.hash_texto,
+    }));
   }
 
   /**

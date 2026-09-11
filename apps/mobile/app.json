@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Emergency Alert App",
+    "name": "Alerta Temprana",
     "slug": "app-alertas",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -50,7 +50,9 @@
         }
       ],
       "expo-notifications",
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-secure-store",
+      "expo-sharing"
     ],
     "scheme": "myapp",
     "extra": {

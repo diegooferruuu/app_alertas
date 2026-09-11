@@ -20,27 +20,32 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
   const handleRegister = async () => {
     if (!email || !password || !fullName || !phone) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Faltan datos', 'Completa todos los campos.');
       return;
     }
 
     try {
-      // For now, use a placeholder for ID card - user will verify identity later
+      // El documento de identidad se registra después, cuando la persona vaya a
+      // reportar: crear la cuenta no lo exige.
       await register(email, password, fullName, phone);
-      // Navigation to VerifyIdentity will be handled by the navigation flow
     } catch (error: any) {
-      Alert.alert('Registration Failed', error?.message || 'An error occurred');
+      Alert.alert(
+        'No se pudo crear la cuenta',
+        error?.response?.data?.message ||
+          error?.message ||
+          'Revisa tus datos e inténtalo de nuevo.',
+      );
     }
   };
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Create Account</Text>
-      <Text style={styles.subtitle}>Emergency Alert App</Text>
+      <Text style={styles.title}>Crear cuenta</Text>
+      <Text style={styles.subtitle}>Alerta Temprana</Text>
 
       <TextInput
         style={styles.input}
-        placeholder="Full Name"
+        placeholder="Nombre completo"
         value={fullName}
         onChangeText={setFullName}
         editable={!isLoading}
@@ -48,7 +53,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder="Correo electrónico"
         value={email}
         onChangeText={setEmail}
         editable={!isLoading}
@@ -58,7 +63,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       <TextInput
         style={styles.input}
-        placeholder="Phone Number"
+        placeholder="Teléfono"
         value={phone}
         onChangeText={setPhone}
         editable={!isLoading}
@@ -67,7 +72,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       <TextInput
         style={styles.input}
-        placeholder="Password (min 8 characters)"
+        placeholder="Contraseña (mínimo 8 caracteres)"
         value={password}
         onChangeText={setPassword}
         editable={!isLoading}
@@ -75,7 +80,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       />
 
       <Text style={styles.info}>
-        Password must contain uppercase, lowercase, and number
+        Debe incluir al menos una mayúscula, una minúscula y un número.
       </Text>
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -88,7 +93,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         {isLoading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.buttonText}>Register</Text>
+          <Text style={styles.buttonText}>Crear cuenta</Text>
         )}
       </TouchableOpacity>
 
@@ -96,7 +101,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         onPress={() => navigation.navigate('Login')}
         disabled={isLoading}
       >
-        <Text style={styles.link}>Already have an account? Login</Text>
+        <Text style={styles.link}>¿Ya tienes cuenta? Inicia sesión</Text>
       </TouchableOpacity>
     </ScrollView>
   );

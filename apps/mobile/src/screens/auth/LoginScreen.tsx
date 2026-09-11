@@ -17,25 +17,31 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Faltan datos', 'Completa el correo y la contraseña.');
       return;
     }
 
     try {
       await login(email, password);
-    } catch (error) {
-      Alert.alert('Login Failed', error.message || 'An error occurred');
+    } catch (error: any) {
+      // El servidor ya responde en español; se prefiere su mensaje al genérico.
+      Alert.alert(
+        'No se pudo iniciar sesión',
+        error?.response?.data?.message ||
+          error?.message ||
+          'Revisa tus datos e inténtalo de nuevo.',
+      );
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Emergency Alert App</Text>
-      <Text style={styles.subtitle}>Login</Text>
+      <Text style={styles.title}>Alerta Temprana</Text>
+      <Text style={styles.subtitle}>Iniciar sesión</Text>
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder="Correo electrónico"
         value={email}
         onChangeText={setEmail}
         editable={!isLoading}
@@ -45,7 +51,7 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
       <TextInput
         style={styles.input}
-        placeholder="Password"
+        placeholder="Contraseña"
         value={password}
         onChangeText={setPassword}
         editable={!isLoading}
@@ -62,7 +68,7 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         {isLoading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.buttonText}>Login</Text>
+          <Text style={styles.buttonText}>Iniciar sesión</Text>
         )}
       </TouchableOpacity>
 
@@ -70,7 +76,7 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         onPress={() => navigation.navigate('Register')}
         disabled={isLoading}
       >
-        <Text style={styles.link}>Don't have an account? Register</Text>
+        <Text style={styles.link}>¿No tienes cuenta? Crea una</Text>
       </TouchableOpacity>
     </View>
   );

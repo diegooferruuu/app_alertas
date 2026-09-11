@@ -1,3 +1,5 @@
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { apiClient } from './api';
 
 export type AlcanceConstancia = 'completa' | 'propia_declaracion';
@@ -14,16 +16,56 @@ export interface FirmanteDeLaConstancia {
   con_firma_criptografica: boolean;
 }
 
+/** Los campos sellados, tal como entran en el hash. Se publican para verificar. */
+export interface DeclaracionVerificable {
+  denuncia_id: string;
+  usuario_id: string;
+  ci_hash_declarante: string;
+  vinculo_declarado: string;
+  tipo: 'original' | 'corroboracion';
+  version_texto_legal_id: string;
+  hash_texto_legal: string;
+  texto_firmado: string;
+  hash_contenido_denuncia: string;
+  firmada_en: string;
+  device_id: string | null;
+  hash_anterior: string | null;
+  hash_registro: string;
+  firma_criptografica: string | null;
+  clave_publica: string | null;
+}
+
 export interface Constancia {
+  formato: string;
   denuncia_id: string;
   alcance: AlcanceConstancia;
   denuncia: {
+    id: string;
     nombre_persona_buscada: string | null;
+    ci_hash_persona_buscada: string;
     description: string;
-    created_at: string;
+    /** Cadena ya redondeada a 7 decimales: es lo que entró en el hash. */
+    latitude: string;
+    longitude: string;
     estado: string;
+    created_at: string;
   };
   firmantes: FirmanteDeLaConstancia[];
+  declaraciones: DeclaracionVerificable[];
+  textos_legales: Array<{
+    id: string;
+    version: string;
+    texto: string;
+    hash_texto: string;
+  }>;
+  verificacion: {
+    algoritmo: string;
+    separador: string;
+    orden_campos_registro: string[];
+    orden_campos_contenido: string[];
+    procedimiento: string[];
+    limites: string[];
+  };
   emitida_en: string;
 }
 
@@ -40,6 +82,30 @@ class ConstanciaService {
       `/constancias/denuncias/${denunciaId}`,
     );
     return response.data;
+  }
+
+  /**
+   * Escribe la constancia como archivo y abre el diálogo para compartirla.
+   *
+   * El artefacto que se entrega es el JSON, no una captura ni un resumen: es lo
+   * único que un tercero puede verificar recalculando los hashes. Se conserva
+   * con sangría para que también se pueda leer a simple vista.
+   */
+  async exportar(constancia: Constancia): Promise<void> {
+    const nombre = `constancia-${constancia.denuncia_id.slice(0, 8)}.json`;
+    const archivo = new File(Paths.cache, nombre);
+
+    if (archivo.exists) archivo.delete();
+    archivo.create();
+    archivo.write(JSON.stringify(constancia, null, 2));
+
+    if (!(await Sharing.isAvailableAsync())) {
+      throw new Error('Este dispositivo no permite compartir archivos.');
+    }
+    await Sharing.shareAsync(archivo.uri, {
+      mimeType: 'application/json',
+      dialogTitle: 'Constancia de la denuncia',
+    });
   }
 }
 
