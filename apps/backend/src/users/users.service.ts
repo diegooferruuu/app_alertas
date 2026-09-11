@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
+import { componerNombre } from './domain/nombre-persona';
 
 @Injectable()
 export class UsersService {
@@ -20,7 +21,13 @@ export class UsersService {
       throw new ConflictException('User with this email already exists');
     }
 
-    const user = this.usersRepository.create(createUserDto);
+    // El nombre completo se compone aquí y en ningún otro sitio: es lo que hace
+    // imposible que `full_name` y sus partes digan cosas distintas.
+    const user = this.usersRepository.create({
+      ...createUserDto,
+      segundo_nombre: createUserDto.segundo_nombre?.trim() || null,
+      full_name: componerNombre(createUserDto),
+    });
     return this.usersRepository.save(user);
   }
 
@@ -40,23 +47,25 @@ export class UsersService {
    * Deja constancia de que la persona registró un documento con estos datos.
    * No afirma que la identidad haya sido autenticada: el OCR extrae datos.
    *
-   * El nombre se guarda porque es la referencia contra la que se comparará la
-   * confirmación escrita a mano al firmar una declaración jurada.
+   * `nombre_documento` guarda el nombre de la cuenta en el momento del registro:
+   * es el que se contrastó contra el texto del carnet y la referencia contra la
+   * que se comparará la confirmación escrita a mano al firmar una declaración
+   * jurada.
+   *
+   * No recibe el nombre por parámetro y no toca `full_name`. Antes sí: el
+   * formulario del documento volvía a pedir el nombre y el declarado ahí
+   * reemplazaba al de la cuenta. Con el nombre desglosado desde el registro eso
+   * sobra y además abría un hueco —la cuenta podía terminar llamándose distinto
+   * de como se creó— y dejaba las partes describiendo un nombre que ya no era el
+   * de la cuenta. Ahora hay un solo nombre desde el principio.
    */
-  async registrarDocumento(
-    id: string,
-    ciHash: string,
-    nombreDocumento: string,
-  ): Promise<User> {
+  async registrarDocumento(id: string, ciHash: string): Promise<User> {
+    const usuario = await this.findById(id);
+
     await this.usersRepository.update(id, {
       documento_registrado: true,
       ci_hash: ciHash,
-      nombre_documento: nombreDocumento,
-      // El nombre tecleado al crear la cuenta no lo comprobó nadie. Este sí se
-      // contrastó contra el documento, así que pasa a ser el de la cuenta: dejar
-      // los dos conviviendo permitiría firmar una declaración jurada con un
-      // nombre y mostrar otro en el perfil.
-      full_name: nombreDocumento,
+      nombre_documento: usuario.full_name,
       documento_registrado_en: new Date(),
     });
     return this.findById(id);

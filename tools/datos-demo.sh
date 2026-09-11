@@ -16,17 +16,23 @@ export PGPASSWORD=$(grep -E "^DB_PASSWORD=" "$RAIZ/.env" | cut -d= -f2-)
 psqlq() { psql -q -t -A -h localhost -p 5432 -U postgres -d app_alertas "$@" }
 hash() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1 }
 
-registrar() { # nombre email -> token
+# El nombre va desglosado: el servidor compone con él el `full_name` de la cuenta
+# y rechaza un `full_name` que llegue del cliente.
+registrar() { # primer_nombre primer_apellido segundo_apellido email -> token
   curl -s -X POST "$API/auth/register" -H 'Content-Type: application/json' \
-    -d "{\"email\":\"$2\",\"password\":\"Demo1234\",\"full_name\":\"$1\",\"phone\":\"70000000\"}" \
+    -d "{\"email\":\"$4\",\"password\":\"Demo1234\",\"phone\":\"70000000\",
+         \"primer_nombre\":\"$1\",\"primer_apellido\":\"$2\",\"segundo_apellido\":\"$3\"}" \
     | python3 -c 'import sys,json; print(json.load(sys.stdin)["accessToken"])'
 }
 
 # El registro de documento pasa por OCR. Aquí se escribe directo el estado que
 # ese flujo deja, para que la demostración no dependa de la calidad de una foto.
-sellar() { # email ci nombre
+#
+# `nombre_documento` copia el `full_name` que ya compuso el servidor: ese paso no
+# cambia el nombre de la cuenta, solo deja constancia de contra qué se contrastó.
+sellar() { # email ci
   psqlq -c "UPDATE users SET documento_registrado=true, ci_hash='$(hash $2)',
-              nombre_documento='$3', full_name='$3', documento_registrado_en=now()
+              nombre_documento=full_name, documento_registrado_en=now()
             WHERE email='$1'" > /dev/null
 }
 
@@ -40,12 +46,12 @@ psqlq -c "DELETE FROM users WHERE email LIKE '%@demo.bo'" >/dev/null
 psqlq -c "ALTER TABLE declaraciones_juradas ENABLE TRIGGER trg_declaraciones_solo_insercion" >/dev/null
 
 echo "→ Creando cuentas…"
-TOK_ANA=$(registrar "Ana Quispe Vargas" "ana@demo.bo")
-registrar "Luis Mamani Choque" "luis@demo.bo" > /dev/null
-registrar "Caro Vaca Ortiz"    "caro@demo.bo" > /dev/null
-sellar "ana@demo.bo"  1000001 "Ana Quispe Vargas"
-sellar "luis@demo.bo" 2000002 "Luis Mamani Choque"
-sellar "caro@demo.bo" 3000003 "Caro Vaca Ortiz"
+TOK_ANA=$(registrar "Ana" "Quispe" "Vargas" "ana@demo.bo")
+registrar "Luis" "Mamani" "Choque" "luis@demo.bo" > /dev/null
+registrar "Caro" "Vaca"   "Ortiz"  "caro@demo.bo" > /dev/null
+sellar "ana@demo.bo"  1000001
+sellar "luis@demo.bo" 2000002
+sellar "caro@demo.bo" 3000003
 
 echo "→ Creando una denuncia ya firmada (Ana reporta a Luis)…"
 DEN=$(curl -s -X POST "$API/denuncias" -H "Authorization: Bearer $TOK_ANA" \

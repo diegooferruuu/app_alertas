@@ -24,6 +24,20 @@ import { EstadoCuenta } from '../domain/estado-cuenta';
   'chk_users_estado_cuenta',
   `((estado_cuenta)::text = ANY ((ARRAY['ACTIVA'::character varying, 'RESTRINGIDA'::character varying, 'SUSPENDIDA'::character varying])::text[]))`,
 )
+/**
+ * El nombre está entero o no está.
+ *
+ * Las partes son nulas en las cuentas creadas antes de que el formulario las
+ * pidiera: de esas solo se conserva `full_name`, y reconstruir sus partes sería
+ * inventar de qué parte viene cada palabra. Lo que no puede ocurrir es el estado
+ * intermedio —nombre sin apellido, apellido sin nombre—, porque `full_name` se
+ * compone de las partes y una parte perdida produciría un nombre distinto del
+ * que la persona declaró.
+ */
+@Check(
+  'chk_users_nombre_completo_o_ausente',
+  `(((primer_nombre IS NULL) AND (primer_apellido IS NULL) AND (segundo_apellido IS NULL)) OR ((primer_nombre IS NOT NULL) AND (primer_apellido IS NOT NULL) AND (segundo_apellido IS NOT NULL)))`,
+)
 @Index('idx_users_email', ['email'])
 @Index('idx_users_ci_hash', ['ci_hash'])
 @Index('idx_users_push_token', ['push_token'], { where: '"push_token" IS NOT NULL' })
@@ -33,8 +47,34 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  /**
+   * Nombre completo de la cuenta, compuesto de las cuatro partes.
+   *
+   * Es un valor derivado, pero se almacena y no se calcula al vuelo porque es el
+   * que viaja a la constancia probatoria y contra el que se compara la firma
+   * escrita a mano; una columna real lo hace consultable y estable. Se escribe
+   * siempre con `componerNombre`, nunca a mano.
+   *
+   * Conserva el nombre suelto de las cuentas anteriores al desglose, que no
+   * tienen partes.
+   */
   @Column({ type: 'varchar', length: 120 })
   full_name!: string;
+
+  // Partes del nombre, en el orden del carnet. Nulas solo en las cuentas
+  // anteriores al desglose; para una cuenta nueva las tres obligatorias siempre
+  // están, y la restricción `chk_users_nombre_completo_o_ausente` lo sostiene.
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  primer_nombre!: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  segundo_nombre!: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  primer_apellido!: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  segundo_apellido!: string | null;
 
   @Column({ type: 'varchar', length: 255 })
   email!: string;

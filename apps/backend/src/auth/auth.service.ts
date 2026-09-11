@@ -15,16 +15,28 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    const { email, password, full_name, phone } = registerDto;
+    const {
+      email,
+      password,
+      primer_nombre,
+      segundo_nombre,
+      primer_apellido,
+      segundo_apellido,
+      phone,
+    } = registerDto;
 
     // Hash password
     const passwordHash = await bcryptjs.hash(password, 10);
 
-    // Create user
+    // Create user. El nombre completo lo compone `UsersService` a partir de las
+    // partes; aquí no se arma para que exista una sola forma de componerlo.
     const user = await this.usersService.create({
       email,
       password_hash: passwordHash,
-      full_name,
+      primer_nombre,
+      segundo_nombre,
+      primer_apellido,
+      segundo_apellido,
       phone,
     });
 

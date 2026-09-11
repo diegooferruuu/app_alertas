@@ -1,11 +1,14 @@
 import { IsBase64, IsString, IsDateString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
-/** Datos que la persona declara; se comparan con los extraídos del documento. */
+/**
+ * Datos que la persona declara; se comparan con los extraídos del documento.
+ *
+ * No incluye el nombre. El nombre ya se declaró, desglosado, al crear la cuenta,
+ * y es el de la cuenta el que se contrasta contra el carnet: aceptarlo otra vez
+ * aquí permitiría declarar en este paso un nombre distinto del de la cuenta.
+ */
 export class PersonalDataDto {
-  @IsString()
-  full_name: string = '';
-
   @IsString()
   ci_number: string = '';
 

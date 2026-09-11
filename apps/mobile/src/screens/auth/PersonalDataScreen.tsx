@@ -27,7 +27,6 @@ const BOLIVIAN_CITIES = [
 ];
 
 interface PersonalData {
-  full_name: string;
   ci_number: string;
   birth_place: string;
   birth_date: string;
@@ -41,8 +40,7 @@ const formatDate = (date: Date): string => {
 };
 
 const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { setPersonalData } = useAuthStore();
-  const [fullName, setFullName] = useState('');
+  const { setPersonalData, user } = useAuthStore();
   const [ciNumber, setCiNumber] = useState('');
   const [birthPlace, setBirthPlace] = useState('');
   const [birthDate, setBirthDate] = useState<Date | null>(null);
@@ -62,7 +60,7 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   };
 
   const handleNext = () => {
-    if (!fullName.trim() || !ciNumber.trim() || !birthPlace || !birthDate) {
+    if (!ciNumber.trim() || !birthPlace || !birthDate) {
       Alert.alert('Datos incompletos', 'Por favor completa todos los campos.');
       return;
     }
@@ -74,7 +72,6 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
 
     setPersonalData({
-      full_name: fullName.trim(),
       ci_number: ciNumber.trim(),
       birth_place: birthPlace,
       birth_date: formatDate(birthDate),
@@ -93,15 +90,20 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         Ingresa tus datos tal como aparecen en tu carnet de identidad.
       </Text>
 
-      <Text style={styles.label}>Nombre completo</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Ej: Juan Carlos Pérez López"
-        value={fullName}
-        onChangeText={setFullName}
-        autoCapitalize="words"
-        returnKeyType="next"
-      />
+      {/*
+        El nombre no se vuelve a pedir: se declaró, desglosado, al crear la
+        cuenta, y es ese el que el servidor contrasta contra el carnet. Pedirlo
+        otra vez permitiría declarar aquí un nombre distinto del de la cuenta.
+        Se muestra para que la persona sepa contra qué se va a comparar.
+      */}
+      <Text style={styles.label}>Nombre de tu cuenta</Text>
+      <View style={styles.campoFijo}>
+        <Text style={styles.campoFijoTexto}>{user?.full_name ?? '—'}</Text>
+      </View>
+      <Text style={styles.campoFijoAyuda}>
+        Es el nombre con el que creaste tu cuenta y el que se comparará con tu
+        carnet.
+      </Text>
 
       <Text style={styles.label}>Número de CI</Text>
       <TextInput
@@ -236,6 +238,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1a1a1a',
     backgroundColor: '#fafafa',
+  },
+  campoFijo: {
+    borderWidth: 1,
+    borderColor: '#e6e6e6',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#f2f2f2',
+  },
+  campoFijoTexto: {
+    fontSize: 15,
+    color: '#555',
+  },
+  campoFijoAyuda: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 6,
   },
   selector: {
     borderWidth: 1,

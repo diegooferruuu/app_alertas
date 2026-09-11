@@ -48,7 +48,10 @@ const motivosDeRechazo = async (
 const registroValido = {
   email: 'ana@example.com',
   password: 'Password1',
-  full_name: 'Ana Quispe',
+  primer_nombre: 'Ana',
+  segundo_nombre: 'María',
+  primer_apellido: 'Quispe',
+  segundo_apellido: 'Vargas',
   phone: '70000000',
 };
 
@@ -64,8 +67,60 @@ describe('RegisterDto', () => {
     // valores por defecto de los inicializadores aunque el cuerpo no los trajera.
     const salida = await pipe.transform({ ...registroValido }, comoBody(RegisterDto));
     expect(Object.keys(salida).sort()).toEqual(
-      ['email', 'full_name', 'password', 'phone'].sort(),
+      [
+        'email',
+        'password',
+        'primer_nombre',
+        'segundo_nombre',
+        'primer_apellido',
+        'segundo_apellido',
+        'phone',
+      ].sort(),
     );
+  });
+
+  it('acepta un registro sin segundo nombre', async () => {
+    const { segundo_nombre: _sin, ...sinSegundoNombre } = registroValido;
+    const salida = await pipe.transform(
+      sinSegundoNombre,
+      comoBody(RegisterDto),
+    );
+    expect(salida.segundo_nombre).toBeUndefined();
+  });
+
+  it('rechaza un apellido ausente: el nombre no puede quedar a medias', async () => {
+    const { primer_apellido: _sin, ...sinApellido } = registroValido;
+    await expect(
+      pipe.transform(sinApellido, comoBody(RegisterDto)),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rechaza el antiguo full_name: el nombre llega desglosado', async () => {
+    // El servidor lo compone de las partes. Aceptarlo del cliente permitiría
+    // que el nombre mostrado no fuera el que se declaró parte por parte.
+    const motivos = await motivosDeRechazo(
+      { ...registroValido, full_name: 'Ana Quispe' },
+      RegisterDto,
+    );
+    expect(motivos).toContain('property full_name should not exist');
+  });
+
+  it('rechaza dígitos dentro de una parte del nombre', async () => {
+    const motivos = await motivosDeRechazo(
+      { ...registroValido, primer_nombre: 'Ana2' },
+      RegisterDto,
+    );
+    expect(motivos).toContain('El primer nombre solo admite letras');
+  });
+
+  it('admite las formas reales de un apellido: tildes, eñe, guion y apóstrofo', async () => {
+    for (const apellido of ['Peña', 'Pérez-Gómez', "O'Connor", 'De La Cruz']) {
+      const salida = await pipe.transform(
+        { ...registroValido, primer_apellido: apellido },
+        comoBody(RegisterDto),
+      );
+      expect(salida.primer_apellido).toBe(apellido);
+    }
   });
 
   it('rechaza un cuerpo vacío en lugar de aceptarlo en silencio', async () => {

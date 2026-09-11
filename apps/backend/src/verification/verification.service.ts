@@ -55,10 +55,15 @@ export class VerificationService {
     idBackBase64: string,
     datosDeclarados: PersonalDataDto,
   ): Promise<{ coincide: boolean; message: string }> {
+    const nombreDeLaCuenta = (await this.usersService.findById(userId)).full_name;
     const textoExtraido = await this.extraerTextoDelDocumento(idFrontBase64);
     this.logger.debug(`OCR extrajo ${textoExtraido.length} caracteres`);
 
-    const comparacion = this.compararDatosExtraidos(textoExtraido, datosDeclarados);
+    const comparacion = this.compararDatosExtraidos(
+      textoExtraido,
+      nombreDeLaCuenta,
+      datosDeclarados,
+    );
     if (!comparacion.coincide) {
       throw new BadRequestException(
         `Los datos declarados no coinciden con los extraídos del documento: ${comparacion.motivo}`,
@@ -92,10 +97,15 @@ export class VerificationService {
     selfieBase64: string,
     datosDeclarados: PersonalDataDto,
   ): Promise<any> {
+    const nombreDeLaCuenta = (await this.usersService.findById(userId)).full_name;
     const textoExtraido = await this.extraerTextoDelDocumento(idFrontBase64);
     this.logger.debug(`OCR extrajo ${textoExtraido.length} caracteres`);
 
-    const comparacion = this.compararDatosExtraidos(textoExtraido, datosDeclarados);
+    const comparacion = this.compararDatosExtraidos(
+      textoExtraido,
+      nombreDeLaCuenta,
+      datosDeclarados,
+    );
     if (!comparacion.coincide) {
       throw new BadRequestException(
         `Los datos declarados no coinciden con los extraídos del documento: ${comparacion.motivo}`,
@@ -112,13 +122,9 @@ export class VerificationService {
       );
     }
 
-    // El nombre queda registrado como referencia de la firma escrita a mano
-    // que exige la declaración jurada.
-    await this.usersService.registrarDocumento(
-      userId,
-      ciHash,
-      datosDeclarados.full_name.trim(),
-    );
+    // El nombre de la cuenta queda registrado como referencia de la firma
+    // escrita a mano que exige la declaración jurada.
+    await this.usersService.registrarDocumento(userId, ciHash);
 
     // H4.4 — Vía de acceso para la persona reportada sin cuenta previa.
     //
@@ -170,6 +176,7 @@ export class VerificationService {
    */
   private compararDatosExtraidos(
     textoExtraido: string,
+    nombreDeLaCuenta: string,
     datosDeclarados: PersonalDataDto,
   ): { coincide: boolean; motivo?: string } {
     const ciNormalizado = datosDeclarados.ci_number.replace(/\D/g, '');
@@ -180,9 +187,6 @@ export class VerificationService {
       };
     }
 
-    return nombreConsistenteConDocumento(
-      datosDeclarados.full_name,
-      textoExtraido,
-    );
+    return nombreConsistenteConDocumento(nombreDeLaCuenta, textoExtraido);
   }
 }

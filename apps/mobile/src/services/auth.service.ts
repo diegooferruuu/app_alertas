@@ -87,19 +87,28 @@ export interface RegistroDocumentoResultado {
   denuncias_que_te_identifican: number;
 }
 
+/**
+ * Datos con los que se crea una cuenta.
+ *
+ * El nombre viaja desglosado; el servidor compone con él el nombre completo y
+ * rechaza un `full_name` enviado desde aquí. Es un objeto y no una lista de
+ * argumentos porque con siete campos —cuatro de ellos cadenas de nombre— el
+ * orden posicional es una invitación a cruzar el apellido con el teléfono.
+ */
+export interface DatosDeRegistro {
+  email: string;
+  password: string;
+  phone: string;
+  primer_nombre: string;
+  /** Se omite si la persona no tiene; no se manda cadena vacía. */
+  segundo_nombre?: string;
+  primer_apellido: string;
+  segundo_apellido: string;
+}
+
 class AuthService {
-  async register(
-    email: string,
-    password: string,
-    full_name: string,
-    phone: string,
-  ): Promise<LoginResponse> {
-    const response = await apiClient.post<LoginResponse>('/auth/register', {
-      email,
-      password,
-      full_name,
-      phone,
-    });
+  async register(datos: DatosDeRegistro): Promise<LoginResponse> {
+    const response = await apiClient.post<LoginResponse>('/auth/register', datos);
     await this.saveTokens(response.data);
     return response.data;
   }
@@ -123,7 +132,6 @@ class AuthService {
     id_front_base64: string;
     id_back_base64: string;
     personal_data: {
-      full_name: string;
       ci_number: string;
       birth_place: string;
       birth_date: string;
@@ -137,7 +145,6 @@ class AuthService {
     id_back_base64: string;
     selfie_base64: string;
     personal_data: {
-      full_name: string;
       ci_number: string;
       birth_place: string;
       birth_date: string;

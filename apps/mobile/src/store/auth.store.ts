@@ -1,8 +1,16 @@
 import { create } from 'zustand';
-import authService, { LoginResponse, User } from '../services/auth.service';
+import authService, {
+  DatosDeRegistro,
+  LoginResponse,
+  User,
+} from '../services/auth.service';
 
+/**
+ * Datos del carnet que la persona declara. Ya no incluye el nombre: se declaró,
+ * desglosado, al crear la cuenta, y es el de la cuenta el que el servidor
+ * contrasta contra el carnet.
+ */
 interface PersonalData {
-  full_name: string;
   ci_number: string;
   birth_place: string;
   birth_date: string;
@@ -23,7 +31,7 @@ interface AuthStore {
   verificationDraft: VerificationDraft;
 
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, full_name: string, phone: string) => Promise<void>;
+  register: (datos: DatosDeRegistro) => Promise<void>;
   logout: () => Promise<void>;
   extraerDatosDocumento: (frontBase64: string, backBase64: string) => Promise<void>;
   /** Devuelve cuántas denuncias activas identifican a esta persona (H4.4). */
@@ -64,7 +72,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         id_front_base64: frontBase64,
         id_back_base64: backBase64,
         personal_data: {
-          full_name: personalData.full_name,
           ci_number: personalData.ci_number,
           birth_place: personalData.birth_place,
           birth_date: personalData.birth_date,
@@ -111,10 +118,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
-  register: async (email: string, password: string, full_name: string, phone: string) => {
+  register: async (datos: DatosDeRegistro) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await authService.register(email, password, full_name, phone);
+      const response = await authService.register(datos);
       set({
         user: response.user as User,
         isAuthenticated: true,
@@ -160,7 +167,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         id_back_base64: idBackBase64,
         selfie_base64: selfieBase64,
         personal_data: {
-          full_name: personalData.full_name,
           ci_number: personalData.ci_number,
           birth_place: personalData.birth_place,
           birth_date: personalData.birth_date,
