@@ -24,6 +24,7 @@ import {
   verificarCadena,
 } from './domain/cadena';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
+import { contenidoSellable } from '../denuncias/domain/contenido-sellado';
 import { NivelConfianza, EstadoDenuncia } from '../denuncias/domain/estados';
 import { UsersService } from '../users/users.service';
 import { estaSuspendida } from '../users/domain/estado-cuenta';
@@ -152,13 +153,10 @@ export class FirmasService {
       version_texto_legal_id: datos.versionId,
       hash_texto_legal: datos.hashTextoLegal,
       texto_firmado: datos.nombreEscrito,
-      hash_contenido_denuncia: calcularHashContenido({
-        nombre_persona_buscada: datos.denuncia.nombre_persona_buscada,
-        ci_hash_persona_buscada: datos.denuncia.ci_hash_persona_buscada,
-        description: datos.denuncia.description,
-        latitude: datos.denuncia.latitude,
-        longitude: datos.denuncia.longitude,
-      }),
+      hash_contenido_denuncia: calcularHashContenido(
+        contenidoSellable(datos.denuncia),
+        datos.denuncia.version_formula_contenido,
+      ),
       firmada_en: firmadaEn.toISOString(),
       device_id: datos.deviceId,
       hash_anterior: ultima?.hash_registro ?? null,

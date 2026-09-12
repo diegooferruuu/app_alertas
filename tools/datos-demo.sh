@@ -54,12 +54,30 @@ sellar "luis@demo.bo" 2000002
 sellar "caro@demo.bo" 3000003
 
 echo "→ Creando una denuncia ya firmada (Ana reporta a Luis)…"
+# Formulario de campos cerrados: sin relato libre. La circunstancia se elige de
+# una lista, no se narra, y la fotografía es obligatoria.
 DEN=$(curl -s -X POST "$API/denuncias" -H "Authorization: Bearer $TOK_ANA" \
-  -H 'Content-Type: application/json' -d '{
-    "nombre_persona_buscada":"Luis Mamani",
-    "ci_persona_buscada":"2000002",
-    "description":"Salio de casa el martes por la manana y no regreso.",
-    "latitude":-16.5,"longitude":-68.15}' \
+  -H 'Content-Type: application/json' -d "{
+    \"nombre_persona_buscada\":\"Luis Mamani\",
+    \"ci_persona_buscada\":\"2000002\",
+    \"fecha_nacimiento\":\"1988-07-03\",
+    \"sexo\":\"MASCULINO\",
+    \"estatura_rango\":\"DE_170_A_180\",
+    \"contextura\":\"MEDIA\",
+    \"color_piel\":\"TRIGUENA\",
+    \"color_cabello\":\"NEGRO\",
+    \"color_ojos\":\"CAFES_OSCUROS\",
+    \"senas_particulares\":[\"CICATRIZ\"],
+    \"ultimo_avistamiento_en\":\"$(date -u -v-2d '+%Y-%m-%dT%H:%M:%S.000Z')\",
+    \"prenda_superior\":\"CHOMPA\",
+    \"color_prenda_superior\":\"AZUL\",
+    \"prenda_inferior\":\"PANTALON_JEAN\",
+    \"color_prenda_inferior\":\"NEGRO\",
+    \"calzado\":\"ZAPATILLAS\",
+    \"circunstancia\":\"SALIO_DE_CASA\",
+    \"condicion_relevante\":[\"REQUIERE_MEDICACION\"],
+    \"latitude\":-16.5,\"longitude\":-68.15,
+    \"fotografia_base64\":\"$(printf 'foto-de-demostracion' | base64)\"}" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 
 VERSION=$(curl -s "$API/declaraciones/texto-legal" -H "Authorization: Bearer $TOK_ANA" \

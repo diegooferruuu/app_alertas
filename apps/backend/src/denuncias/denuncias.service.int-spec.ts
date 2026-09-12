@@ -1,10 +1,16 @@
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { DenunciasService } from './denuncias.service';
+import { CreateDenunciaDto } from './dto/create-denuncia.dto';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from './domain/estados';
@@ -87,12 +93,34 @@ describe('DenunciasService (integración)', () => {
       }),
     );
 
-  const datosDeDenuncia = {
+  /**
+   * Una denuncia completa según el formulario de campos cerrados.
+   *
+   * No lleva `description`: el relato libre se retiró y el DTO lo rechaza. La
+   * fotografía es obligatoria, así que va un base64 mínimo pero válido.
+   */
+  const datosDeDenuncia: CreateDenunciaDto = {
     nombre_persona_buscada: 'Luis Mamani',
     ci_persona_buscada: '9876543',
-    description: 'Visto por última vez el martes en la plaza',
+    fecha_nacimiento: '1990-04-12',
+    sexo: 'MASCULINO',
+    estatura_rango: 'DE_170_A_180',
+    contextura: 'MEDIA',
+    color_piel: 'TRIGUENA',
+    color_cabello: 'NEGRO',
+    color_ojos: 'CAFES_OSCUROS',
+    senas_particulares: ['CICATRIZ'],
+    ultimo_avistamiento_en: '2026-01-15T14:30:00.000Z',
+    prenda_superior: 'CHOMPA',
+    color_prenda_superior: 'AZUL',
+    prenda_inferior: 'PANTALON_JEAN',
+    color_prenda_inferior: 'NEGRO',
+    calzado: 'ZAPATILLAS',
+    circunstancia: 'SALIO_DE_CASA',
+    condicion_relevante: ['REQUIERE_MEDICACION'],
     latitude: LA_PAZ.lat,
     longitude: LA_PAZ.lng,
+    fotografia_base64: 'Zm90bw==',
   };
 
   describe('creación', () => {
@@ -172,6 +200,121 @@ describe('DenunciasService (integración)', () => {
       const recuperada = await service.findMine(autor.id);
 
       expect(recuperada[0].ci_hash_persona_buscada).toBeUndefined();
+    });
+
+    /**
+     * P6. El número de documento de la persona buscada no se almacena en claro
+     * en ningún punto del sistema, incluidos registros de log y respuestas de la
+     * API.
+     *
+     * Se comprueba sobre la fila entera y sobre todo lo que el servicio emite,
+     * y no solo sobre la columna que se sabe que lo guarda en hash: el riesgo
+     * real no es la columna prevista, es la que alguien añada mañana.
+     */
+    it('P6 · el documento no queda en claro en ninguna columna ni en los registros', async () => {
+      const CI_RASTREABLE = '77713579';
+      const espias = [
+        jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {}),
+        jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => {}),
+        jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {}),
+        jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {}),
+        jest.spyOn(Logger.prototype, 'verbose').mockImplementation(() => {}),
+      ];
+
+      try {
+        const autor = await crearDenunciante();
+        const devuelta = await service.create(autor.id, {
+          ...datosDeDenuncia,
+          ci_persona_buscada: CI_RASTREABLE,
+        });
+
+        // 1. Ninguna columna de la fila, sea cual sea, contiene el número.
+        const [fila] = await denuncias.query(
+          `SELECT to_jsonb(d)::text AS todo FROM denuncias d WHERE id = $1`,
+          [devuelta.id],
+        );
+        expect(fila.todo).not.toContain(CI_RASTREABLE);
+
+        // 2. Tampoco lo que el servicio devuelve, que es lo que sale por la API.
+        expect(JSON.stringify(devuelta)).not.toContain(CI_RASTREABLE);
+        const listada = await service.findMine(autor.id);
+        expect(JSON.stringify(listada)).not.toContain(CI_RASTREABLE);
+
+        // 3. Ni una sola línea de registro lo menciona.
+        const escrito = espias
+          .flatMap((espia) => espia.mock.calls)
+          .flat()
+          .map((argumento) => String(argumento))
+          .join(' ');
+        expect(escrito).not.toContain(CI_RASTREABLE);
+
+        // Y el hash sí está: lo que se guarda es la huella, no nada.
+        const [conHash] = await denuncias.query(
+          `SELECT ci_hash_persona_buscada AS hash FROM denuncias WHERE id = $1`,
+          [devuelta.id],
+        );
+        expect(conHash.hash).toBe(
+          createHash('sha256').update(CI_RASTREABLE).digest('hex'),
+        );
+      } finally {
+        espias.forEach((espia) => espia.mockRestore());
+      }
+    });
+
+    it('rechaza un último avistamiento en el futuro', async () => {
+      const autor = await crearDenunciante();
+
+      await expect(
+        service.create(autor.id, {
+          ...datosDeDenuncia,
+          ultimo_avistamiento_en: new Date(Date.now() + 86_400_000).toISOString(),
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('guarda los valores múltiples ordenados y sin repetidos', async () => {
+      // De esto depende el sellado: el mismo conjunto en distinto orden tiene
+      // que producir el mismo hash de contenido.
+      const autor = await crearDenunciante();
+
+      const denuncia = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        senas_particulares: ['TATUAJE', 'CICATRIZ', 'TATUAJE'],
+      });
+
+      expect(denuncia.senas_particulares).toEqual(['CICATRIZ', 'TATUAJE']);
+    });
+
+    it('la base rechaza un valor fuera del dominio aunque se escriba directo', async () => {
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+
+      await expect(
+        denuncias.query(
+          `UPDATE denuncias SET prenda_superior = 'PONCHO' WHERE id = $1`,
+          [id],
+        ),
+      ).rejects.toThrow(/chk_denuncias_prenda_superior/);
+    });
+
+    it('la base impide nacer después de haber sido visto por última vez', async () => {
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+
+      await expect(
+        denuncias.query(
+          `UPDATE denuncias SET fecha_nacimiento = '2030-01-01' WHERE id = $1`,
+          [id],
+        ),
+      ).rejects.toThrow(/chk_denuncias_nacimiento_antes_de_avistamiento/);
+    });
+
+    it('se sella con la fórmula que no incluye el relato libre', async () => {
+      const autor = await crearDenunciante();
+      const denuncia = await service.create(autor.id, datosDeDenuncia);
+
+      expect(denuncia.version_formula_contenido).toBe(2);
+      expect(denuncia.description).toBeNull();
     });
 
     it('Postgres calcula la ubicación geográfica a partir de las coordenadas', async () => {
@@ -306,10 +449,12 @@ describe('DenunciasService (integración)', () => {
       const { id } = await service.create(autor.id, datosDeDenuncia);
 
       const editada = await service.update(autor.id, id, {
-        description: 'Corrijo: fue el miércoles',
+        prenda_superior: 'CASACA',
+        color_prenda_superior: 'ROJO',
       });
 
-      expect(editada.description).toBe('Corrijo: fue el miércoles');
+      expect(editada.prenda_superior).toBe('CASACA');
+      expect(editada.color_prenda_superior).toBe('ROJO');
     });
 
     it('cierra la edición una vez declarada bajo juramento', async () => {
@@ -322,7 +467,7 @@ describe('DenunciasService (integración)', () => {
       });
 
       await expect(
-        service.update(autor.id, id, { description: 'Contenido ya sellado' }),
+        service.update(autor.id, id, { prenda_superior: 'CAMISA' }),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -332,7 +477,7 @@ describe('DenunciasService (integración)', () => {
       const { id } = await service.create(autor.id, datosDeDenuncia);
 
       await expect(
-        service.update(ajeno.id, id, { description: 'No es mía' }),
+        service.update(ajeno.id, id, { prenda_superior: 'CAMISA' }),
       ).rejects.toThrow(ForbiddenException);
     });
   });

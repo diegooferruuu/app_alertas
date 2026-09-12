@@ -17,7 +17,27 @@ export interface Denuncia {
    */
   es_mia: boolean;
   nombre_persona_buscada: string | null;
-  description: string;
+  /**
+   * Relato libre. Retirado del formulario: solo lo traen las denuncias
+   * anteriores al desglose en campos cerrados.
+   */
+  description: string | null;
+  fecha_nacimiento: string | null;
+  sexo: string | null;
+  estatura_rango: string | null;
+  contextura: string | null;
+  color_piel: string | null;
+  color_cabello: string | null;
+  color_ojos: string | null;
+  senas_particulares: string[] | null;
+  ultimo_avistamiento_en: string | null;
+  prenda_superior: string | null;
+  color_prenda_superior: string | null;
+  prenda_inferior: string | null;
+  color_prenda_inferior: string | null;
+  calzado: string | null;
+  circunstancia: string | null;
+  condicion_relevante: string[] | null;
   latitude: number;
   longitude: number;
   /**
@@ -37,14 +57,38 @@ export interface Denuncia {
   distance_meters?: number;
 }
 
+/**
+ * Lo que se envía al crear una denuncia.
+ *
+ * No existe aquí ningún campo de texto libre salvo el nombre de la persona
+ * buscada, ni ningún campo referido a un tercero. El servidor rechaza con 400
+ * cualquier propiedad que no esté en esta lista, así que añadir una aquí sin
+ * añadirla allá no abre ninguna puerta: la cierra el servidor.
+ */
 export interface CreateDenunciaPayload {
   nombre_persona_buscada: string;
   /** Documento de la persona buscada. El servidor solo guarda su hash. */
   ci_persona_buscada: string;
-  description: string;
+  fecha_nacimiento: string;
+  sexo: string;
+  estatura_rango: string;
+  contextura: string;
+  color_piel: string;
+  color_cabello: string;
+  color_ojos: string;
+  senas_particulares?: string[];
+  ultimo_avistamiento_en: string;
+  prenda_superior: string;
+  color_prenda_superior: string;
+  prenda_inferior: string;
+  color_prenda_inferior: string;
+  calzado?: string;
+  circunstancia: string;
+  condicion_relevante?: string[];
   latitude: number;
   longitude: number;
-  fotografia_base64?: string;
+  /** Obligatoria: sin imagen la alerta no sirve para reconocer. */
+  fotografia_base64: string;
 }
 
 /**
@@ -98,9 +142,29 @@ export const NIVEL_META: Record<
   },
 };
 
+/**
+ * Corrección de una denuncia sin declarar. Mismos campos cerrados que al crear,
+ * todos opcionales. Sin `description`: el relato libre se retiró, y admitirlo al
+ * editar dejaría abierta la puerta que se cerró al crear.
+ */
 export interface UpdateDenunciaPayload {
   nombre_persona_buscada?: string;
-  description?: string;
+  fecha_nacimiento?: string;
+  sexo?: string;
+  estatura_rango?: string;
+  contextura?: string;
+  color_piel?: string;
+  color_cabello?: string;
+  color_ojos?: string;
+  senas_particulares?: string[];
+  ultimo_avistamiento_en?: string;
+  prenda_superior?: string;
+  color_prenda_superior?: string;
+  prenda_inferior?: string;
+  color_prenda_inferior?: string;
+  calzado?: string;
+  circunstancia?: string;
+  condicion_relevante?: string[];
   fotografia_base64?: string;
 }
 

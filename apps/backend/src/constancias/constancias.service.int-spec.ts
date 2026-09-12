@@ -7,6 +7,7 @@ import { ConstanciasService } from './constancias.service';
 import { SolicitudConstancia } from './entities/solicitud-constancia.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from '../denuncias/domain/estados';
+import { contenidoSellable } from '../denuncias/domain/contenido-sellado';
 import { DeclaracionJurada } from '../declaraciones/entities/declaracion-jurada.entity';
 import { VersionTextoLegal } from '../declaraciones/entities/version-texto-legal.entity';
 import {
@@ -124,13 +125,10 @@ describe('Constancia probatoria · solicitud (integración)', () => {
         .update(version.texto, 'utf8')
         .digest('hex'),
       texto_firmado: opciones.texto ?? 'Ana Quispe',
-      hash_contenido_denuncia: calcularHashContenido({
-        nombre_persona_buscada: denuncia.nombre_persona_buscada,
-        ci_hash_persona_buscada: denuncia.ci_hash_persona_buscada,
-        description: denuncia.description,
-        latitude: Number(denuncia.latitude),
-        longitude: Number(denuncia.longitude),
-      }),
+      hash_contenido_denuncia: calcularHashContenido(
+        contenidoSellable(denuncia),
+        denuncia.version_formula_contenido,
+      ),
       firmada_en: firmadaEn.toISOString(),
       device_id: null as string | null,
       hash_anterior: null as string | null,
@@ -311,11 +309,16 @@ describe('Constancia probatoria · solicitud (integración)', () => {
     it('publica el procedimiento y el orden de los campos', async () => {
       const c = await constanciaDeEjemplo();
 
-      expect(c.formato).toBe('constancia-denuncia/v1');
+      expect(c.formato).toBe('constancia-denuncia/v2');
       expect(c.verificacion.algoritmo).toBe('SHA-256');
       expect(c.verificacion.separador).toBe('U+001F');
       expect(c.verificacion.orden_campos_registro.length).toBeGreaterThan(0);
       expect(c.verificacion.procedimiento.length).toBeGreaterThan(0);
+      // El orden de contenido depende de con qué fórmula se selló la denuncia;
+      // publicarlo es lo que permite a un verificador único comprobar tanto una
+      // constancia vieja como una nueva.
+      expect(c.verificacion.version_formula_contenido).toBeGreaterThan(0);
+      expect(c.verificacion.orden_campos_contenido.length).toBeGreaterThan(0);
     });
 
     it('el hash del registro se recalcula desde los campos publicados', async () => {

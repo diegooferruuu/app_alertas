@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { resumenDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import denunciaService, {
@@ -162,7 +163,7 @@ const DenunciasListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                     </Text>
                   </View>
                   <Text style={styles.description} numberOfLines={2}>
-                    {item.description}
+                    {resumenDescriptivo(item)}
                   </Text>
                   <Text style={[styles.status, { color: situacionDe(item).color }]}>
                     {situacionDe(item).label}

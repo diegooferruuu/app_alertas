@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { resumenDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
@@ -81,7 +82,7 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                   <Ionicons name={meta.icon as any} size={18} color={meta.color} />
                   <Text style={[styles.itemTitle, { color: meta.color }]}>{meta.label}</Text>
                 </View>
-                <Text style={styles.itemDesc}>{inc.description}</Text>
+                <Text style={styles.itemDesc}>{resumenDescriptivo(inc)}</Text>
                 <View style={styles.itemCoordsRow}>
                   <Ionicons name="location-outline" size={13} color="#999" />
                   <Text style={styles.itemCoords}>

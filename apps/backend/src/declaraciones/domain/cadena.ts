@@ -76,26 +76,87 @@ export const calcularHashRegistro = (campos: CamposDelRegistro): string =>
  *
  * Sella lo que se declaró: si la denuncia cambiara después, este hash dejaría
  * de corresponder. Por eso la edición se cierra al firmar.
+ *
+ * Los campos llegan ya en su forma canónica de texto —fechas en ISO, valores
+ * múltiples ordenados y unidos por coma, coordenadas con precisión fija— porque
+ * el sellado no puede depender de cómo cada llamador decida representar un dato.
  */
-export interface ContenidoDenuncia {
-  nombre_persona_buscada: string | null;
-  ci_hash_persona_buscada: string;
-  description: string;
-  latitude: number;
-  longitude: number;
-}
+export type ContenidoDenuncia = Record<string, string>;
 
-export const calcularHashContenido = (contenido: ContenidoDenuncia): string =>
+/**
+ * Versiones de la fórmula del hash de contenido.
+ *
+ * La fórmula no se cambia en su sitio: se añade una versión. Cuando el
+ * formulario pasó de un relato libre a campos de dominio cerrado, sellar los
+ * campos nuevos con la fórmula vieja habría dejado la ropa y la circunstancia
+ * fuera del sello —alterables sin que la cadena lo notara— y reescribir la
+ * fórmula habría vuelto inverificable toda constancia ya emitida. Conviven.
+ *
+ * Cada denuncia recuerda con qué versión se selló, y la constancia publica el
+ * orden correspondiente; el verificador lo lee del propio documento y no
+ * necesita conocer ninguna de las dos.
+ */
+export const ORDEN_CONTENIDO_POR_VERSION: Record<number, readonly string[]> = {
+  // Formulario original: un relato libre y poco más.
+  1: [
+    'nombre_persona_buscada',
+    'ci_hash_persona_buscada',
+    'description',
+    'latitude',
+    'longitude',
+  ],
+  // Formulario de campos cerrados. Sin `description`, que se retiró.
+  2: [
+    'nombre_persona_buscada',
+    'ci_hash_persona_buscada',
+    'fecha_nacimiento',
+    'sexo',
+    'estatura_rango',
+    'contextura',
+    'color_piel',
+    'color_cabello',
+    'color_ojos',
+    'senas_particulares',
+    'ultimo_avistamiento_en',
+    'prenda_superior',
+    'color_prenda_superior',
+    'prenda_inferior',
+    'color_prenda_inferior',
+    'calzado',
+    'circunstancia',
+    'condicion_relevante',
+    'latitude',
+    'longitude',
+  ],
+};
+
+/** La versión con la que se sellan las denuncias nuevas. */
+export const VERSION_FORMULA_ACTUAL = 2;
+
+export const ordenDeContenido = (version: number): readonly string[] => {
+  const orden = ORDEN_CONTENIDO_POR_VERSION[version];
+  if (!orden) {
+    throw new Error(
+      `No existe la versión ${version} de la fórmula de contenido de denuncia`,
+    );
+  }
+  return orden;
+};
+
+/**
+ * Sella el contenido de una denuncia con la fórmula de su versión.
+ *
+ * Un campo ausente o nulo entra como cadena vacía, igual que en el hash del
+ * registro y que en el procedimiento publicado.
+ */
+export const calcularHashContenido = (
+  contenido: ContenidoDenuncia,
+  version: number,
+): string =>
   sha256(
-    [
-      contenido.nombre_persona_buscada ?? '',
-      contenido.ci_hash_persona_buscada,
-      contenido.description,
-      // Se fija la precisión: el mismo punto debe producir siempre el mismo
-      // hash, y la representación decimal de un flotante puede variar.
-      contenido.latitude.toFixed(7),
-      contenido.longitude.toFixed(7),
-    ].join(SEPARADOR),
+    ordenDeContenido(version)
+      .map((campo) => contenido[campo] ?? '')
+      .join(SEPARADOR),
   );
 
 /** Verifica que un registro no fue alterado desde que se selló. */

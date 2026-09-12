@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   ForbiddenException,
   NotFoundException,
   ConflictException,
@@ -17,6 +18,8 @@ import {
   puedeTransicionarEstado,
   puedeTransicionarNivel,
 } from './domain/estados';
+import { normalizarMultiple } from './domain/descripcion-fisica';
+import { VERSION_FORMULA_ACTUAL } from '../declaraciones/domain/cadena';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { EstadoCuenta, puedeCrearDenuncia } from '../users/domain/estado-cuenta';
@@ -37,6 +40,22 @@ export class DenunciasService {
   /** El número de documento nunca se almacena en claro, solo su hash. */
   private hashDeCi(ciNumber: string): string {
     return createHash('sha256').update(ciNumber.trim()).digest('hex');
+  }
+
+  /**
+   * Nadie fue visto por última vez en el futuro (§7).
+   *
+   * Se comprueba aquí y no con una restricción de la base porque `now()` no es
+   * inmutable y Postgres no la admite dentro de un CHECK. La otra regla temporal
+   * —nacer antes de haber sido visto— sí vive en la base, donde una escritura
+   * directa tampoco puede saltársela.
+   */
+  private rechazarAvistamientoFuturo(instante: string): void {
+    if (new Date(instante).getTime() > Date.now()) {
+      throw new BadRequestException(
+        'El último avistamiento no puede ser una fecha futura',
+      );
+    }
   }
 
   /**
@@ -66,6 +85,8 @@ export class DenunciasService {
       );
     }
 
+    this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
+
     const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
 
     const guardada = await this.dataSource.transaction(async (manager) => {
@@ -76,7 +97,26 @@ export class DenunciasService {
           denunciante_id: userId,
           nombre_persona_buscada: dto.nombre_persona_buscada,
           ci_hash_persona_buscada: ciHashPersonaBuscada,
-          description: dto.description,
+          // El relato libre se retiró del formulario; una denuncia nueva no lo
+          // tiene, y por eso se sella con la fórmula que no lo incluye.
+          description: null,
+          version_formula_contenido: VERSION_FORMULA_ACTUAL,
+          fecha_nacimiento: dto.fecha_nacimiento,
+          sexo: dto.sexo,
+          estatura_rango: dto.estatura_rango,
+          contextura: dto.contextura,
+          color_piel: dto.color_piel,
+          color_cabello: dto.color_cabello,
+          color_ojos: dto.color_ojos,
+          senas_particulares: normalizarMultiple(dto.senas_particulares),
+          ultimo_avistamiento_en: new Date(dto.ultimo_avistamiento_en),
+          prenda_superior: dto.prenda_superior,
+          color_prenda_superior: dto.color_prenda_superior,
+          prenda_inferior: dto.prenda_inferior,
+          color_prenda_inferior: dto.color_prenda_inferior,
+          calzado: dto.calzado ?? null,
+          circunstancia: dto.circunstancia,
+          condicion_relevante: normalizarMultiple(dto.condicion_relevante),
           latitude: dto.latitude,
           longitude: dto.longitude,
           nivel_confianza: NivelConfianza.REGISTRADA,
@@ -87,13 +127,11 @@ export class DenunciasService {
         }),
       );
 
-      if (dto.fotografia_base64) {
-        await this.reemplazarFotografia(
-          dto.fotografia_base64,
-          denuncia.id,
-          manager,
-        );
-      }
+      await this.reemplazarFotografia(
+        dto.fotografia_base64,
+        denuncia.id,
+        manager,
+      );
 
       // ---------------------------------------------------------------------
       // Aviso a la persona reportada, si tiene cuenta.
@@ -281,10 +319,61 @@ export class DenunciasService {
       );
     }
 
-    if (dto.nombre_persona_buscada !== undefined) {
-      denuncia.nombre_persona_buscada = dto.nombre_persona_buscada;
+    if (dto.ultimo_avistamiento_en !== undefined) {
+      this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
     }
-    if (dto.description !== undefined) denuncia.description = dto.description;
+
+    // Se copia campo a campo y no con un `Object.assign` del DTO: el DTO trae
+    // `fotografia_base64`, que no es una columna, y los campos de valor múltiple
+    // necesitan normalizarse antes de guardarse.
+    const asignar = <K extends keyof Denuncia>(campo: K, valor: Denuncia[K]) => {
+      denuncia[campo] = valor;
+    };
+
+    if (dto.nombre_persona_buscada !== undefined) {
+      asignar('nombre_persona_buscada', dto.nombre_persona_buscada);
+    }
+    if (dto.fecha_nacimiento !== undefined) {
+      asignar('fecha_nacimiento', dto.fecha_nacimiento);
+    }
+    if (dto.sexo !== undefined) asignar('sexo', dto.sexo);
+    if (dto.estatura_rango !== undefined) {
+      asignar('estatura_rango', dto.estatura_rango);
+    }
+    if (dto.contextura !== undefined) asignar('contextura', dto.contextura);
+    if (dto.color_piel !== undefined) asignar('color_piel', dto.color_piel);
+    if (dto.color_cabello !== undefined) {
+      asignar('color_cabello', dto.color_cabello);
+    }
+    if (dto.color_ojos !== undefined) asignar('color_ojos', dto.color_ojos);
+    if (dto.senas_particulares !== undefined) {
+      asignar('senas_particulares', normalizarMultiple(dto.senas_particulares));
+    }
+    if (dto.ultimo_avistamiento_en !== undefined) {
+      asignar('ultimo_avistamiento_en', new Date(dto.ultimo_avistamiento_en));
+    }
+    if (dto.prenda_superior !== undefined) {
+      asignar('prenda_superior', dto.prenda_superior);
+    }
+    if (dto.color_prenda_superior !== undefined) {
+      asignar('color_prenda_superior', dto.color_prenda_superior);
+    }
+    if (dto.prenda_inferior !== undefined) {
+      asignar('prenda_inferior', dto.prenda_inferior);
+    }
+    if (dto.color_prenda_inferior !== undefined) {
+      asignar('color_prenda_inferior', dto.color_prenda_inferior);
+    }
+    if (dto.calzado !== undefined) asignar('calzado', dto.calzado);
+    if (dto.circunstancia !== undefined) {
+      asignar('circunstancia', dto.circunstancia);
+    }
+    if (dto.condicion_relevante !== undefined) {
+      asignar(
+        'condicion_relevante',
+        normalizarMultiple(dto.condicion_relevante),
+      );
+    }
 
     const actualizada = await this.denunciasRepository.save(denuncia);
 

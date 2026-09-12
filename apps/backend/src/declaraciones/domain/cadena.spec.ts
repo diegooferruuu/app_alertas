@@ -87,31 +87,77 @@ describe('Cadena de hashes del paquete probatorio', () => {
   });
 
   describe('sellado del contenido de la denuncia', () => {
+    // Los campos llegan ya en forma canónica de texto: es la propia función
+    // `contenidoSellable` la que los produce así, y la constancia publica
+    // exactamente estas cadenas.
     const contenido = {
       nombre_persona_buscada: 'Luis Mamani',
       ci_hash_persona_buscada: 'd'.repeat(64),
-      description: 'Visto el martes en la plaza',
-      latitude: -16.5,
-      longitude: -68.15,
+      fecha_nacimiento: '1990-04-12',
+      sexo: 'MASCULINO',
+      estatura_rango: 'DE_170_A_180',
+      contextura: 'MEDIA',
+      color_piel: 'TRIGUENA',
+      color_cabello: 'NEGRO',
+      color_ojos: 'CAFES_OSCUROS',
+      senas_particulares: 'CICATRIZ,TATUAJE',
+      ultimo_avistamiento_en: '2026-01-15T14:30:00.000Z',
+      prenda_superior: 'CHOMPA',
+      color_prenda_superior: 'AZUL',
+      prenda_inferior: 'PANTALON_JEAN',
+      color_prenda_inferior: 'NEGRO',
+      calzado: 'ZAPATILLAS',
+      circunstancia: 'SALIO_DE_CASA',
+      condicion_relevante: 'REQUIERE_MEDICACION',
+      latitude: '-16.5000000',
+      longitude: '-68.1500000',
     };
 
     it('el mismo contenido produce el mismo hash', () => {
-      expect(calcularHashContenido(contenido)).toBe(
-        calcularHashContenido({ ...contenido }),
+      expect(calcularHashContenido(contenido, 2)).toBe(
+        calcularHashContenido({ ...contenido }, 2),
       );
     });
 
-    it('cambiar la descripción cambia el hash: por eso se cierra la edición', () => {
+    it('cambiar un campo descriptivo cambia el hash: por eso se cierra la edición', () => {
       expect(
-        calcularHashContenido({ ...contenido, description: 'Otra cosa' }),
-      ).not.toBe(calcularHashContenido(contenido));
+        calcularHashContenido({ ...contenido, prenda_superior: 'CASACA' }, 2),
+      ).not.toBe(calcularHashContenido(contenido, 2));
     });
 
-    it('fija la precisión de las coordenadas para que el hash sea estable', () => {
-      // Sin fijar decimales, la representación de un flotante puede variar y el
-      // mismo punto produciría hashes distintos.
-      expect(calcularHashContenido({ ...contenido, latitude: -16.5000000 })).toBe(
-        calcularHashContenido(contenido),
+    it('la fórmula 1 ignora los campos que no existían cuando se escribió', () => {
+      // Una denuncia vieja se sigue sellando como entonces. Si la fórmula 1
+      // mirara los campos nuevos, toda constancia ya emitida dejaría de
+      // verificar en cuanto la columna existiera.
+      const vieja = { ...contenido, description: 'Visto el martes' };
+      expect(
+        calcularHashContenido({ ...vieja, prenda_superior: 'CASACA' }, 1),
+      ).toBe(calcularHashContenido(vieja, 1));
+    });
+
+    it('la misma denuncia sellada con fórmulas distintas da hashes distintos', () => {
+      expect(calcularHashContenido(contenido, 1)).not.toBe(
+        calcularHashContenido(contenido, 2),
+      );
+    });
+
+    it('una versión de fórmula inexistente falla en vez de sellar cualquier cosa', () => {
+      expect(() => calcularHashContenido(contenido, 99)).toThrow(/versión 99/);
+    });
+
+    it('un valor múltiple en distinto orden es el mismo conjunto y debe sellar igual', () => {
+      // Lo garantiza `normalizarMultiple` al guardar, no esta función: aquí se
+      // fija que la forma canónica es la ordenada alfabéticamente.
+      expect(
+        calcularHashContenido(
+          { ...contenido, senas_particulares: 'CICATRIZ,TATUAJE' },
+          2,
+        ),
+      ).not.toBe(
+        calcularHashContenido(
+          { ...contenido, senas_particulares: 'TATUAJE,CICATRIZ' },
+          2,
+        ),
       );
     });
   });

@@ -17,14 +17,61 @@ import denunciaService, {
   Denuncia,
   primeraFotografia,
 } from '../../services/denuncia.service';
+import {
+  SelectorCerrado,
+  SelectorMultiple,
+} from '../../components/SelectorCerrado';
+import {
+  CALZADO,
+  CIRCUNSTANCIA,
+  COLOR_CABELLO,
+  COLOR_OJOS,
+  COLOR_PIEL,
+  COLOR_PRENDA,
+  CONDICION_RELEVANTE,
+  CONTEXTURA,
+  ESTATURA_RANGO,
+  PRENDA_INFERIOR,
+  PRENDA_SUPERIOR,
+  SENA_PARTICULAR,
+  SEXO,
+} from './catalogo-denuncia';
 
+/**
+ * Corrección de una denuncia todavía no declarada bajo juramento.
+ *
+ * Ofrece los mismos campos cerrados que el formulario de creación y ninguno más:
+ * si la edición admitiera un recuadro de texto que la creación no acepta, la
+ * puerta cerrada en un sitio quedaría abierta en el otro. El documento de la
+ * persona buscada no se puede corregir —cambiarlo redirigiría la denuncia hacia
+ * otra persona conservando su historia—, así que ni siquiera aparece.
+ */
 const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
   const denuncia: Denuncia = route.params.denuncia;
-  const [nombrePersonaBuscada, setNombrePersonaBuscada] = useState(denuncia.nombre_persona_buscada || '');
-  const [description, setDescription] = useState(denuncia.description);
+
+  const [nombrePersonaBuscada, setNombrePersonaBuscada] = useState(
+    denuncia.nombre_persona_buscada || '',
+  );
+  const [sexo, setSexo] = useState(denuncia.sexo);
+  const [estatura, setEstatura] = useState(denuncia.estatura_rango);
+  const [contextura, setContextura] = useState(denuncia.contextura);
+  const [colorPiel, setColorPiel] = useState(denuncia.color_piel);
+  const [colorCabello, setColorCabello] = useState(denuncia.color_cabello);
+  const [colorOjos, setColorOjos] = useState(denuncia.color_ojos);
+  const [senas, setSenas] = useState<string[]>(denuncia.senas_particulares ?? []);
+  const [prendaSuperior, setPrendaSuperior] = useState(denuncia.prenda_superior);
+  const [colorSuperior, setColorSuperior] = useState(denuncia.color_prenda_superior);
+  const [prendaInferior, setPrendaInferior] = useState(denuncia.prenda_inferior);
+  const [colorInferior, setColorInferior] = useState(denuncia.color_prenda_inferior);
+  const [calzado, setCalzado] = useState(denuncia.calzado);
+  const [circunstancia, setCircunstancia] = useState(denuncia.circunstancia);
+  const [condiciones, setCondiciones] = useState<string[]>(
+    denuncia.condicion_relevante ?? [],
+  );
+
   const fotografiaOriginal = primeraFotografia(denuncia);
   const [photo, setPhoto] = useState<string | null>(fotografiaOriginal);
   const [saving, setSaving] = useState(false);
@@ -47,19 +94,30 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
       Alert.alert('Falta el nombre', 'Ingresa el nombre de la persona desaparecida.');
       return;
     }
-    if (description.trim().length < 5) {
-      Alert.alert('Datos insuficientes', 'Agrega más detalles (mínimo 5 caracteres).');
-      return;
-    }
 
     setSaving(true);
     try {
       await denunciaService.update(denuncia.id, {
         nombre_persona_buscada: nombrePersonaBuscada.trim(),
-        description: description.trim(),
-        // Solo enviamos la foto si cambió a una nueva (base64 sin prefijo data:)
-        // Solo se envía si cambió: reenviar la misma imagen la reescribiría sin
-        // motivo, y son cientos de kilobytes.
+        // Se envía solo lo que tiene valor: un campo sin elegir en una denuncia
+        // anterior al desglose no debe mandarse como nulo, porque el servidor
+        // lo rechazaría por no pertenecer a su dominio.
+        ...(sexo ? { sexo } : {}),
+        ...(estatura ? { estatura_rango: estatura } : {}),
+        ...(contextura ? { contextura } : {}),
+        ...(colorPiel ? { color_piel: colorPiel } : {}),
+        ...(colorCabello ? { color_cabello: colorCabello } : {}),
+        ...(colorOjos ? { color_ojos: colorOjos } : {}),
+        ...(senas.length > 0 ? { senas_particulares: senas } : {}),
+        ...(prendaSuperior ? { prenda_superior: prendaSuperior } : {}),
+        ...(colorSuperior ? { color_prenda_superior: colorSuperior } : {}),
+        ...(prendaInferior ? { prenda_inferior: prendaInferior } : {}),
+        ...(colorInferior ? { color_prenda_inferior: colorInferior } : {}),
+        ...(calzado ? { calzado } : {}),
+        ...(circunstancia ? { circunstancia } : {}),
+        ...(condiciones.length > 0 ? { condicion_relevante: condiciones } : {}),
+        // La foto solo se envía si cambió: reenviar la misma imagen la
+        // reescribiría sin motivo, y son cientos de kilobytes.
         ...(photo && photo !== fotografiaOriginal
           ? { fotografia_base64: photo }
           : {}),
@@ -68,7 +126,13 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.message || 'No se pudo guardar.');
+      const mensaje = err?.response?.data?.message;
+      Alert.alert(
+        'Error',
+        Array.isArray(mensaje)
+          ? mensaje.join('\n')
+          : mensaje || 'No se pudo guardar.',
+      );
     } finally {
       setSaving(false);
     }
@@ -78,7 +142,7 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Editar denuncia</Text>
 
-      <Text style={styles.label}>Nombre de la víctima</Text>
+      <Text style={styles.label}>Nombre de la persona desaparecida</Text>
       <TextInput
         style={styles.input}
         value={nombrePersonaBuscada}
@@ -87,14 +151,88 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
         maxLength={120}
       />
 
-      <Text style={styles.label}>Detalles</Text>
-      <TextInput
-        style={styles.textarea}
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        numberOfLines={5}
-        maxLength={1000}
+      <Text style={styles.seccion}>Descripción física</Text>
+      <SelectorCerrado etiqueta="Sexo" opciones={SEXO} valor={sexo} onChange={setSexo} />
+      <SelectorCerrado
+        etiqueta="Estatura aproximada"
+        opciones={ESTATURA_RANGO}
+        valor={estatura}
+        onChange={setEstatura}
+      />
+      <SelectorCerrado
+        etiqueta="Contextura"
+        opciones={CONTEXTURA}
+        valor={contextura}
+        onChange={setContextura}
+      />
+      <SelectorCerrado
+        etiqueta="Color de piel"
+        opciones={COLOR_PIEL}
+        valor={colorPiel}
+        onChange={setColorPiel}
+      />
+      <SelectorCerrado
+        etiqueta="Color de cabello"
+        opciones={COLOR_CABELLO}
+        valor={colorCabello}
+        onChange={setColorCabello}
+      />
+      <SelectorCerrado
+        etiqueta="Color de ojos"
+        opciones={COLOR_OJOS}
+        valor={colorOjos}
+        onChange={setColorOjos}
+      />
+      <SelectorMultiple
+        etiqueta="Señas particulares"
+        opciones={SENA_PARTICULAR}
+        valores={senas}
+        onChange={setSenas}
+      />
+
+      <Text style={styles.seccion}>Circunstancia y ropa</Text>
+      <SelectorCerrado
+        etiqueta="Circunstancia"
+        opciones={CIRCUNSTANCIA}
+        valor={circunstancia}
+        onChange={setCircunstancia}
+      />
+      <SelectorCerrado
+        etiqueta="Prenda de arriba"
+        opciones={PRENDA_SUPERIOR}
+        valor={prendaSuperior}
+        onChange={setPrendaSuperior}
+      />
+      <SelectorCerrado
+        etiqueta="Color de la prenda de arriba"
+        opciones={COLOR_PRENDA}
+        valor={colorSuperior}
+        onChange={setColorSuperior}
+      />
+      <SelectorCerrado
+        etiqueta="Prenda de abajo"
+        opciones={PRENDA_INFERIOR}
+        valor={prendaInferior}
+        onChange={setPrendaInferior}
+      />
+      <SelectorCerrado
+        etiqueta="Color de la prenda de abajo"
+        opciones={COLOR_PRENDA}
+        valor={colorInferior}
+        onChange={setColorInferior}
+      />
+      <SelectorCerrado
+        etiqueta="Calzado"
+        opciones={CALZADO}
+        valor={calzado}
+        onChange={setCalzado}
+        opcional
+      />
+      <SelectorMultiple
+        etiqueta="Condiciones a tener en cuenta"
+        opciones={CONDICION_RELEVANTE}
+        valores={condiciones}
+        onChange={setCondiciones}
       />
 
       <Text style={styles.label}>Foto</Text>
@@ -131,6 +269,16 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
 const styles = StyleSheet.create({
   container: { padding: 24, backgroundColor: '#fff', flexGrow: 1 },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, color: '#1a1a1a' },
+  seccion: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginTop: 28,
+    marginBottom: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 6,
+  },
   label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 10, marginTop: 16 },
   input: {
     borderWidth: 1,
@@ -139,16 +287,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    backgroundColor: '#fafafa',
-  },
-  textarea: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 15,
-    minHeight: 100,
-    textAlignVertical: 'top',
     backgroundColor: '#fafafa',
   },
   photoButton: {

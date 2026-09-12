@@ -12,18 +12,69 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import denunciaService from '../../services/denuncia.service';
+import {
+  SelectorCerrado,
+  SelectorMultiple,
+} from '../../components/SelectorCerrado';
+import {
+  CALZADO,
+  CIRCUNSTANCIA,
+  COLOR_CABELLO,
+  COLOR_OJOS,
+  COLOR_PIEL,
+  COLOR_PRENDA,
+  CONDICION_RELEVANTE,
+  CONTEXTURA,
+  ESTATURA_RANGO,
+  PRENDA_INFERIOR,
+  PRENDA_SUPERIOR,
+  SENA_PARTICULAR,
+  SEXO,
+} from './catalogo-denuncia';
 
+/**
+ * Formulario de denuncia de desaparición.
+ *
+ * Salvo el nombre de la persona buscada, aquí no se escribe: se elige. La
+ * defensa frente a la desinformación no está en moderar lo que se escribe sino
+ * en que lo problemático no pueda escribirse, y por eso no hay ningún recuadro
+ * de texto donde quepan una acusación, el nombre de un tercero o un teléfono.
+ */
 const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [nombrePersonaBuscada, setNombrePersonaBuscada] = useState('');
   const [ciPersonaBuscada, setCiPersonaBuscada] = useState('');
-  const [description, setDescription] = useState('');
+
+  // Persona buscada
+  const [fechaNacimiento, setFechaNacimiento] = useState<Date | null>(null);
+  const [sexo, setSexo] = useState<string | null>(null);
+  const [estatura, setEstatura] = useState<string | null>(null);
+  const [contextura, setContextura] = useState<string | null>(null);
+  const [colorPiel, setColorPiel] = useState<string | null>(null);
+  const [colorCabello, setColorCabello] = useState<string | null>(null);
+  const [colorOjos, setColorOjos] = useState<string | null>(null);
+  const [senas, setSenas] = useState<string[]>([]);
+
+  // Hecho
+  const [avistamiento, setAvistamiento] = useState<Date | null>(null);
+  const [prendaSuperior, setPrendaSuperior] = useState<string | null>(null);
+  const [colorSuperior, setColorSuperior] = useState<string | null>(null);
+  const [prendaInferior, setPrendaInferior] = useState<string | null>(null);
+  const [colorInferior, setColorInferior] = useState<string | null>(null);
+  const [calzado, setCalzado] = useState<string | null>(null);
+  const [circunstancia, setCircunstancia] = useState<string | null>(null);
+  const [condiciones, setCondiciones] = useState<string[]>([]);
+
   const [photo, setPhoto] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  const [calendarioNacimiento, setCalendarioNacimiento] = useState(false);
+  const [calendarioAvistamiento, setCalendarioAvistamiento] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -76,52 +127,97 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     ]);
   };
 
+  const soloFecha = (fecha: Date): string => {
+    const y = fecha.getFullYear();
+    const m = String(fecha.getMonth() + 1).padStart(2, '0');
+    const d = String(fecha.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
   const submit = async () => {
     setSubmitting(true);
     try {
       await denunciaService.create({
         nombre_persona_buscada: nombrePersonaBuscada.trim(),
         ci_persona_buscada: ciPersonaBuscada.trim(),
-        description: description.trim(),
+        fecha_nacimiento: soloFecha(fechaNacimiento!),
+        sexo: sexo!,
+        estatura_rango: estatura!,
+        contextura: contextura!,
+        color_piel: colorPiel!,
+        color_cabello: colorCabello!,
+        color_ojos: colorOjos!,
+        // Ausente es un dato: no se manda un arreglo vacío.
+        senas_particulares: senas.length > 0 ? senas : undefined,
+        ultimo_avistamiento_en: avistamiento!.toISOString(),
+        prenda_superior: prendaSuperior!,
+        color_prenda_superior: colorSuperior!,
+        prenda_inferior: prendaInferior!,
+        color_prenda_inferior: colorInferior!,
+        calzado: calzado ?? undefined,
+        circunstancia: circunstancia!,
+        condicion_relevante: condiciones.length > 0 ? condiciones : undefined,
         latitude: coords!.lat,
         longitude: coords!.lng,
-        fotografia_base64: photo ?? undefined,
+        fotografia_base64: photo!,
       });
-      Alert.alert('Denuncia registrada', 'Por ahora solo tú la ves. Firma la declaración para que se alerte a la zona.', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+      Alert.alert(
+        'Denuncia registrada',
+        'Por ahora solo tú la ves. Firma la declaración para que se alerte a la zona.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }],
+      );
     } catch (err: any) {
+      const mensaje = err?.response?.data?.message;
       Alert.alert(
         'Error al reportar',
-        err?.response?.data?.message || err?.message || 'Intenta de nuevo.',
+        Array.isArray(mensaje)
+          ? mensaje.join('\n')
+          : mensaje || err?.message || 'Intenta de nuevo.',
       );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleSubmit = () => {
+  /** Devuelve el primer problema encontrado, o `null` si el formulario está listo. */
+  const primerFaltante = (): string | null => {
     if (nombrePersonaBuscada.trim().length < 2) {
-      Alert.alert('Falta el nombre', 'Ingresa el nombre de la persona desaparecida.');
-      return;
+      return 'Ingresa el nombre de la persona desaparecida.';
     }
     if (!/^\d{5,12}$/.test(ciPersonaBuscada.trim())) {
-      Alert.alert(
-        'Falta el documento',
-        'Necesitamos el número de carnet de la persona desaparecida. Es lo que le permite retirar la alerta si hubo un error.',
-      );
-      return;
+      return 'Necesitamos el número de carnet de la persona desaparecida. Es lo que le permite retirar la alerta si hubo un error.';
     }
-    if (description.trim().length < 5) {
-      Alert.alert('Datos insuficientes', 'Agrega más detalles (mínimo 5 caracteres).');
-      return;
+    if (!fechaNacimiento) return 'Falta la fecha de nacimiento.';
+    if (!sexo) return 'Falta el sexo.';
+    if (!estatura) return 'Falta la estatura aproximada.';
+    if (!contextura) return 'Falta la contextura.';
+    if (!colorPiel) return 'Falta el color de piel.';
+    if (!colorCabello) return 'Falta el color de cabello.';
+    if (!colorOjos) return 'Falta el color de ojos.';
+    if (!avistamiento) return 'Falta cuándo se la vio por última vez.';
+    if (avistamiento.getTime() > Date.now()) {
+      return 'La fecha del último avistamiento no puede ser futura.';
     }
-    if (!coords) {
-      Alert.alert('Sin ubicación', 'No pudimos obtener tu ubicación. Activa el GPS e intenta de nuevo.');
+    if (fechaNacimiento > avistamiento) {
+      return 'La fecha de nacimiento no puede ser posterior al último avistamiento.';
+    }
+    if (!prendaSuperior) return 'Falta la prenda de la parte de arriba.';
+    if (!colorSuperior) return 'Falta el color de la prenda de arriba.';
+    if (!prendaInferior) return 'Falta la prenda de la parte de abajo.';
+    if (!colorInferior) return 'Falta el color de la prenda de abajo.';
+    if (!circunstancia) return 'Falta la circunstancia de la desaparición.';
+    if (!photo) return 'La fotografía es obligatoria: sin imagen la alerta no sirve para reconocer.';
+    if (!coords) return 'No pudimos obtener tu ubicación. Activa el GPS e intenta de nuevo.';
+    return null;
+  };
+
+  const handleSubmit = () => {
+    const falta = primerFaltante();
+    if (falta) {
+      Alert.alert('Faltan datos', falta);
       return;
     }
 
-    // Aviso de confirmación antes de enviar
     Alert.alert(
       '¿Confirmar denuncia?',
       `Estás por registrar la desaparición de "${nombrePersonaBuscada.trim()}".\n\nPor ahora la verás solo tú. Para que se alerte a la zona tendrás que firmar una declaración jurada.`,
@@ -132,6 +228,8 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     );
   };
 
+  const hoy = new Date();
+
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Reportar desaparición</Text>
@@ -140,6 +238,8 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         <Ionicons name="search" size={18} color="#FF3B30" />
         <Text style={styles.bannerText}>Denuncia de persona desaparecida</Text>
       </View>
+
+      <Text style={styles.seccion}>Quién es</Text>
 
       <Text style={styles.label}>Nombre de la persona desaparecida</Text>
       <TextInput
@@ -165,18 +265,175 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         un error. No guardamos el número: solo una huella cifrada de él.
       </Text>
 
-      <Text style={styles.label}>Detalles</Text>
-      <TextInput
-        style={styles.textarea}
-        placeholder="Edad, descripción física, ropa, última vez vista, contacto..."
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        numberOfLines={5}
-        maxLength={1000}
+      <View style={styles.campo}>
+        <Text style={styles.label}>Fecha de nacimiento</Text>
+        <TouchableOpacity
+          style={styles.control}
+          onPress={() => setCalendarioNacimiento(true)}
+        >
+          <Text style={fechaNacimiento ? styles.valor : styles.marcador}>
+            {fechaNacimiento ? soloFecha(fechaNacimiento) : 'Elegir fecha…'}
+          </Text>
+          <Text style={styles.chevron}>📅</Text>
+        </TouchableOpacity>
+      </View>
+
+      {calendarioNacimiento && (
+        <>
+          <DateTimePicker
+            value={fechaNacimiento ?? new Date(1995, 0, 1)}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            maximumDate={hoy}
+            minimumDate={new Date(hoy.getFullYear() - 110, 0, 1)}
+            onChange={(evento, elegida) => {
+              if (Platform.OS !== 'ios') setCalendarioNacimiento(false);
+              if (evento.type === 'dismissed') return;
+              if (elegida) setFechaNacimiento(elegida);
+            }}
+          />
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity
+              style={styles.confirmar}
+              onPress={() => setCalendarioNacimiento(false)}
+            >
+              <Text style={styles.confirmarTexto}>Confirmar fecha</Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
+
+      <SelectorCerrado etiqueta="Sexo" opciones={SEXO} valor={sexo} onChange={setSexo} />
+      <SelectorCerrado
+        etiqueta="Estatura aproximada"
+        opciones={ESTATURA_RANGO}
+        valor={estatura}
+        onChange={setEstatura}
+        ayuda="Un tramo aproximado describe mejor que un número exacto que no se sabe."
+      />
+      <SelectorCerrado
+        etiqueta="Contextura"
+        opciones={CONTEXTURA}
+        valor={contextura}
+        onChange={setContextura}
+      />
+      <SelectorCerrado
+        etiqueta="Color de piel"
+        opciones={COLOR_PIEL}
+        valor={colorPiel}
+        onChange={setColorPiel}
+      />
+      <SelectorCerrado
+        etiqueta="Color de cabello"
+        opciones={COLOR_CABELLO}
+        valor={colorCabello}
+        onChange={setColorCabello}
+      />
+      <SelectorCerrado
+        etiqueta="Color de ojos"
+        opciones={COLOR_OJOS}
+        valor={colorOjos}
+        onChange={setColorOjos}
+      />
+      <SelectorMultiple
+        etiqueta="Señas particulares"
+        opciones={SENA_PARTICULAR}
+        valores={senas}
+        onChange={setSenas}
       />
 
-      <Text style={styles.label}>Foto (opcional)</Text>
+      <Text style={styles.seccion}>Cómo desapareció</Text>
+
+      <View style={styles.campo}>
+        <Text style={styles.label}>Última vez que se la vio</Text>
+        <TouchableOpacity
+          style={styles.control}
+          onPress={() => setCalendarioAvistamiento(true)}
+        >
+          <Text style={avistamiento ? styles.valor : styles.marcador}>
+            {avistamiento ? avistamiento.toLocaleString() : 'Elegir fecha y hora…'}
+          </Text>
+          <Text style={styles.chevron}>🕑</Text>
+        </TouchableOpacity>
+      </View>
+
+      {calendarioAvistamiento && (
+        <>
+          <DateTimePicker
+            value={avistamiento ?? new Date()}
+            mode={Platform.OS === 'ios' ? 'datetime' : 'date'}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            maximumDate={new Date()}
+            onChange={(evento, elegida) => {
+              if (Platform.OS !== 'ios') setCalendarioAvistamiento(false);
+              if (evento.type === 'dismissed') return;
+              if (elegida) setAvistamiento(elegida);
+            }}
+          />
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity
+              style={styles.confirmar}
+              onPress={() => setCalendarioAvistamiento(false)}
+            >
+              <Text style={styles.confirmarTexto}>Confirmar</Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
+
+      <SelectorCerrado
+        etiqueta="Circunstancia"
+        opciones={CIRCUNSTANCIA}
+        valor={circunstancia}
+        onChange={setCircunstancia}
+        ayuda="Describe cómo se perdió el contacto. No es el lugar para señalar a nadie."
+      />
+
+      <Text style={styles.seccion}>Cómo iba vestida</Text>
+
+      <SelectorCerrado
+        etiqueta="Prenda de arriba"
+        opciones={PRENDA_SUPERIOR}
+        valor={prendaSuperior}
+        onChange={setPrendaSuperior}
+      />
+      <SelectorCerrado
+        etiqueta="Color de la prenda de arriba"
+        opciones={COLOR_PRENDA}
+        valor={colorSuperior}
+        onChange={setColorSuperior}
+      />
+      <SelectorCerrado
+        etiqueta="Prenda de abajo"
+        opciones={PRENDA_INFERIOR}
+        valor={prendaInferior}
+        onChange={setPrendaInferior}
+      />
+      <SelectorCerrado
+        etiqueta="Color de la prenda de abajo"
+        opciones={COLOR_PRENDA}
+        valor={colorInferior}
+        onChange={setColorInferior}
+      />
+      <SelectorCerrado
+        etiqueta="Calzado"
+        opciones={CALZADO}
+        valor={calzado}
+        onChange={setCalzado}
+        opcional
+      />
+
+      <SelectorMultiple
+        etiqueta="Condiciones a tener en cuenta"
+        opciones={CONDICION_RELEVANTE}
+        valores={condiciones}
+        onChange={setCondiciones}
+        ayuda="Ayuda a quien la encuentre a saber si necesita atención inmediata."
+      />
+
+      <Text style={styles.seccion}>Fotografía y lugar</Text>
+
+      <Text style={styles.label}>Fotografía (obligatoria, rostro visible)</Text>
       {photo ? (
         <View style={styles.photoWrap}>
           <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={styles.photo} />
@@ -232,7 +489,17 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
 const styles = StyleSheet.create({
   container: { padding: 24, backgroundColor: '#fff', flexGrow: 1 },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, color: '#1a1a1a' },
-  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 10, marginTop: 16 },
+  seccion: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginTop: 28,
+    marginBottom: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 6,
+  },
+  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8, marginTop: 16 },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -254,16 +521,30 @@ const styles = StyleSheet.create({
     fontSize: 15,
     backgroundColor: '#fafafa',
   },
-  textarea: {
+  campo: { marginTop: 0 },
+  control: {
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 10,
-    padding: 14,
-    fontSize: 15,
-    minHeight: 100,
-    textAlignVertical: 'top',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     backgroundColor: '#fafafa',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
+  valor: { fontSize: 15, color: '#1a1a1a' },
+  marcador: { fontSize: 15, color: '#999' },
+  chevron: { fontSize: 14, color: '#666' },
+  confirmar: {
+    alignSelf: 'center',
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    backgroundColor: '#eef4ff',
+  },
+  confirmarTexto: { color: '#007AFF', fontWeight: '600' },
   photoButton: {
     flexDirection: 'row',
     alignItems: 'center',

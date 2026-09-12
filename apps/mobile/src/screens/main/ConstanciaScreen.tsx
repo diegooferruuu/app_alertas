@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { resumenDescriptivo } from './catalogo-denuncia';
 import constanciaService, { Constancia } from '../../services/constancia.service';
 
 const ETIQUETA_TIPO: Record<string, string> = {
@@ -70,7 +71,9 @@ const ConstanciaScreen: React.FC<{ route: any }> = ({ route }) => {
         <Text style={styles.dato}>
           {constancia.denuncia.nombre_persona_buscada || 'Sin nombre'}
         </Text>
-        <Text style={styles.descripcion}>{constancia.denuncia.description}</Text>
+        <Text style={styles.descripcion}>
+          {resumenDescriptivo(constancia.denuncia)}
+        </Text>
         <Text style={styles.meta}>
           Presentada el{' '}
           {new Date(constancia.denuncia.created_at).toLocaleDateString()} ·{' '}

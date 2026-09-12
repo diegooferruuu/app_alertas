@@ -89,7 +89,7 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                 key={inc.id}
                 coordinate={{ latitude: inc.latitude, longitude: inc.longitude }}
                 title={meta.label}
-                description={inc.description}
+                description={inc.nombre_persona_buscada ?? undefined}
                 pinColor={meta.color}
               />
             );

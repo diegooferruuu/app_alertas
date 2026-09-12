@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { detalleDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
 import denunciaService, {
   Denuncia,
@@ -112,8 +113,17 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
 
         <Text style={styles.name}>{denuncia.nombre_persona_buscada || 'Sin nombre'}</Text>
 
-        <Text style={styles.sectionLabel}>Detalles</Text>
-        <Text style={styles.description}>{denuncia.description}</Text>
+        <Text style={styles.sectionLabel}>Descripción</Text>
+        {detalleDescriptivo(denuncia).map((fila) => (
+          <View key={fila.etiqueta} style={styles.filaDato}>
+            <Text style={styles.filaEtiqueta}>{fila.etiqueta}</Text>
+            <Text style={styles.filaValor}>{fila.valor}</Text>
+          </View>
+        ))}
+        {/* Las denuncias anteriores al desglose solo traen su relato. */}
+        {denuncia.description ? (
+          <Text style={styles.description}>{denuncia.description}</Text>
+        ) : null}
 
         <View style={styles.metaRow}>
           <Ionicons name="time-outline" size={16} color="#888" />
@@ -283,6 +293,17 @@ const styles = StyleSheet.create({
   name: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a', marginBottom: 16 },
   sectionLabel: { fontSize: 13, fontWeight: '700', color: '#999', marginBottom: 6 },
   description: { fontSize: 15, color: '#333', lineHeight: 22, marginBottom: 20 },
+  filaDato: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2f2f2',
+  },
+  filaEtiqueta: { fontSize: 14, color: '#888' },
+  filaValor: { fontSize: 14, color: '#1a1a1a', fontWeight: '500', flexShrink: 1, textAlign: 'right' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   metaText: { fontSize: 13, color: '#888' },
   ownerActions: { marginTop: 24, gap: 12 },

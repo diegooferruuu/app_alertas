@@ -14,10 +14,11 @@ import { UsersService } from '../users/users.service';
 import {
   FORMATO_CONSTANCIA,
   ORDEN_CAMPOS_REGISTRO,
-  ORDEN_CAMPOS_CONTENIDO,
   PROCEDIMIENTO_VERIFICACION,
   LIMITES_VERIFICACION,
 } from './domain/documento';
+import { ordenDeContenido } from '../declaraciones/domain/cadena';
+import { contenidoSellable } from '../denuncias/domain/contenido-sellado';
 
 /** Una firma, con la identidad de quien la puso. */
 export interface FirmanteDeLaConstancia {
@@ -75,21 +76,21 @@ export interface Constancia {
   denuncia_id: string;
   alcance: AlcanceConstancia;
   /**
-   * El contenido sellado, en forma canónica.
+   * El contenido sellado, en forma canónica: cada campo es exactamente la
+   * cadena que entró en el hash.
    *
-   * `latitude` y `longitude` viajan como cadena ya redondeada a 7 decimales,
-   * que es exactamente lo que entró en el hash: así el verificador no depende
-   * de cómo su lenguaje imprima un flotante.
+   * Todos los valores son texto, incluidas las coordenadas —ya redondeadas a 7
+   * decimales— y los campos de valor múltiple —ya ordenados y unidos por coma—,
+   * de modo que quien verifica los une sin tener que interpretar nada ni depender
+   * de cómo su lenguaje imprima un flotante o un arreglo.
+   *
+   * Qué campos trae y en qué orden lo dice `verificacion.orden_campos_contenido`,
+   * que depende de la versión de fórmula con la que se selló esta denuncia.
    */
-  denuncia: {
+  denuncia: Record<string, string> & {
     id: string;
-    nombre_persona_buscada: string | null;
-    ci_hash_persona_buscada: string;
-    description: string;
-    latitude: string;
-    longitude: string;
     estado: string;
-    created_at: Date;
+    created_at: string;
   };
   /** Para leer. Los datos que se verifican están en `declaraciones`. */
   firmantes: FirmanteDeLaConstancia[];
@@ -105,6 +106,7 @@ export interface Constancia {
     algoritmo: 'SHA-256';
     separador: 'U+001F';
     orden_campos_registro: readonly string[];
+    version_formula_contenido: number;
     orden_campos_contenido: readonly string[];
     procedimiento: string[];
     limites: string[];
@@ -207,15 +209,14 @@ export class ConstanciasService {
       denuncia_id: denunciaId,
       alcance,
       denuncia: {
+        // Exactamente los valores que entraron en el hash, producidos por la
+        // misma función que usó la firma. No se recalculan aquí: si esta parte
+        // divergiera de aquélla, la constancia acusaría de alteración una
+        // denuncia intacta.
+        ...contenidoSellable(denuncia),
         id: denuncia.id,
-        nombre_persona_buscada: denuncia.nombre_persona_buscada,
-        ci_hash_persona_buscada: denuncia.ci_hash_persona_buscada,
-        description: denuncia.description,
-        // La misma precisión con la que se selló; ver `calcularHashContenido`.
-        latitude: Number(denuncia.latitude).toFixed(7),
-        longitude: Number(denuncia.longitude).toFixed(7),
         estado: denuncia.estado,
-        created_at: denuncia.created_at,
+        created_at: denuncia.created_at.toISOString(),
       },
       firmantes,
       declaraciones: entregadas.map((d) => ({
@@ -243,7 +244,13 @@ export class ConstanciasService {
         algoritmo: 'SHA-256',
         separador: 'U+001F',
         orden_campos_registro: ORDEN_CAMPOS_REGISTRO,
-        orden_campos_contenido: ORDEN_CAMPOS_CONTENIDO,
+        // El orden depende de con qué fórmula se selló esta denuncia. Publicarlo
+        // es lo que permite que un mismo verificador, sin saber nada de las
+        // versiones, compruebe tanto una constancia vieja como una nueva.
+        version_formula_contenido: denuncia.version_formula_contenido,
+        orden_campos_contenido: ordenDeContenido(
+          denuncia.version_formula_contenido,
+        ),
         procedimiento: PROCEDIMIENTO_VERIFICACION,
         limites: LIMITES_VERIFICACION,
       },

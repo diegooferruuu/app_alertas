@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { resumenDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
 import desactivacionService, {
   DenunciaQueMeIdentifica,
@@ -195,7 +196,7 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
           <Text style={styles.name}>
             {item.nombre_persona_buscada || 'Sin nombre'}
           </Text>
-          <Text style={styles.description}>{item.description}</Text>
+          <Text style={styles.description}>{resumenDescriptivo(item)}</Text>
           <Text style={styles.fecha}>
             Presentada el {new Date(item.created_at).toLocaleDateString()}
           </Text>
