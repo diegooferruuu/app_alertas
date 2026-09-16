@@ -9,24 +9,32 @@ async function bootstrap() {
     bodyParser: false,
   });
 
-  // Register body parsers with a 10mb limit (default is 100kb).
-  // Needed for base64 ID card + selfie images.
-  app.useBodyParser('json', { limit: '10mb' });
-  app.useBodyParser('urlencoded', { limit: '10mb', extended: true });
+  // El registro de documento manda tres imágenes en base64 —anverso, reverso y
+  // selfie— en un solo cuerpo. El límite por defecto de Express son 100 kB.
+  //
+  // 25 MB es holgura, no la medida esperada: la aplicación reduce cada imagen
+  // antes de enviarla y el cuerpo real ronda los 2 MB. El margen existe para que
+  // una foto inesperadamente grande dé un error claro en vez de cortarse a
+  // mitad, no para tolerar que el cliente mande fotos sin reducir.
+  app.useBodyParser('json', { limit: '25mb' });
+  app.useBodyParser('urlencoded', { limit: '25mb', extended: true });
 
-  // Enable CORS
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:8081',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:8081',
-    'http://192.168.6.200:3000',
-    'http://192.168.6.200:8081',
-  ];
+  // CORS.
+  //
+  // Antes había dos direcciones de red local escritas a mano. Envejecieron en
+  // silencio: el router reparte otra dirección y el desarrollo dejaba de
+  // funcionar sin que nada dijera por qué. Ahora se admite cualquier dirección
+  // privada, que es exactamente el caso de uso —un teléfono en la misma red que
+  // la máquina de desarrollo— y no depende de qué dirección tocó hoy.
+  //
+  // La aplicación móvil no envía cabecera `Origin`, así que esto solo afecta al
+  // navegador. En producción, detrás de un dominio, la lista debe cerrarse.
+  const ORIGEN_LOCAL =
+    /^http:\/\/(localhost|127\.0\.0\.1|10\.[0-9.]+|192\.168\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+)(:\d+)?$/;
 
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || ORIGEN_LOCAL.test(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));

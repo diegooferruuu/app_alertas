@@ -14,6 +14,7 @@ import { CreateDenunciaDto } from './dto/create-denuncia.dto';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from './domain/estados';
+import { aZonaDeAvistamiento } from './domain/zona-avistamiento';
 import { EstadoCuenta } from '../users/domain/estado-cuenta';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
@@ -326,7 +327,64 @@ describe('DenunciasService (integración)', () => {
         [id],
       );
 
-      expect(fila.punto).toBe(`POINT(${LA_PAZ.lng} ${LA_PAZ.lat})`);
+      // La columna generada refleja lo que quedó guardado, que es la zona
+      // reducida y no el punto que se envió.
+      const zona = aZonaDeAvistamiento({
+        latitude: LA_PAZ.lat,
+        longitude: LA_PAZ.lng,
+      });
+      expect(fila.punto).toBe(`POINT(${zona.longitude} ${zona.latitude})`);
+    });
+
+    it('P·ubicación · no guarda el punto exacto que se envió', async () => {
+      // El invariante: la ubicación exacta de un avistamiento no debe existir en
+      // la base. Se comprueba sobre la fila, no sobre lo que devuelve el
+      // servicio: lo que importa es qué quedó escrito.
+      const autor = await crearDenunciante();
+      const exacto = { lat: -16.4957123, lng: -68.1335456 };
+
+      const { id } = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        latitude: exacto.lat,
+        longitude: exacto.lng,
+      });
+
+      const [fila] = await denuncias.query(
+        `SELECT latitude, longitude FROM denuncias WHERE id = $1`,
+        [id],
+      );
+
+      expect(Number(fila.latitude)).not.toBe(exacto.lat);
+      expect(Number(fila.longitude)).not.toBe(exacto.lng);
+
+      // Y sigue estando cerca: reducir no puede mandar la alerta a otra ciudad.
+      expect(Math.abs(Number(fila.latitude) - exacto.lat)).toBeLessThan(0.01);
+      expect(Math.abs(Number(fila.longitude) - exacto.lng)).toBeLessThan(0.01);
+    });
+
+    it('P·ubicación · dos denuncias de la misma manzana quedan en la misma zona', async () => {
+      const autor = await crearDenunciante();
+      const otro = await crearDenunciante('otro@test.com');
+
+      const { id: a } = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        latitude: -16.4957,
+        longitude: -68.1335,
+      });
+      const { id: b } = await service.create(otro.id, {
+        ...datosDeDenuncia,
+        ci_persona_buscada: '1234567',
+        latitude: -16.4959,
+        longitude: -68.1337,
+      });
+
+      const filas = await denuncias.query(
+        `SELECT latitude, longitude FROM denuncias WHERE id = ANY($1)`,
+        [[a, b]],
+      );
+
+      expect(Number(filas[0].latitude)).toBe(Number(filas[1].latitude));
+      expect(Number(filas[0].longitude)).toBe(Number(filas[1].longitude));
     });
   });
 
@@ -360,7 +418,9 @@ describe('DenunciasService (integración)', () => {
       const cercanas = await service.findNearby(LA_PAZ.lat, LA_PAZ.lng, 5000);
 
       expect(cercanas).toHaveLength(1);
-      expect(cercanas[0].distance_meters).toBe(0);
+      // Ya no es exactamente cero: lo guardado es el centro de la celda de ~1 km
+      // que contiene el punto. La reducción no puede sacar la denuncia del radio.
+      expect(cercanas[0].distance_meters).toBeLessThan(1000);
     });
 
     it('no aparece si está fuera del radio consultado', async () => {
@@ -548,6 +608,115 @@ describe('DenunciasService (integración)', () => {
       const fotos = await service.fotografiasDe(id);
       expect(fotos).toHaveLength(1);
       expect(fotos[0].contenido).toBe(OTRA);
+    });
+
+    /**
+     * La alerta de un menor de edad no lleva fotografía.
+     *
+     * Se comprueba en el servidor y no en la pantalla porque la pantalla corre
+     * en un teléfono ajeno: una aplicación modificada manda el campo igual, y
+     * una regla que solo vive en el cliente es una sugerencia.
+     */
+    describe('menores de edad', () => {
+      /** Nace hace diez años, contados desde la ejecución de la prueba. */
+      const DE_UN_MENOR = new Date(
+        new Date().getFullYear() - 10,
+        3,
+        4,
+      )
+        .toISOString()
+        .slice(0, 10);
+
+      const datosDeMenor = {
+        ...datosDeDenuncia,
+        fecha_nacimiento: DE_UN_MENOR,
+        // El avistamiento no puede ser anterior al nacimiento (hay un CHECK).
+        ultimo_avistamiento_en: new Date(Date.now() - 3_600_000).toISOString(),
+      };
+
+      it('rechaza la denuncia de un menor que trae fotografía', async () => {
+        const autor = await crearDenunciante();
+
+        await expect(
+          service.create(autor.id, {
+            ...datosDeMenor,
+            fotografia_base64: UNA_IMAGEN,
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('acepta la denuncia de un menor sin fotografía', async () => {
+        const autor = await crearDenunciante();
+
+        const { id } = await service.create(autor.id, {
+          ...datosDeMenor,
+          fotografia_base64: undefined,
+        });
+
+        expect(await service.fotografiasDe(id)).toHaveLength(0);
+      });
+
+      it('sigue exigiendo fotografía a quien no es menor', async () => {
+        // La foto dejó de ser obligatoria en el DTO para permitir el caso del
+        // menor. Sin esta comprobación, omitirla sería la forma de crear
+        // cualquier denuncia sin retrato.
+        const autor = await crearDenunciante();
+
+        await expect(
+          service.create(autor.id, {
+            ...datosDeDenuncia,
+            fotografia_base64: undefined,
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('corregir la fecha a la de un menor retira la fotografía ya guardada', async () => {
+        // La vía de evasión evidente: crear con fecha de adulto y foto, y
+        // corregir la fecha después. La imagen ya estaría en la base.
+        const autor = await crearDenunciante();
+        const { id } = await service.create(autor.id, {
+          ...datosDeDenuncia,
+          fotografia_base64: UNA_IMAGEN,
+        });
+        expect(await service.fotografiasDe(id)).toHaveLength(1);
+
+        await service.update(autor.id, id, { fecha_nacimiento: DE_UN_MENOR });
+
+        expect(await service.fotografiasDe(id)).toHaveLength(0);
+      });
+
+      it('no deja adjuntar una fotografía a una denuncia ya marcada como de menor', async () => {
+        const autor = await crearDenunciante();
+        const { id } = await service.create(autor.id, {
+          ...datosDeMenor,
+          fotografia_base64: undefined,
+        });
+
+        await expect(
+          service.update(autor.id, id, { fotografia_base64: UNA_IMAGEN }),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(await service.fotografiasDe(id)).toHaveLength(0);
+      });
+
+      it('corregir la fecha a la de un adulto vuelve a permitir fotografía', async () => {
+        // La regla protege por edad, no castiga: una fecha mal tecleada que se
+        // corrige devuelve el caso a la normalidad.
+        const autor = await crearDenunciante();
+        const { id } = await service.create(autor.id, {
+          ...datosDeMenor,
+          fotografia_base64: undefined,
+        });
+
+        await service.update(autor.id, id, {
+          fecha_nacimiento: '1990-04-12',
+          fotografia_base64: UNA_IMAGEN,
+        });
+
+        const fotos = await service.fotografiasDe(id);
+        expect(fotos).toHaveLength(1);
+        expect(fotos[0].contenido).toBe(UNA_IMAGEN);
+      });
     });
 
     it('borrar la denuncia se lleva sus fotografías', async () => {

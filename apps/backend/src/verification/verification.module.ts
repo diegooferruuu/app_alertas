@@ -4,6 +4,10 @@ import { VerificationService } from './verification.service';
 import { DocumentoBloqueado } from '../desactivaciones/entities/documento-bloqueado.entity';
 import { UsersModule } from '../users/users.module';
 import { AlertasModule } from '../alertas/alertas.module';
+import { ComparadorDeRostros } from './rostros/comparador-de-rostros';
+import { ComparadorFaceApi } from './rostros/comparador-face-api';
+import { LectorDeDocumento } from './documento/lector-de-documento';
+import { LectorTesseract } from './documento/lector-tesseract';
 
 @Module({
   // AlertasModule: al registrar el documento se avisa a la persona de las
@@ -18,7 +22,14 @@ import { AlertasModule } from '../alertas/alertas.module';
     UsersModule,
     AlertasModule,
   ],
-  providers: [VerificationService],
+  providers: [
+    VerificationService,
+    // El puerto se resuelve a la implementación real. Las pruebas sustituyen
+    // este proveedor por el doble y así no cargan modelos ni ejecutan
+    // inferencia; ver `ComparadorDeRostrosSimulado`.
+    { provide: ComparadorDeRostros, useClass: ComparadorFaceApi },
+    { provide: LectorDeDocumento, useClass: LectorTesseract },
+  ],
   exports: [VerificationService],
 })
 export class VerificationModule {}

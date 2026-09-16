@@ -9,8 +9,30 @@ export interface MensajePush {
 
 export interface ResultadoEnvio {
   push_token: string;
+
+  /**
+   * La pasarela **aceptó** el mensaje. No significa que llegara.
+   *
+   * Expo responde con un *ticket*, no con un acuse de entrega: dice que tomó el
+   * mensaje y lo pondrá en cola hacia Apple o Google. Saber si el teléfono lo
+   * recibió exige consultar los *recibos* con el identificador del ticket unos
+   * minutos después. Mientras eso no exista, `aceptada` en `entregas_alerta`
+   * quiere decir «entregada a la pasarela», y la tasa de entrega que se mida con
+   * esa columna es un límite superior, no la tasa real.
+   */
   aceptado: boolean;
+
   detalle: string;
+
+  /**
+   * El token ya no corresponde a una instalación viva.
+   *
+   * Ocurre cuando alguien desinstala la aplicación o reinstala y recibe otro
+   * token. No es un fallo transitorio: reintentarlo no lo va a arreglar nunca,
+   * y dejarlo en la tabla iría ensuciando la tasa de entrega con fallos que no
+   * dicen nada del sistema. Quien lo recibe da de baja el aparato.
+   */
+  token_invalido?: boolean;
 }
 
 /**

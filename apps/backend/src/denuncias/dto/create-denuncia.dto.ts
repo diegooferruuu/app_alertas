@@ -143,7 +143,17 @@ export class CreateDenunciaDto {
   @Max(180)
   longitude!: number;
 
-  /** Rostro visible. Obligatoria: sin imagen la alerta no sirve para reconocer. */
+  /**
+   * Rostro visible. Obligatoria, salvo que la persona buscada sea menor de edad.
+   *
+   * Opcional **aquí** y exigida en el servicio a propósito: la condición depende
+   * de otro campo del mismo cuerpo —`fecha_nacimiento`— y esa es una regla del
+   * dominio, no una comprobación de forma. Dejarla como `@IsBase64()` a secas
+   * haría imposible el caso del menor; expresarla con un validador condicional
+   * escondería en el DTO una decisión que tiene que poder leerse y probarse
+   * sola. Ver `domain/minoria-edad.ts`.
+   */
+  @IsOptional()
   @IsBase64()
-  fotografia_base64!: string;
+  fotografia_base64?: string;
 }

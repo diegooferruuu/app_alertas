@@ -7,10 +7,12 @@ import {
   Matches,
   IsPhoneNumber,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import {
   FORMA_DE_PARTE,
   LARGO_MAXIMO_DE_PARTE,
 } from '../../users/domain/nombre-persona';
+import { normalizarCorreo } from '../../users/domain/correo';
 
 /**
  * Cada parte del nombre se valida igual: forma de nombre y largo acotado. El
@@ -23,6 +25,16 @@ const EsParteDelNombre = (etiqueta: string) =>
   });
 
 export class RegisterDto {
+  /**
+   * Se guarda en forma canónica: minúsculas y sin espacios alrededor.
+   *
+   * Sin esto, el mismo correo en distinta caja creaba dos cuentas distintas. En
+   * un sistema cuya garantía es la atribución, dos identidades para una misma
+   * persona no son una molestia sino un agujero.
+   */
+  @Transform(({ value }) =>
+    typeof value === 'string' ? normalizarCorreo(value) : value,
+  )
   @IsEmail()
   email!: string;
 

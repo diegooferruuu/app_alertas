@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { EmisionAlerta, MotivoEmision } from './entities/emision-alerta.entity';
 import { EntregaAlerta } from './entities/entrega-alerta.entity';
-import { PasarelaPush, MensajePush } from './pasarela-push';
+import { Dispositivo } from './entities/dispositivo.entity';
+import { PasarelaPush, MensajePush, ResultadoEnvio } from './pasarela-push';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from '../denuncias/domain/estados';
 import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
@@ -370,5 +371,39 @@ export class AlertasService {
         },
       );
     }
+
+    await this.darDeBajaAparatosMuertos(resultados);
+  }
+
+  /**
+   * Borra los dispositivos cuyo token ya no corresponde a una instalación viva.
+   *
+   * La fila de `entregas_alerta` que acaba de escribirse **no** se toca: guarda
+   * `dispositivo_id` como columna suelta, sin clave foránea hacia `dispositivos`,
+   * así que el rastro de a quién se intentó alcanzar y con qué resultado
+   * sobrevive al borrado. Era la condición para poder limpiar sin perder
+   * auditoría.
+   *
+   * Sin esto, cada desinstalación deja un token que falla en toda emisión futura
+   * y hunde la tasa de entrega con fallos que no dicen nada del sistema. La
+   * persona vuelve a aparecer en cuanto reinstale: el registro del aparato
+   * ocurre en cada arranque de la aplicación.
+   */
+  private async darDeBajaAparatosMuertos(
+    resultados: ResultadoEnvio[],
+  ): Promise<void> {
+    const muertos = resultados
+      .filter((r) => r.token_invalido)
+      .map((r) => r.push_token);
+
+    if (muertos.length === 0) return;
+
+    await this.dataSource.getRepository(Dispositivo).delete({
+      push_token: In(muertos),
+    });
+
+    this.logger.log(
+      `${muertos.length} dispositivo(s) dado(s) de baja: la pasarela los reporta desinstalados`,
+    );
   }
 }

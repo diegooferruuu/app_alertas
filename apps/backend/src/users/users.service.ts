@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { componerNombre } from './domain/nombre-persona';
+import { normalizarCorreo } from './domain/correo';
 
 @Injectable()
 export class UsersService {
@@ -13,8 +14,10 @@ export class UsersService {
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
+    const email = normalizarCorreo(createUserDto.email);
+
     const existingUser = await this.usersRepository.findOne({
-      where: { email: createUserDto.email },
+      where: { email },
     });
 
     if (existingUser) {
@@ -25,6 +28,7 @@ export class UsersService {
     // imposible que `full_name` y sus partes digan cosas distintas.
     const user = this.usersRepository.create({
       ...createUserDto,
+      email,
       segundo_nombre: createUserDto.segundo_nombre?.trim() || null,
       full_name: componerNombre(createUserDto),
     });
@@ -39,8 +43,22 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Busca por correo en forma canónica.
+   *
+   * La normalización vive aquí y no solo en el DTO por un motivo concreto: el
+   * inicio de sesión pasa por un guard de Passport, y en Nest **los guards
+   * corren antes que los pipes**. La estrategia recibe el cuerpo tal cual llegó,
+   * así que el `@Transform` del DTO nunca llegaba a aplicarse y `Ana@demo.bo`
+   * respondía «Credenciales inválidas».
+   *
+   * Siendo este el único punto por el que se busca a alguien por su correo,
+   * normalizar acá cubre todos los caminos, presentes y futuros.
+   */
   async findByEmail(email: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { email } });
+    return this.usersRepository.findOne({
+      where: { email: normalizarCorreo(email) },
+    });
   }
 
   /**

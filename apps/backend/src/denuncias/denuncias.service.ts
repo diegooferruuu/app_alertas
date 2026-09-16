@@ -19,6 +19,8 @@ import {
   puedeTransicionarNivel,
 } from './domain/estados';
 import { normalizarMultiple } from './domain/descripcion-fisica';
+import { aZonaDeAvistamiento } from './domain/zona-avistamiento';
+import { esMenorDeEdad, MOTIVO_SIN_FOTOGRAFIA } from './domain/minoria-edad';
 import { VERSION_FORMULA_ACTUAL } from '../declaraciones/domain/cadena';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
@@ -87,6 +89,27 @@ export class DenunciasService {
 
     this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
 
+    // Un menor no lleva fotografía; cualquier otra persona sí, y ahora que el
+    // DTO la acepta ausente hay que exigirla aquí. Sin esta línea, omitir el
+    // campo sería la forma de crear denuncias sin retrato.
+    const fotografia = this.fotografiaPermitida(
+      dto.fecha_nacimiento,
+      dto.fotografia_base64,
+    );
+    if (fotografia === undefined && !esMenorDeEdad(dto.fecha_nacimiento)) {
+      throw new BadRequestException(
+        'La fotografía es obligatoria: sin imagen la alerta no sirve para reconocer',
+      );
+    }
+
+    // La ubicación exacta del avistamiento no debe existir en la base: se
+    // reduce a la zona de ~1 km que la contiene antes de escribir nada. El
+    // punto preciso se descarta aquí y no viaja más allá de esta línea.
+    const zona = aZonaDeAvistamiento({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+
     const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
 
     const guardada = await this.dataSource.transaction(async (manager) => {
@@ -117,8 +140,8 @@ export class DenunciasService {
           calzado: dto.calzado ?? null,
           circunstancia: dto.circunstancia,
           condicion_relevante: normalizarMultiple(dto.condicion_relevante),
-          latitude: dto.latitude,
-          longitude: dto.longitude,
+          latitude: zona.latitude,
+          longitude: zona.longitude,
           nivel_confianza: NivelConfianza.REGISTRADA,
           estado: EstadoDenuncia.ACTIVA,
           // Sin radio ni caducidad: todavía no se difunde nada.
@@ -127,11 +150,9 @@ export class DenunciasService {
         }),
       );
 
-      await this.reemplazarFotografia(
-        dto.fotografia_base64,
-        denuncia.id,
-        manager,
-      );
+      if (fotografia !== undefined) {
+        await this.reemplazarFotografia(fotografia, denuncia.id, manager);
+      }
 
       // ---------------------------------------------------------------------
       // Aviso a la persona reportada, si tiene cuenta.
@@ -176,6 +197,33 @@ export class DenunciasService {
    * pero el formulario actual envía una. Reemplazar en lugar de acumular evita
    * que editar dos veces deje fotos huérfanas de versiones anteriores.
    */
+  /**
+   * Decide si una denuncia puede llevar fotografía, y lo impone.
+   *
+   * Está en el servidor y no solo en la aplicación porque la aplicación corre en
+   * un teléfono ajeno: una versión modificada puede mandar el campo igual. Si la
+   * regla viviera solo en la pantalla, sería una sugerencia.
+   *
+   * Devuelve la fotografía que corresponde guardar: la recibida, o `undefined`
+   * si no hay que tocar ninguna.
+   */
+  private fotografiaPermitida(
+    fechaNacimiento: string | Date | null | undefined,
+    recibida: string | undefined,
+  ): string | undefined {
+    if (!esMenorDeEdad(fechaNacimiento)) {
+      return recibida;
+    }
+
+    // Mandar la foto de un menor no se ignora en silencio: quien la envió tiene
+    // que enterarse de que no se guardó, o creerá que la alerta lleva retrato.
+    if (recibida !== undefined) {
+      throw new BadRequestException(MOTIVO_SIN_FOTOGRAFIA);
+    }
+
+    return undefined;
+  }
+
   private async reemplazarFotografia(
     contenido: string,
     denunciaId: string,
@@ -323,6 +371,21 @@ export class DenunciasService {
       this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
     }
 
+    // La regla del menor se evalúa contra la fecha **resultante**, no contra la
+    // que venga en el cuerpo. Si no se evaluara así quedaría abierta la vía
+    // obvia: crear la denuncia con fecha de adulto y fotografía, y corregir
+    // después la fecha a la real. La foto ya estaría guardada.
+    const nacimientoResultante =
+      dto.fecha_nacimiento !== undefined
+        ? dto.fecha_nacimiento
+        : denuncia.fecha_nacimiento;
+
+    const fotografia = this.fotografiaPermitida(
+      nacimientoResultante,
+      dto.fotografia_base64,
+    );
+    const pasaASerMenor = esMenorDeEdad(nacimientoResultante);
+
     // Se copia campo a campo y no con un `Object.assign` del DTO: el DTO trae
     // `fotografia_base64`, que no es una columna, y los campos de valor múltiple
     // necesitan normalizarse antes de guardarse.
@@ -377,8 +440,14 @@ export class DenunciasService {
 
     const actualizada = await this.denunciasRepository.save(denuncia);
 
-    if (dto.fotografia_base64 !== undefined) {
-      await this.reemplazarFotografia(dto.fotografia_base64, id);
+    if (pasaASerMenor) {
+      // Corregir la fecha a la de un menor retira la fotografía que ya hubiera.
+      // Es el único borrado de contenido del sistema y es deliberado: la
+      // alternativa —conservarla y confiar en no exponerla— deja la imagen de un
+      // niño en la base esperando el primer error de permisos.
+      await this.fotografiasRepository.delete({ denuncia_id: id });
+    } else if (fotografia !== undefined) {
+      await this.reemplazarFotografia(fotografia, id);
     }
 
     return actualizada;

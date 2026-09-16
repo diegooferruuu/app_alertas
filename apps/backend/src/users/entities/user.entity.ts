@@ -34,6 +34,16 @@ import { EstadoCuenta } from '../domain/estado-cuenta';
  * compone de las partes y una parte perdida produciría un nombre distinto del
  * que la persona declaró.
  */
+/**
+ * El correo se guarda siempre en minúsculas y sin espacios alrededor.
+ *
+ * Junto con la unicidad de `email`, esto es lo que hace imposible que existan
+ * dos cuentas para el mismo correo escrito en distinta caja. Si solo estuviera
+ * normalizado en el DTO, una escritura directa —una migración, un arreglo a mano
+ * en producción— podría crear esa segunda identidad, y en un sistema cuya
+ * garantía es la atribución eso es un agujero, no una molestia.
+ */
+@Check('chk_users_correo_canonico', `((email)::text = lower(btrim((email)::text)))`)
 @Check(
   'chk_users_nombre_completo_o_ausente',
   `(((primer_nombre IS NULL) AND (primer_apellido IS NULL) AND (segundo_apellido IS NULL)) OR ((primer_nombre IS NOT NULL) AND (primer_apellido IS NOT NULL) AND (segundo_apellido IS NOT NULL)))`,

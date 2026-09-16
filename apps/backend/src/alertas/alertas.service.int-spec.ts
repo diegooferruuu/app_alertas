@@ -5,7 +5,11 @@ import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { AlertasService } from './alertas.service';
 import { DispositivosService } from './dispositivos.service';
 import { UbicacionService } from './ubicacion.service';
-import { PasarelaPush, PasarelaPushSimulada } from './pasarela-push';
+import {
+  MensajePush,
+  PasarelaPush,
+  ResultadoEnvio,
+} from './pasarela-push';
 import { Dispositivo } from './entities/dispositivo.entity';
 import { EmisionAlerta } from './entities/emision-alerta.entity';
 import { EntregaAlerta } from './entities/entrega-alerta.entity';
@@ -17,6 +21,31 @@ const LA_PAZ = { lat: -16.5, lng: -68.15 };
 /** Un grado de latitud son unos 111 km: muy lejos de cualquier radio urbano. */
 const MUY_LEJOS = { lat: -15.5, lng: -68.15 };
 
+/**
+ * Doble de la pasarela al que se le puede dictar la respuesta.
+ *
+ * Por defecto acepta todo, igual que `PasarelaPushSimulada`. Se usa uno propio
+ * porque hay respuestas —un token desinstalado— que el servicio tiene que
+ * atender y que la simulada no sabe producir.
+ */
+class PasarelaProgramable extends PasarelaPush {
+  /** Tokens que la pasarela reportará como aparatos que ya no existen. */
+  desinstalados = new Set<string>();
+
+  async enviar(mensajes: MensajePush[]): Promise<ResultadoEnvio[]> {
+    return mensajes.map((m) =>
+      this.desinstalados.has(m.push_token)
+        ? {
+            push_token: m.push_token,
+            aceptado: false,
+            detalle: 'DeviceNotRegistered',
+            token_invalido: true,
+          }
+        : { push_token: m.push_token, aceptado: true, detalle: 'ticket de prueba' },
+    );
+  }
+}
+
 describe('Emisión de alertas (integración)', () => {
   let ctx: ContextoDePruebas;
   let alertas: AlertasService;
@@ -26,6 +55,8 @@ describe('Emisión de alertas (integración)', () => {
   let denuncias: Repository<Denuncia>;
   let emisiones: Repository<EmisionAlerta>;
   let entregas: Repository<EntregaAlerta>;
+  let aparatos: Repository<Dispositivo>;
+  let pasarela: PasarelaProgramable;
 
   beforeAll(async () => {
     ctx = await crearContexto({
@@ -42,10 +73,12 @@ describe('Emisión de alertas (integración)', () => {
         AlertasService,
         DispositivosService,
         UbicacionService,
-        { provide: PasarelaPush, useClass: PasarelaPushSimulada },
+        { provide: PasarelaPush, useClass: PasarelaProgramable },
       ],
     });
     alertas = ctx.module.get(AlertasService);
+    pasarela = ctx.module.get(PasarelaPush);
+    aparatos = ctx.module.get(getRepositoryToken(Dispositivo));
     dispositivos = ctx.module.get(DispositivosService);
     ubicacion = ctx.module.get(UbicacionService);
     usuarios = ctx.module.get(getRepositoryToken(User));
@@ -55,7 +88,10 @@ describe('Emisión de alertas (integración)', () => {
   });
 
   afterAll(async () => ctx.cerrar());
-  beforeEach(async () => ctx.limpiar());
+  beforeEach(async () => {
+    await ctx.limpiar();
+    pasarela.desinstalados.clear();
+  });
 
   const crearUsuario = async (email: string) =>
     usuarios.save(
@@ -278,6 +314,97 @@ describe('Emisión de alertas (integración)', () => {
       const [emision] = await emisiones.find();
       expect(emision.estado).toBe('completada');
       expect(emision.destinatarios).toBe(0);
+    });
+  });
+
+  /**
+   * Limpieza de aparatos que la pasarela reporta desinstalados.
+   *
+   * Sin esto, cada desinstalación deja un token que falla en toda emisión futura.
+   * No es solo ruido: la tasa de entrega es una de las métricas de validación del
+   * proyecto, y se hundiría con fallos que no dicen nada del sistema.
+   */
+  describe('aparatos desinstalados', () => {
+    const encolarPara = async (denunciaId: string, radioM = 2000) =>
+      ctx.dataSource.transaction((manager) =>
+        alertas.encolar(manager, denunciaId, radioM, 'firma'),
+      );
+
+    it('da de baja el aparato cuyo token ya no existe', async () => {
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('sigue@test.com');
+      await crearVecino('desinstalo@test.com');
+      pasarela.desinstalados.add('token-desinstalo@test.com');
+
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await alertas.procesarPendientes();
+
+      const vivos = await aparatos.find();
+      expect(vivos).toHaveLength(1);
+      expect(vivos[0].push_token).toBe('token-sigue@test.com');
+    });
+
+    it('la entrega fallida sobrevive a la baja del aparato', async () => {
+      // `entregas_alerta.dispositivo_id` no tiene clave foránea hacia
+      // `dispositivos` justamente para esto: el rastro de a quién se intentó
+      // alcanzar y con qué resultado es auditoría y no puede borrarse porque el
+      // teléfono desapareciera.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('desinstalo@test.com');
+      pasarela.desinstalados.add('token-desinstalo@test.com');
+
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await alertas.procesarPendientes();
+
+      expect(await aparatos.count()).toBe(0);
+
+      const registradas = await entregas.find();
+      expect(registradas).toHaveLength(1);
+      expect(registradas[0].estado).toBe('fallida');
+      expect(registradas[0].resultado_pasarela).toBe('DeviceNotRegistered');
+    });
+
+    it('un fallo que no es de token no da de baja nada', async () => {
+      // La pasarela por defecto acepta; aquí nadie está desinstalado, así que
+      // ningún aparato debe desaparecer. Es el control de que la baja se dispara
+      // por `token_invalido` y no por cualquier fallo.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await alertas.procesarPendientes();
+
+      expect(await aparatos.count()).toBe(1);
+    });
+
+    it('quien reinstala vuelve a recibir alertas', async () => {
+      // La baja no es un castigo permanente: el registro del aparato ocurre en
+      // cada arranque de la aplicación, así que reinstalar devuelve a la persona
+      // al alcance de las alertas con un token nuevo.
+      const autor = await crearUsuario('autor@test.com');
+      const vecino = await crearVecino('reinstala@test.com');
+      pasarela.desinstalados.add('token-reinstala@test.com');
+
+      const primera = await crearDenunciaDifundida(autor.id);
+      await encolarPara(primera.id);
+      await alertas.procesarPendientes();
+      expect(await aparatos.count()).toBe(0);
+
+      // Reinstala: token nuevo, y la ubicación sigue siendo reciente.
+      await dispositivos.registrar(vecino.id, 'token-nuevo', 'android');
+
+      const segunda = await crearDenunciaDifundida(autor.id);
+      await encolarPara(segunda.id);
+      await alertas.procesarPendientes();
+
+      // Se cuenta por estado y no por «la última»: `id` es un uuid, así que
+      // ordenar por él no da orden cronológico ninguno.
+      expect(await entregas.count()).toBe(2);
+      expect(await entregas.countBy({ estado: 'aceptada' })).toBe(1);
+      expect(await aparatos.count()).toBe(1);
     });
   });
 

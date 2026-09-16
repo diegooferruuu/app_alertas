@@ -220,9 +220,28 @@ describe('CreateDenunciaDto', () => {
   });
 
   describe('fotografía', () => {
-    it('es obligatoria: sin imagen la alerta no sirve para reconocer', async () => {
+    /**
+     * La obligatoriedad ya no vive aquí, y es a propósito.
+     *
+     * La alerta de un menor de edad no lleva fotografía, así que el requisito
+     * depende de `fecha_nacimiento` —otro campo del mismo cuerpo— y dejó de ser
+     * una comprobación de forma para ser una regla del dominio. El DTO acepta la
+     * ausencia; quien la exige es `DenunciasService`, y está cubierto en
+     * `denuncias.service.int-spec.ts`. Ver `domain/minoria-edad.ts`.
+     */
+    it('el DTO acepta que falte: la obligatoriedad depende de la edad', async () => {
       const { fotografia_base64, ...sinFoto } = denunciaValida;
       const motivos = await motivosDeRechazo(sinFoto, CreateDenunciaDto);
+      expect(motivos.join(' ')).not.toContain('fotografia_base64');
+    });
+
+    it('lo que sí rechaza es una imagen que no es base64', async () => {
+      // Aceptarla ausente no significa aceptar cualquier cosa: si viene, tiene
+      // que ser una imagen decodificable.
+      const motivos = await motivosDeRechazo(
+        { ...denunciaValida, fotografia_base64: 'esto no es base64 ###' },
+        CreateDenunciaDto,
+      );
       expect(motivos.join(' ')).toContain('fotografia_base64');
     });
   });

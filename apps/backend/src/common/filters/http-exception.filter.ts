@@ -7,6 +7,24 @@ import {
   Logger,
 } from '@nestjs/common';
 
+/** Error de `http-errors`, que es lo que lanzan los middlewares de Express. */
+interface ErrorDeMiddleware extends Error {
+  status?: number;
+  statusCode?: number;
+}
+
+/**
+ * Un código de estado propio y en el rango de los errores del cliente es lo que
+ * distingue a estos errores de un fallo cualquiera del servidor. Se comprueba el
+ * rango y no solo la presencia del campo: un error interno que por casualidad
+ * traiga un `status` no debe convertirse en una respuesta 4xx.
+ */
+const esErrorDeMiddleware = (e: unknown): e is ErrorDeMiddleware => {
+  if (!(e instanceof Error)) return false;
+  const codigo = (e as ErrorDeMiddleware).status ?? (e as ErrorDeMiddleware).statusCode;
+  return typeof codigo === 'number' && codigo >= 400 && codigo < 500;
+};
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
@@ -28,6 +46,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
       } else {
         message = exception.message;
       }
+    } else if (esErrorDeMiddleware(exception)) {
+      // Los middlewares de Express —body-parser, entre otros— lanzan errores de
+      // `http-errors`, que llevan su propio código de estado pero no son
+      // `HttpException` de Nest. Sin esta rama, un cuerpo demasiado grande se
+      // devolvía como 500 «Internal server error»: el cliente no podía
+      // distinguir «mandaste demasiado» de «el servidor se rompió», y quien
+      // depurara buscaría un fallo del servidor que no existe.
+      status = exception.status ?? exception.statusCode!;
+      message = exception.message;
+      error = exception.name;
+      this.logger.warn(`${exception.name}: ${exception.message}`);
     } else if (exception instanceof Error) {
       message = exception.message;
       this.logger.error(exception.stack);
