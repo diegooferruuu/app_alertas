@@ -1,6 +1,18 @@
 services:
   postgres:
-    image: postgis/postgis:15-3.3
+    # PostgreSQL 15 con PostGIS 3.5.
+    #
+    # La versión mayor se queda en 15 a propósito: subir a 16 o 17 obliga a
+    # recrear el volumen —el formato del directorio de datos cambia entre
+    # versiones mayores— y a corregir la documentación del proyecto, que declara
+    # PostgreSQL 15. Dentro de la 15, las subidas son compatibles en sitio.
+    #
+    # La imagen solo se publica para amd64, así que en un Mac con Apple Silicon
+    # corre emulada. No hay variante nativa en ninguna de sus versiones.
+    image: postgis/postgis:15-3.5
+    # Sin esto, Docker en Apple Silicon se niega a bajar la imagen porque no
+    # existe manifiesto arm64. Declararlo es lo que activa la emulación.
+    platform: linux/amd64
     container_name: app_alertas_postgres
     environment:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
@@ -20,7 +32,9 @@ services:
       - app_alertas_network
 
   pgadmin:
-    image: dpage/pgadmin4:latest
+    # Fijada a una versión concreta y no a `latest`: un proyecto que debe poder
+    # reproducirse no puede depender de qué etiqueta apunte hoy a qué imagen.
+    image: dpage/pgadmin4:9.8
     container_name: app_alertas_pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@example.com

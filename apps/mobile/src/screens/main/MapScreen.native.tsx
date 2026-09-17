@@ -4,15 +4,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
+import {
+  AtribucionOSM,
+  TeselasDelMapa,
+  tipoDeMapa,
+} from '../../components/TeselasDelMapa';
 import { useAuth } from '../../hooks/useAuth';
 import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
+import { AMPLITUD_INICIAL, CENTRO_POR_DEFECTO } from '../../utils/ubicacion-inicial';
 
-// La Paz, Bolivia como ubicación por defecto si no hay GPS
+// Región por defecto si no hay GPS; ver `ubicacion-inicial`.
 const DEFAULT_REGION = {
-  latitude: -16.5,
-  longitude: -68.15,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
+  ...CENTRO_POR_DEFECTO,
+  latitudeDelta: AMPLITUD_INICIAL,
+  longitudeDelta: AMPLITUD_INICIAL,
 };
 
 const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
@@ -81,7 +86,13 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <ActivityIndicator size="large" color="#007AFF" />
         </View>
       ) : (
-        <MapView style={styles.map} region={region} showsUserLocation>
+        <MapView
+          style={styles.map}
+          region={region}
+          showsUserLocation
+          mapType={tipoDeMapa}
+        >
+          <TeselasDelMapa />
           {denuncias.map((inc) => {
             const meta = DENUNCIA_META;
             return (
@@ -96,6 +107,8 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           })}
         </MapView>
       )}
+
+      <AtribucionOSM />
 
       <TouchableOpacity style={styles.reportButton} onPress={handleReport}>
         <Ionicons name="add" size={22} color="#fff" style={{ marginRight: 6 }} />

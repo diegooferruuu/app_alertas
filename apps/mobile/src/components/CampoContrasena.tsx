@@ -11,6 +11,12 @@ import { Ionicons } from '@expo/vector-icons';
 interface Props extends Omit<TextInputProps, 'secureTextEntry'> {
   /** Etiqueta del botón para lectores de pantalla; distingue los dos campos. */
   etiquetaVisibilidad?: string;
+  /**
+   * Qué clase de contraseña es. Cambia cómo la trata el sistema operativo:
+   * `nueva` le pide que la guarde, `existente` que la recupere. Declararlo mal
+   * hace que iOS ofrezca generar una contraseña en una pantalla de ingreso.
+   */
+  clase?: 'nueva' | 'existente';
 }
 
 /**
@@ -24,6 +30,7 @@ interface Props extends Omit<TextInputProps, 'secureTextEntry'> {
  */
 export const CampoContrasena: React.FC<Props> = ({
   etiquetaVisibilidad = 'Mostrar u ocultar la contraseña',
+  clase = 'nueva',
   style,
   ...props
 }) => {
@@ -37,14 +44,13 @@ export const CampoContrasena: React.FC<Props> = ({
         secureTextEntry={!visible}
         autoCapitalize="none"
         autoCorrect={false}
-        // Los dos campos se declaran como contraseña nueva, que es lo que son.
-        // Declararlos así —y no intentar que el sistema no los toque— es lo que
-        // hace que iOS los trate como un par y escriba el mismo valor en ambos
-        // si la persona acepta su contraseña generada. Con la declaración a
-        // medias, el sistema llenaba solo uno y el aviso de contraseñas
-        // distintas aparecía con el campo aparentemente vacío.
-        textContentType="newPassword"
-        autoComplete="new-password"
+        // Se declara qué clase de contraseña es. Declararlo mal no es inocuo:
+        // con la declaración a medias, iOS llenaba un campo y no el otro, y el
+        // aviso de contraseñas distintas aparecía con el campo aparentemente
+        // vacío. En una pantalla de ingreso, decir «nueva» hace que el sistema
+        // ofrezca generar una en vez de recuperar la guardada.
+        textContentType={clase === 'nueva' ? 'newPassword' : 'password'}
+        autoComplete={clase === 'nueva' ? 'new-password' : 'current-password'}
       />
       <TouchableOpacity
         style={styles.ojito}

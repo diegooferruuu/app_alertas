@@ -28,9 +28,17 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   const { id } = route.params;
   const [denuncia, setDenuncia] = useState<Denuncia | null>(null);
   const [loading, setLoading] = useState(true);
-  const [numeroCaso, setNumeroCaso] = useState('');
-  const [mostrarCampoCaso, setMostrarCampoCaso] = useState(false);
-  const [guardandoCaso, setGuardandoCaso] = useState(false);
+
+  // FELCC · desactivado a propósito para la demostración (2026-09-15).
+  //
+  // El respaldo por caso formal es la segunda vía de corroboración y funciona,
+  // pero se deja fuera hasta tenerlo resuelto de punta a punta. El servidor
+  // conserva el endpoint y la columna: esto es solo la vía de entrada.
+  // Para restaurarlo, descomentar aquí, el manejador `registrarCaso` y el
+  // bloque de la interfaz, todos marcados con «FELCC ·».
+  // const [numeroCaso, setNumeroCaso] = useState('');
+  // const [mostrarCampoCaso, setMostrarCampoCaso] = useState(false);
+  // const [guardandoCaso, setGuardandoCaso] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -59,33 +67,38 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
 
   const meta = DENUNCIA_META;
   const isOwner = denuncia.es_mia;
+
   // Una denuncia INVALIDADA o CERRADA ya no admite respaldo; una CADUCADA sí,
-  // porque una corroboración tardía puede devolverla a difusión.
+  // porque una corroboración tardía puede devolverla a difusión. Lo usa también
+  // el botón de corroborar, que sigue activo.
   const admiteRespaldo =
     denuncia.nivel_confianza !== 'REGISTRADA' &&
     denuncia.estado !== 'INVALIDADA' &&
     denuncia.estado !== 'CERRADA';
 
-  const registrarCaso = async () => {
-    setGuardandoCaso(true);
-    try {
-      await declaracionService.registrarCasoFelcc(denuncia.id, numeroCaso.trim());
-      setMostrarCampoCaso(false);
-      setNumeroCaso('');
-      await load();
-      Alert.alert(
-        'Caso registrado',
-        'La denuncia quedó respaldada por el caso formal y su alerta amplía el alcance.',
-      );
-    } catch (err: any) {
-      Alert.alert(
-        'No se pudo registrar',
-        err?.response?.data?.message || 'Revisa el número e intenta de nuevo.',
-      );
-    } finally {
-      setGuardandoCaso(false);
-    }
-  };
+  // FELCC · desactivado a propósito para la demostración (2026-09-15).
+  //
+  // const registrarCaso = async () => {
+  //   setGuardandoCaso(true);
+  //   try {
+  //     await declaracionService.registrarCasoFelcc(denuncia.id, numeroCaso.trim());
+  //     setMostrarCampoCaso(false);
+  //     setNumeroCaso('');
+  //     await load();
+  //     Alert.alert(
+  //       'Caso registrado',
+  //       'La denuncia quedó respaldada por el caso formal y su alerta amplía el alcance.',
+  //     );
+  //   } catch (err: any) {
+  //     Alert.alert(
+  //       'No se pudo registrar',
+  //       err?.response?.data?.message || 'Revisa el número e intenta de nuevo.',
+  //     );
+  //   } finally {
+  //     setGuardandoCaso(false);
+  //   }
+  // };
+
   // Una vez firmada, el contenido queda sellado por su hash: editarlo rompería
   // la cadena probatoria.
   const editable = denuncia.nivel_confianza === 'REGISTRADA';
@@ -186,9 +199,11 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                   </Text>
                 </View>
 
-                {/* La otra vía de corroboración: el respaldo de una denuncia
-                    formal ante la FELCC. Amplía radio y plazo sin necesitar que
-                    otra persona firme. */}
+                {/* FELCC · desactivado a propósito para la demostración
+                    (2026-09-15). La otra vía de corroboración: el respaldo de
+                    una denuncia formal ante la FELCC, que amplía radio y plazo
+                    sin necesitar que otra persona firme. Se retoma después.
+
                 {admiteRespaldo && !denuncia.numero_caso_felcc && (
                   <View style={styles.casoBloque}>
                     {mostrarCampoCaso ? (
@@ -241,6 +256,8 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                     )}
                   </View>
                 )}
+
+                    fin FELCC · */}
               </>
             )}
           </View>

@@ -13,9 +13,10 @@ import { resumenDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
+import { CENTRO_POR_DEFECTO_CORTO } from '../../utils/ubicacion-inicial';
 
-// La Paz, Bolivia por defecto (en web no hay GPS nativo de expo-location confiable)
-const DEFAULT = { lat: -16.5, lng: -68.15 };
+// Por defecto en web, donde no hay GPS nativo de expo-location confiable.
+const DEFAULT = CENTRO_POR_DEFECTO_CORTO;
 
 const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { documentoRegistrado } = useAuth();

@@ -59,9 +59,9 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       // El documento de identidad se registra después, cuando la persona vaya a
       // reportar: crear la cuenta no lo exige.
       await register({
-        email,
+        email: email.trim(),
         password,
-        phone,
+        phone: phone.trim(),
         primer_nombre: primerNombre.trim(),
         // Ausente es un dato, no una cadena vacía: mucha gente no tiene segundo
         // nombre, y el servidor distingue los dos casos.
@@ -135,6 +135,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         editable={!isLoading}
         keyboardType="email-address"
         autoCapitalize="none"
+        autoCorrect={false}
       />
 
       <TextInput
@@ -154,6 +155,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         onChangeText={setPassword}
         editable={!isLoading}
         etiquetaVisibilidad="Mostrar u ocultar la contraseña"
+        clase="nueva"
       />
 
       <CampoContrasena
@@ -161,6 +163,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         value={repetirPassword}
         onChangeText={setRepetirPassword}
         editable={!isLoading}
+        clase="nueva"
         etiquetaVisibilidad="Mostrar u ocultar la repetición de la contraseña"
         style={contrasenasNoCoinciden ? styles.inputConError : undefined}
       />

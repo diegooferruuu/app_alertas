@@ -47,12 +47,21 @@ export function useAlertas(isAuthenticated: boolean) {
       }
     };
 
-    poner();
+    // Con `catch` y no suelto: una promesa rechazada sin atrapar aquí sale por
+    // el manejador global y, en desarrollo, tapa la pantalla con la caja roja.
+    // Nada de lo que hace `poner` justifica interrumpir el uso de la app.
+    poner().catch((error) =>
+      console.warn(`No se pudo preparar la recepción de alertas: ${error}`),
+    );
 
     const suscripcionAppState = AppState.addEventListener(
       'change',
       (estado: AppStateStatus) => {
-        if (estado === 'active') poner();
+        if (estado === 'active') {
+          poner().catch((error) =>
+            console.warn(`No se pudo refrescar la ubicación: ${error}`),
+          );
+        }
       },
     );
 

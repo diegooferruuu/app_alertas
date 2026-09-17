@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { prepararParaEnviar } from '../../services/imagenes';
+import { esMenorDeEdad } from '../../utils/minoria-edad';
 import denunciaService, {
   Denuncia,
   primeraFotografia,
@@ -72,6 +74,12 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
     denuncia.condicion_relevante ?? [],
   );
 
+  // La denuncia de un menor no lleva fotografía. La fecha de nacimiento no se
+  // edita en esta pantalla, así que basta leerla del caso.
+  const esMenor = esMenorDeEdad(
+    denuncia.fecha_nacimiento ? new Date(denuncia.fecha_nacimiento) : null,
+  );
+
   const fotografiaOriginal = primeraFotografia(denuncia);
   const [photo, setPhoto] = useState<string | null>(fotografiaOriginal);
   const [saving, setSaving] = useState(false);
@@ -83,10 +91,11 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
     }
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.5,
-      base64: true,
+      quality: 0.8,
     });
-    if (!r.canceled && r.assets[0].base64) setPhoto(r.assets[0].base64);
+    if (!r.canceled) {
+      setPhoto(await prepararParaEnviar(r.assets[0].uri, r.assets[0].width));
+    }
   };
 
   const handleSave = async () => {
@@ -236,7 +245,15 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
       />
 
       <Text style={styles.label}>Foto</Text>
-      {photo ? (
+      {esMenor ? (
+        <View style={styles.avisoMenor}>
+          <Ionicons name="shield-checkmark-outline" size={20} color="#8F5600" />
+          <Text style={styles.avisoMenorTexto}>
+            Como la persona buscada es menor de edad, la alerta no lleva
+            fotografía. Se difunde con su descripción física.
+          </Text>
+        </View>
+      ) : photo ? (
         <View style={styles.photoWrap}>
           <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={styles.photo} />
           <TouchableOpacity style={styles.photoChange} onPress={pickPhoto}>
@@ -289,6 +306,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     backgroundColor: '#fafafa',
   },
+  avisoMenor: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFF8EC',
+    borderWidth: 1,
+    borderColor: '#F0DCB8',
+    borderRadius: 10,
+    padding: 14,
+  },
+  avisoMenorTexto: { flex: 1, fontSize: 14, lineHeight: 20, color: '#8F5600' },
   photoButton: {
     flexDirection: 'row',
     alignItems: 'center',

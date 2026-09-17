@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
+import { CampoContrasena } from '../../components/CampoContrasena';
 
 export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [email, setEmail] = useState('');
@@ -22,7 +23,11 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
 
     try {
-      await login(email, password);
+      // Se recorta antes de enviar. Los teclados de los teléfonos añaden un
+      // espacio al aceptar una sugerencia, y el servidor respondía
+      // «Credenciales inválidas» —indistinguible de una contraseña equivocada—.
+      // El servidor también lo normaliza; esto evita el viaje de ida y vuelta.
+      await login(email.trim(), password);
     } catch (error: any) {
       // El servidor ya responde en español; se prefiere su mensaje al genérico.
       Alert.alert(
@@ -47,15 +52,22 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         editable={!isLoading}
         keyboardType="email-address"
         autoCapitalize="none"
+        autoCorrect={false}
       />
 
-      <TextInput
-        style={styles.input}
+      {/*
+        Con ojito, igual que en el registro. No es solo comodidad: el campo
+        anterior era un TextInput suelto sin declarar qué clase de contraseña
+        contenía, y ahí el autorrelleno del sistema puede escribir un valor
+        distinto del tecleado sin que se note. Poder ver lo escrito convierte un
+        «credenciales inválidas» inexplicable en algo que se diagnostica solo.
+      */}
+      <CampoContrasena
         placeholder="Contraseña"
         value={password}
         onChangeText={setPassword}
         editable={!isLoading}
-        secureTextEntry
+        clase="existente"
       />
 
       {error && <Text style={styles.error}>{error}</Text>}

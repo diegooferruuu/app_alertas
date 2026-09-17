@@ -13,8 +13,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import { prepararParaEnviar } from '../../services/imagenes';
+import { esMenorDeEdad } from '../../utils/minoria-edad';
+import {
+  SelectorDeUbicacion,
+  Coordenadas,
+} from '../../components/SelectorDeUbicacion';
 import denunciaService from '../../services/denuncia.service';
 import {
   SelectorCerrado,
@@ -69,35 +74,39 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   const [condiciones, setCondiciones] = useState<string[]>([]);
 
   const [photo, setPhoto] = useState<string | null>(null);
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locating, setLocating] = useState(true);
+
+  /**
+   * La alerta de un menor de edad no lleva fotografía.
+   *
+   * Se deriva de la fecha en vez de guardarse en su propio estado: así no puede
+   * quedar desfasada respecto del campo que la determina.
+   */
+  const esMenor = esMenorDeEdad(fechaNacimiento);
+
+  // Si la fecha se corrige a la de un menor **después** de haber elegido la
+  // foto, hay que soltarla. Si no, quedaría en memoria, invisible en pantalla,
+  // y el envío la mandaría igual.
+  useEffect(() => {
+    if (esMenor && photo) setPhoto(null);
+  }, [esMenor, photo]);
+  // La ubicación ya no se toma sola del GPS: se elige. Tomarla del teléfono
+  // difundía la alerta alrededor de quien denuncia y no de donde se vio a la
+  // persona buscada, que es lo único que sirve para que alguien la reconozca.
+  const [coords, setCoords] = useState<Coordenadas | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [calendarioNacimiento, setCalendarioNacimiento] = useState(false);
   const [calendarioAvistamiento, setCalendarioAvistamiento] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const pos = await Location.getCurrentPositionAsync({});
-          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        }
-      } finally {
-        setLocating(false);
-      }
-    })();
-  }, []);
-
   const pickPhoto = async () => {
     if (Platform.OS === 'web') {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.5,
-        base64: true,
+        quality: 0.8,
       });
-      if (!result.canceled && result.assets[0].base64) setPhoto(result.assets[0].base64);
+      if (!result.canceled) {
+        setPhoto(await prepararParaEnviar(result.assets[0].uri, result.assets[0].width));
+      }
       return;
     }
     Alert.alert('Agregar foto', 'Elige una opción', [
@@ -106,8 +115,10 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         onPress: async () => {
           const { status } = await ImagePicker.requestCameraPermissionsAsync();
           if (status !== 'granted') return;
-          const r = await ImagePicker.launchCameraAsync({ quality: 0.5, base64: true });
-          if (!r.canceled && r.assets[0].base64) setPhoto(r.assets[0].base64);
+          const r = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+          if (!r.canceled) {
+            setPhoto(await prepararParaEnviar(r.assets[0].uri, r.assets[0].width));
+          }
         },
       },
       {
@@ -117,10 +128,11 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
           if (status !== 'granted') return;
           const r = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            quality: 0.5,
-            base64: true,
+            quality: 0.8,
           });
-          if (!r.canceled && r.assets[0].base64) setPhoto(r.assets[0].base64);
+          if (!r.canceled) {
+            setPhoto(await prepararParaEnviar(r.assets[0].uri, r.assets[0].width));
+          }
         },
       },
       { text: 'Cancelar', style: 'cancel' },
@@ -159,7 +171,9 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         condicion_relevante: condiciones.length > 0 ? condiciones : undefined,
         latitude: coords!.lat,
         longitude: coords!.lng,
-        fotografia_base64: photo!,
+        // Un menor va sin retrato. El servidor rechaza el campo si llega, así
+        // que mandarlo sería un error garantizado.
+        fotografia_base64: esMenor ? undefined : photo!,
       });
       Alert.alert(
         'Denuncia registrada',
@@ -206,8 +220,10 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     if (!prendaInferior) return 'Falta la prenda de la parte de abajo.';
     if (!colorInferior) return 'Falta el color de la prenda de abajo.';
     if (!circunstancia) return 'Falta la circunstancia de la desaparición.';
-    if (!photo) return 'La fotografía es obligatoria: sin imagen la alerta no sirve para reconocer.';
-    if (!coords) return 'No pudimos obtener tu ubicación. Activa el GPS e intenta de nuevo.';
+    if (!esMenor && !photo) {
+      return 'La fotografía es obligatoria: sin imagen la alerta no sirve para reconocer.';
+    }
+    if (!coords) return 'Falta indicar dónde se la vio por última vez.';
     return null;
   };
 
@@ -433,48 +449,45 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
 
       <Text style={styles.seccion}>Fotografía y lugar</Text>
 
-      <Text style={styles.label}>Fotografía (obligatoria, rostro visible)</Text>
-      {photo ? (
-        <View style={styles.photoWrap}>
-          <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={styles.photo} />
-          <TouchableOpacity style={styles.photoRemove} onPress={() => setPhoto(null)}>
-            <Ionicons name="close-circle" size={26} color="#FF3B30" />
-          </TouchableOpacity>
+      {/*
+        * Con un menor no se muestra el control deshabilitado sino un aviso que
+        * explica: un botón en gris invita a intentarlo y deja a la persona
+        * buscando qué le falta. Además dice qué ocurre en su lugar, para que no
+        * parezca que la denuncia queda incompleta.
+        */}
+      {esMenor ? (
+        <View style={styles.avisoMenor}>
+          <Ionicons name="shield-checkmark-outline" size={20} color="#8F5600" />
+          <Text style={styles.avisoMenorTexto}>
+            Como la persona buscada es menor de edad, la alerta no lleva
+            fotografía. Se difundirá con la descripción física que completaste.
+          </Text>
         </View>
       ) : (
-        <TouchableOpacity style={styles.photoButton} onPress={pickPhoto}>
-          <Ionicons name="camera-outline" size={22} color="#007AFF" />
-          <Text style={styles.photoButtonText}>Agregar foto</Text>
-        </TouchableOpacity>
+        <>
+          <Text style={styles.label}>Fotografía (obligatoria, rostro visible)</Text>
+          {photo ? (
+            <View style={styles.photoWrap}>
+              <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={styles.photo} />
+              <TouchableOpacity style={styles.photoRemove} onPress={() => setPhoto(null)}>
+                <Ionicons name="close-circle" size={26} color="#FF3B30" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.photoButton} onPress={pickPhoto}>
+              <Ionicons name="camera-outline" size={22} color="#007AFF" />
+              <Text style={styles.photoButtonText}>Agregar foto</Text>
+            </TouchableOpacity>
+          )}
+        </>
       )}
 
-      <View style={styles.locationBox}>
-        {locating ? (
-          <>
-            <Ionicons name="location-outline" size={16} color="#444" />
-            <Text style={styles.locationText}>Obteniendo ubicación...</Text>
-          </>
-        ) : coords ? (
-          <>
-            <Ionicons name="location" size={16} color="#007AFF" />
-            <Text style={styles.locationText}>
-              Ubicación: {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
-            </Text>
-          </>
-        ) : (
-          <>
-            <Ionicons name="warning" size={16} color="#FF3B30" />
-            <Text style={[styles.locationText, { color: '#FF3B30' }]}>
-              Sin ubicación (activa el GPS)
-            </Text>
-          </>
-        )}
-      </View>
+      <SelectorDeUbicacion valor={coords} onChange={setCoords} />
 
       <TouchableOpacity
-        style={[styles.button, (submitting || locating) && styles.buttonDisabled]}
+        style={[styles.button, submitting && styles.buttonDisabled]}
         onPress={handleSubmit}
-        disabled={submitting || locating}
+        disabled={submitting}
       >
         {submitting ? (
           <ActivityIndicator color="#fff" />
@@ -545,6 +558,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#eef4ff',
   },
   confirmarTexto: { color: '#007AFF', fontWeight: '600' },
+  avisoMenor: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#FFF8EC',
+    borderWidth: 1,
+    borderColor: '#F0DCB8',
+    borderRadius: 10,
+    padding: 14,
+  },
+  avisoMenorTexto: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#8F5600',
+  },
   photoButton: {
     flexDirection: 'row',
     alignItems: 'center',

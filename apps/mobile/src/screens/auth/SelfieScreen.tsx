@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/auth.store';
+import { prepararParaEnviar } from '../../services/imagenes';
 
 const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { registrarDocumento, isLoading, error } = useAuthStore();
@@ -29,12 +30,12 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     const result = await ImagePicker.launchCameraAsync({
       cameraType: ImagePicker.CameraType.front,
       quality: 0.8,
-      base64: true,
       allowsEditing: false,
     });
 
-    if (!result.canceled && result.assets[0].base64) {
-      setSelfieImage(result.assets[0].base64);
+    if (!result.canceled) {
+      const { uri, width } = result.assets[0];
+      setSelfieImage(await prepararParaEnviar(uri, width));
     }
   };
 
@@ -90,7 +91,8 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     <View style={styles.container}>
       <Text style={styles.title}>Selfie</Text>
       <Text style={styles.subtitle}>
-        Toma una foto de tu cara para compararla con la foto de tu carnet.
+        El servidor compara esta foto con el rostro impreso en el carnet que
+        fotografiaste. Si no se parecen, el documento no se registra.
       </Text>
 
       <View style={styles.hints}>
@@ -98,6 +100,16 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <Text style={styles.hint}>• Mira directamente a la cámara</Text>
         <Text style={styles.hint}>• No uses gafas ni cubras tu rostro</Text>
       </View>
+
+      {/*
+        El proyecto prohíbe decir «verificado» o «validado»: la comparación no
+        autentica a nadie. Establece que quien se toma la selfie se parece a
+        quien aparece impreso en el documento, que es bastante menos, y la
+        pantalla no puede prometer más de lo que el sistema comprueba.
+      */}
+      <Text style={styles.aclaracion}>
+        Tu selfie no se guarda: se compara y se descarta.
+      </Text>
 
       {selfieImage ? (
         <View style={styles.previewContainer}>
@@ -163,6 +175,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 14,
     marginBottom: 24,
+  },
+  aclaracion: {
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 17,
   },
   hint: {
     fontSize: 13,

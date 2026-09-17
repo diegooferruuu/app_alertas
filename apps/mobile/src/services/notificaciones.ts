@@ -1,5 +1,4 @@
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import alertasService, { Plataforma } from './alertas.service';
@@ -13,15 +12,54 @@ import alertasService, { Plataforma } from './alertas.service';
  * de lanzar: que no haya push no puede impedir usar el resto de la aplicación.
  */
 
-/** Con la app en primer plano, la alerta igual se muestra. */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+/**
+ * `expo-notifications` se carga **solo cuando hace falta**, nunca al importar.
+ *
+ * Importarlo tumba la aplicación en Expo Go sobre Android. No por nada que haga
+ * este archivo: el propio paquete, en
+ * `DevicePushTokenAutoRegistration.fx.js`, llama a `addPushTokenListener` en
+ * ámbito global, y desde el SDK 53 esa llamada lanza en Expo Go Android porque
+ * el push remoto se retiró. El error llega como `[runtime not ready]` —antes de
+ * que React exista— así que ningún `try/catch` de este archivo ni ninguna
+ * barrera de errores puede atraparlo: lo único que sirve es no importarlo.
+ *
+ * Un `require` dentro de una función sí es perezoso en Metro, a diferencia de un
+ * `import` de arriba, que se evalúa siempre.
+ *
+ * La consecuencia es la correcta: en Expo Go no hay push —nunca lo hubo— pero la
+ * aplicación arranca y todo lo demás funciona. El push llega con el dev build.
+ */
+type ModuloNotificaciones = typeof import('expo-notifications');
+
+/** `undefined` = aún no se intentó; `null` = se intentó y no está disponible. */
+let modulo: ModuloNotificaciones | null | undefined;
+
+const cargarNotificaciones = (): ModuloNotificaciones | null => {
+  if (modulo !== undefined) return modulo;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    modulo = require('expo-notifications') as ModuloNotificaciones;
+
+    // Con la app en primer plano, la alerta igual se muestra. Va aquí y no
+    // arriba porque antes de esta línea el módulo no existía.
+    modulo.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+  } catch (error) {
+    console.warn(
+      `Sin notificaciones push en este entorno: ${(error as Error).message}`,
+    );
+    modulo = null;
+  }
+
+  return modulo;
+};
 
 export interface ResultadoRegistro {
   registrado: boolean;
@@ -49,6 +87,15 @@ export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegist
     return {
       registrado: false,
       motivo: 'Las notificaciones push no funcionan en un simulador.',
+    };
+  }
+
+  const Notifications = cargarNotificaciones();
+  if (!Notifications) {
+    return {
+      registrado: false,
+      motivo:
+        'Este entorno no tiene notificaciones push. En Expo Go no existen desde el SDK 53: hace falta un development build.',
     };
   }
 
@@ -106,6 +153,27 @@ export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegist
 export function alTocarUnaAlerta(
   navegar: (pantalla: string, params?: Record<string, unknown>) => void,
 ): () => void {
+  try {
+    return suscribirseAToques(navegar);
+  } catch (error) {
+    // Registrar el oyente puede fallar donde el push remoto no existe —Expo Go
+    // sobre Android desde el SDK 53—. Esto se llama desde un efecto del
+    // componente raíz, y un error ahí no tiene quién lo atrape: React desmonta
+    // el árbol entero y la aplicación se queda en blanco. No poder reaccionar a
+    // una notificación no puede costar la aplicación.
+    console.warn(
+      `Sin reacción a notificaciones tocadas: ${(error as Error).message}`,
+    );
+    return () => {};
+  }
+}
+
+function suscribirseAToques(
+  navegar: (pantalla: string, params?: Record<string, unknown>) => void,
+): () => void {
+  const Notifications = cargarNotificaciones();
+  if (!Notifications) return () => {};
+
   const suscripcion = Notifications.addNotificationResponseReceivedListener(
     (respuesta) => {
       const datos = respuesta.notification.request.content.data as {

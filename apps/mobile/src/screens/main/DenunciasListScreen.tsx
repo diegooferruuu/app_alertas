@@ -17,9 +17,10 @@ import denunciaService, {
   DENUNCIA_META,
   situacionDe,
 } from '../../services/denuncia.service';
+import { CENTRO_POR_DEFECTO_CORTO } from '../../utils/ubicacion-inicial';
 
-// La Paz, Bolivia por defecto si no hay GPS
-const DEFAULT = { lat: -16.5, lng: -68.15 };
+// Centro por defecto si no hay GPS; ver `ubicacion-inicial`.
+const DEFAULT = CENTRO_POR_DEFECTO_CORTO;
 
 type SortMode = 'recent' | 'nearby';
 

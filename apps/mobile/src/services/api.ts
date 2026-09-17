@@ -1,12 +1,36 @@
 import axios from 'axios';
 import { storage } from '../utils/storage';
 
-// En dispositivo físico usa la IP de tu Mac. En simulador/web usa localhost.
+/**
+ * Dirección del servidor. En teléfono físico tiene que ser la IP de la máquina
+ * en la red local: `localhost` lo resuelve el teléfono contra sí mismo.
+ *
+ * El valor de reserva es `localhost` y no una IP concreta a propósito. Antes
+ * había una escrita a mano —`192.168.6.200`— que dejó de existir al cambiar de
+ * red, y el síntoma no era un error claro sino la aplicación intentando hablar
+ * con una máquina que no está. `localhost` falla igual, pero falla donde se
+ * entiende: en el simulador funciona y en el teléfono se ve enseguida que falta
+ * configurar la variable.
+ */
 export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL || 'http://192.168.6.200:3000/api';
+  process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+
+/**
+ * Espera máxima de cada petición.
+ *
+ * Sin esto, axios espera indefinidamente. Con el servidor inalcanzable —otra
+ * red, la máquina apagada, la IP cambiada— el arranque se queda esperando un
+ * perfil que no va a llegar y la aplicación muestra el indicador de carga para
+ * siempre, sin decir qué pasa. Un fallo de red tiene que verse como un fallo de
+ * red, no como un cuelgue.
+ */
+const ESPERA_MAXIMA_MS = 15_000;
 
 // Instancia axios compartida por todos los servicios (auth, denuncias, ...).
-export const apiClient = axios.create({ baseURL: API_URL });
+export const apiClient = axios.create({
+  baseURL: API_URL,
+  timeout: ESPERA_MAXIMA_MS,
+});
 
 // Adjunta el token de acceso a cada request
 apiClient.interceptors.request.use(

@@ -20,10 +20,11 @@ import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
 import { navigationRef } from './src/navigation/navigationRef';
 import { useAlertas } from './src/hooks/useAlertas';
+import { BarreraDeErrores } from './src/components/BarreraDeErrores';
 
 const Stack = createStackNavigator();
 
-export default function App() {
+function Aplicacion() {
   const { isAuthenticated, getProfile } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
 
@@ -151,5 +152,20 @@ export default function App() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+/**
+ * La barrera envuelve a `Aplicacion` y no va dentro de ella a propósito: una
+ * barrera solo atrapa lo que ocurre **por debajo**. Puesta dentro no cubriría
+ * los efectos del propio componente raíz, que es justo donde se registra el
+ * dispositivo para alertas y donde más fácil es que algo reviente en un
+ * teléfono distinto del de desarrollo.
+ */
+export default function App() {
+  return (
+    <BarreraDeErrores>
+      <Aplicacion />
+    </BarreraDeErrores>
   );
 }

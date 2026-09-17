@@ -87,8 +87,12 @@ export interface CreateDenunciaPayload {
   condicion_relevante?: string[];
   latitude: number;
   longitude: number;
-  /** Obligatoria: sin imagen la alerta no sirve para reconocer. */
-  fotografia_base64: string;
+  /**
+   * Obligatoria, salvo que la persona buscada sea menor de edad: su alerta no
+   * lleva retrato. Ver `utils/minoria-edad`; el servidor impone la misma regla
+   * y rechaza el campo si llega en ese caso.
+   */
+  fotografia_base64?: string;
 }
 
 /**
