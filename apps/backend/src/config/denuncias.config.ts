@@ -72,6 +72,17 @@ export interface DenunciasConfig {
   maxIntentosEmision: number;
 
   /**
+   * Minutos sin renovar el arrendamiento tras los cuales una emisión
+   * «procesando» se da por huérfana y se retoma.
+   *
+   * El arrendamiento se renueva después de cada lote, y un lote tarda como mucho
+   * lo que el límite de espera de la pasarela (30 s). Cinco minutos sin
+   * renovarlo solo ocurren si el trabajador murió. Bajarlo por debajo de lo que
+   * tarda un lote haría que dos trabajadores enviaran la misma emisión a la vez.
+   */
+  arrendamientoEmisionMin: number;
+
+  /**
    * Precisión del geohash de un avistamiento. 6 caracteres ≈ 1.2 × 0.6 km,
    * que es la resolución de ~1 km que pide §3.3. Subirlo estrecha la zona y
    * acerca el dato a una ubicación identificable: no aumentar sin motivo.
@@ -124,6 +135,7 @@ export const denunciasConfig = registerAs(
     antiguedadMaximaUbicacionH: entero(process.env.ANTIGUEDAD_MAXIMA_UBICACION_H, 72),
     intervaloEmisionMin: entero(process.env.INTERVALO_EMISION_MIN, 1),
     maxIntentosEmision: entero(process.env.MAX_INTENTOS_EMISION, 3),
+    arrendamientoEmisionMin: entero(process.env.ARRENDAMIENTO_EMISION_MIN, 5),
 
     precisionGeohash: entero(process.env.PRECISION_GEOHASH, 6),
   }),

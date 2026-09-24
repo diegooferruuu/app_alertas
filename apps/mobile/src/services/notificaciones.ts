@@ -34,15 +34,64 @@ type ModuloNotificaciones = typeof import('expo-notifications');
 /** `undefined` = aún no se intentó; `null` = se intentó y no está disponible. */
 let modulo: ModuloNotificaciones | null | undefined;
 
+/**
+ * Expo Go sobre Android: el único entorno donde importar el módulo revienta.
+ *
+ * `storeClient` es lo que informa `expo-constants` cuando la aplicación corre
+ * dentro de Expo Go, en vez de en un build propio.
+ */
+const esExpoGoEnAndroid =
+  Platform.OS === 'android' &&
+  Constants.executionEnvironment === 'storeClient';
+
 const cargarNotificaciones = (): ModuloNotificaciones | null => {
   if (modulo !== undefined) return modulo;
 
+  // Se comprueba **antes** de requerir, y no se atrapa después, porque atraparlo
+  // no basta: Metro reporta por su cuenta el fallo al evaluar un módulo, así que
+  // la caja roja sale igual aunque el `try/catch` haga su trabajo. La única
+  // forma de no ver el error es no provocarlo.
+  if (esExpoGoEnAndroid) {
+    console.warn(
+      'Sin notificaciones push: Expo Go no las tiene en Android desde el SDK 53. ' +
+        'Llegan con el development build.',
+    );
+    modulo = null;
+    return modulo;
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    modulo = require('expo-notifications') as ModuloNotificaciones;
+    const cargado = require('expo-notifications');
 
-    // Con la app en primer plano, la alerta igual se muestra. Va aquí y no
-    // arriba porque antes de esta línea el módulo no existía.
+    // Dos comprobaciones, y las dos hacen falta. `?.default` porque el módulo es
+    // ESM y, según cómo lo empaquete Metro, la API puede venir ahí en vez de en
+    // la raíz. Y la de `getPermissionsAsync` porque cuando la evaluación del
+    // módulo revienta a medias —lo que pasa en Expo Go sobre Android— el
+    // `require` no lanza: devuelve un objeto incompleto, o nada. Sin
+    // comprobarlo, el fallo salía después como «Cannot read property
+    // 'setNotificationHandler' of undefined», que parece un error de este
+    // archivo y no lo es.
+    const api = (cargado?.default ?? cargado) as ModuloNotificaciones | undefined;
+    if (!api || typeof api.getPermissionsAsync !== 'function') {
+      throw new Error(
+        'el módulo no expone su API aquí; en Expo Go el push remoto no existe desde el SDK 53',
+      );
+    }
+
+    modulo = api;
+  } catch (error) {
+    console.warn(
+      `Sin notificaciones push en este entorno: ${(error as Error).message}`,
+    );
+    modulo = null;
+    return modulo;
+  }
+
+  // Configurar el manejador va aparte y con su propio `try`: que no se pueda
+  // decidir cómo se muestra una notificación en primer plano no invalida el
+  // resto del módulo, que sí sirve para pedir permiso y registrar el aparato.
+  try {
     modulo.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowBanner: true,
@@ -53,9 +102,8 @@ const cargarNotificaciones = (): ModuloNotificaciones | null => {
     });
   } catch (error) {
     console.warn(
-      `Sin notificaciones push en este entorno: ${(error as Error).message}`,
+      `Las alertas en primer plano no se mostrarán: ${(error as Error).message}`,
     );
-    modulo = null;
   }
 
   return modulo;

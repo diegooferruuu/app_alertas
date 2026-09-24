@@ -1,14 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { EmisionAlerta, MotivoEmision } from './entities/emision-alerta.entity';
-import { EntregaAlerta } from './entities/entrega-alerta.entity';
-import { Dispositivo } from './entities/dispositivo.entity';
-import { PasarelaPush, MensajePush, ResultadoEnvio } from './pasarela-push';
+import { EstadoEntrega } from './entities/entrega-alerta.entity';
+import { PasarelaPush, ResultadoEnvio } from './pasarela-push';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from '../denuncias/domain/estados';
 import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
+
+/**
+ * Cuántos teléfonos se notifican antes de dejar constancia del resultado.
+ *
+ * Acota el peor caso de un fallo a mitad de una emisión: si el proceso muere,
+ * a lo sumo este número de personas puede recibir la alerta dos veces en el
+ * reintento. Coincide con el máximo que acepta Expo por petición, así que cada
+ * lote es una sola llamada a la pasarela.
+ */
+export const LOTE_DE_ENVIO = 100;
 
 /** Un destinatario alcanzado por el radio, con el dispositivo donde avisarle. */
 interface Destinatario {
@@ -203,21 +212,54 @@ export class AlertasService {
    * peor, enviar la misma alerta dos veces.
    */
   async procesarPendientes(limite = 10): Promise<number> {
+    const { maxIntentosEmision, arrendamientoEmisionMin } = this.config;
+
+    // Una emisión huérfana que ya gastó sus intentos no se retoma: se da por
+    // fallida. Sin esto, una emisión que tumba el proceso cada vez que se
+    // procesa quedaría «procesando» para siempre en vez de dejar constancia.
+    await this.dataSource.query(
+      `UPDATE emisiones_alerta
+          SET estado = 'fallida',
+              ultimo_error = coalesce(ultimo_error || ' · ', '') ||
+                             'el proceso murió mientras la procesaba'
+        WHERE estado = 'procesando'
+          AND intentos >= $1
+          AND (tomada_en IS NULL
+               OR tomada_en < now() - make_interval(mins => $2))`,
+      [maxIntentosEmision, arrendamientoEmisionMin],
+    );
+
     const pendientes = await this.dataSource.transaction(async (manager) => {
+      // Además de las pendientes, las «procesando» cuyo arrendamiento venció: su
+      // trabajador murió a mitad y nadie más iba a tomarlas. Una sin marca solo
+      // puede venir del código anterior al arrendamiento, y cuenta como vencida.
       const filas = await manager.query(
         `SELECT id FROM emisiones_alerta
-          WHERE estado = 'pendiente' AND intentos < $1
+          WHERE intentos < $1
+            AND (estado = 'pendiente'
+                 OR (estado = 'procesando'
+                     AND (tomada_en IS NULL
+                          OR tomada_en < now() - make_interval(mins => $3))))
           ORDER BY creada_en ASC
           LIMIT $2
           FOR UPDATE SKIP LOCKED`,
-        [this.config.maxIntentosEmision, limite],
+        [maxIntentosEmision, limite, arrendamientoEmisionMin],
       );
 
       const ids = filas.map((f: { id: string }) => f.id);
       if (ids.length > 0) {
-        await manager
-          .getRepository(EmisionAlerta)
-          .update(ids, { estado: 'procesando' });
+        // Retomar una huérfana cuenta como un intento más: el anterior murió sin
+        // llegar a su `catch`, que es donde normalmente se cuentan. Las
+        // expresiones del `SET` ven la fila de antes, así que el `CASE` distingue
+        // la huérfana de la pendiente.
+        await manager.query(
+          `UPDATE emisiones_alerta
+              SET intentos = intentos + CASE WHEN estado = 'procesando' THEN 1 ELSE 0 END,
+                  estado = 'procesando',
+                  tomada_en = now()
+            WHERE id = ANY($1::uuid[])`,
+          [ids],
+        );
       }
       return ids as string[];
     });
@@ -337,42 +379,174 @@ export class AlertasService {
     destinatarios: Destinatario[],
     motivo: MotivoEmision,
   ): Promise<void> {
-    const entregas = this.dataSource.getRepository(EntregaAlerta);
+    await this.registrarEncoladas(emisionId, destinatarios);
 
-    await entregas.insert(
-      destinatarios.map((d) => ({
-        emision_id: emisionId,
-        usuario_id: d.usuario_id,
-        dispositivo_id: d.dispositivo_id,
-        distancia_m: d.distancia_m,
-        estado: 'encolada' as const,
-      })),
+    // En un reintento, quien ya tiene resultado no se vuelve a notificar. La
+    // primera vez son todos; después, solo los que quedaron sin confirmar.
+    const pendientes = await this.sinResultado(emisionId, destinatarios);
+
+    const contenido = this.contenidoSegunMotivo(motivo, denuncia);
+
+    // Se envía y se registra **lote a lote**, no todo y después todo. Un envío
+    // no se deshace con un ROLLBACK: lo que salió hacia los teléfonos, salió.
+    // Si el proceso muere a mitad, lo único que puede repetirse en el reintento
+    // es el lote que estaba en vuelo; los anteriores ya constan. Registrando al
+    // final, en cambio, un fallo en el último paso renotificaba a la emisión
+    // entera.
+    for (let i = 0; i < pendientes.length; i += LOTE_DE_ENVIO) {
+      const lote = pendientes.slice(i, i + LOTE_DE_ENVIO);
+
+      const resultados = await this.pasarela.enviar(
+        lote.map((d) => ({
+          push_token: d.push_token,
+          ...contenido,
+          datos: { denuncia_id: denuncia.id, motivo },
+        })),
+      );
+
+      await this.registrarResultados(emisionId, lote, resultados);
+      await this.darDeBajaAparatosMuertos(resultados);
+      await this.renovarArrendamiento(emisionId);
+    }
+  }
+
+  /**
+   * Los destinatarios de esta emisión que todavía no tienen resultado.
+   *
+   * «Encolada» es exactamente eso: la fila existe, pero la pasarela no llegó a
+   * responder por ese teléfono —o sí respondió y no se alcanzó a escribir—.
+   */
+  private async sinResultado(
+    emisionId: string,
+    destinatarios: Destinatario[],
+  ): Promise<Destinatario[]> {
+    const filas: Array<{ dispositivo_id: string }> = await this.dataSource.query(
+      `SELECT dispositivo_id FROM entregas_alerta
+        WHERE emision_id = $1::uuid AND estado = 'encolada'`,
+      [emisionId],
     );
+    const encoladas = new Set(filas.map((f) => f.dispositivo_id));
+    return destinatarios.filter((d) => encoladas.has(d.dispositivo_id));
+  }
 
-    const mensajes: MensajePush[] = destinatarios.map((d) => ({
-      push_token: d.push_token,
-      ...this.contenidoSegunMotivo(motivo, denuncia),
-      datos: { denuncia_id: denuncia.id, motivo },
-    }));
+  /**
+   * Marca que el trabajador sigue vivo y trabajando en esta emisión.
+   *
+   * Por sentencia directa y no por el repositorio: el cierre de la emisión sí
+   * pasa por el repositorio, y las pruebas simulan su fallo ahí sin tropezar con
+   * esta escritura.
+   */
+  private async renovarArrendamiento(emisionId: string): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE emisiones_alerta SET tomada_en = now() WHERE id = $1::uuid`,
+      [emisionId],
+    );
+  }
 
-    const resultados = await this.pasarela.enviar(mensajes);
+  /*
+   * Las tres escrituras de abajo mandan los valores como **arreglos** y los
+   * expande el servidor con `unnest`, en vez de una fila de parámetros por
+   * destinatario.
+   *
+   * No es una optimización: es lo que permite emitir a una ciudad. PostgreSQL
+   * guarda el número de parámetros de una sentencia en un entero de 16 bits, así
+   * que admite 65 535 como mucho. Con cinco columnas por fila eso daba un techo
+   * de ~13 100 destinatarios —un radio de ~2,5 km a densidad urbana—, y pasado
+   * ese número la emisión fallaba entera y no avisaba a nadie. El error ni
+   * siquiera lo decía: 20 000 filas son 100 000 parámetros, el conteo desborda a
+   * 100 000 − 65 536 = 34 464, y el servidor responde «bind message has 34464
+   * parameter formats but 0 parameters». Con arreglos, cada sentencia lleva un
+   * número fijo de parámetros, sean diez destinatarios o doscientos mil.
+   *
+   * Cada escritura sigue siendo **una** sentencia, y por eso atómica.
+   */
+
+  /**
+   * Una fila `encolada` por destinatario, antes de hablar con la pasarela.
+   *
+   * `ON CONFLICT DO NOTHING` sobre el índice único `(emision_id, dispositivo_id)`:
+   * en un reintento las filas que ya existen se quedan como están, con su
+   * resultado, y solo entran los destinatarios nuevos —alguien que llegó a la
+   * zona entre un intento y otro—.
+   */
+  private async registrarEncoladas(
+    emisionId: string,
+    destinatarios: Destinatario[],
+  ): Promise<void> {
+    await this.dataSource.query(
+      `INSERT INTO entregas_alerta
+              (emision_id, usuario_id, dispositivo_id, distancia_m, estado)
+       SELECT $1::uuid, u.usuario_id, u.dispositivo_id, u.distancia_m, 'encolada'
+         FROM unnest($2::uuid[], $3::uuid[], $4::int[])
+              AS u(usuario_id, dispositivo_id, distancia_m)
+       ON CONFLICT (emision_id, dispositivo_id) DO NOTHING`,
+      [
+        emisionId,
+        destinatarios.map((d) => d.usuario_id),
+        destinatarios.map((d) => d.dispositivo_id),
+        destinatarios.map((d) => d.distancia_m),
+      ],
+    );
+  }
+
+  /**
+   * Escribe lo que respondió la pasarela en la fila de cada destinatario.
+   *
+   * Antes era un `UPDATE` por destinatario, en serie, y para encontrar la fila de
+   * cada resultado se recorría la lista entera de destinatarios: un bucle dentro
+   * de otro. Con veinte mil destinatarios eran veinte mil viajes a la base y
+   * unos doscientos millones de comparaciones con el proceso bloqueado. Ahora el
+   * cruce se hace con un `Map` —una búsqueda constante por resultado— y la
+   * escritura es una sola sentencia.
+   */
+  private async registrarResultados(
+    emisionId: string,
+    destinatarios: Destinatario[],
+    resultados: ResultadoEnvio[],
+  ): Promise<void> {
+    // El token identifica un dispositivo y es único en `dispositivos`, así que
+    // no hay dos destinatarios con el mismo y el `Map` no pierde ninguno.
+    const porToken = new Map(destinatarios.map((d) => [d.push_token, d]));
+
+    const dispositivos: string[] = [];
+    const estados: EstadoEntrega[] = [];
+    const detalles: string[] = [];
 
     for (const resultado of resultados) {
-      const destinatario = destinatarios.find(
-        (d) => d.push_token === resultado.push_token,
-      );
+      const destinatario = porToken.get(resultado.push_token);
       if (!destinatario) continue;
 
-      await entregas.update(
-        { emision_id: emisionId, dispositivo_id: destinatario.dispositivo_id },
-        {
-          estado: resultado.aceptado ? 'aceptada' : 'fallida',
-          resultado_pasarela: resultado.detalle,
-        },
-      );
+      dispositivos.push(destinatario.dispositivo_id);
+      estados.push(resultado.aceptado ? 'aceptada' : 'fallida');
+      detalles.push(resultado.detalle);
     }
 
-    await this.darDeBajaAparatosMuertos(resultados);
+    if (dispositivos.length === 0) return;
+
+    // `actualizada_en` se pone a mano. Es `@UpdateDateColumn` y TypeORM la movía
+    // solo con `repository.update()`; una sentencia escrita a mano no pasa por
+    // ahí, y sin esta línea la marca quedaría en la hora de inserción y la
+    // latencia de entrega mediría cero.
+    //
+    // La condición `= ANY($2)` repite el cruce con `u` y es redundante en
+    // lógica, pero no en rendimiento. Sin ella, PostgreSQL resolvía el cruce
+    // recorriendo **todas** las entregas de la emisión en cada lote —medido:
+    // 20 000 filas leídas para actualizar 100—, porque todas comparten
+    // `emision_id` y el índice no le servía. Con ella, busca exactamente esas
+    // filas por el índice único, y el costo de cada lote deja de crecer con el
+    // tamaño de la emisión.
+    await this.dataSource.query(
+      `UPDATE entregas_alerta AS e
+          SET estado = u.estado,
+              resultado_pasarela = u.detalle,
+              actualizada_en = now()
+         FROM unnest($2::uuid[], $3::varchar[], $4::text[])
+              AS u(dispositivo_id, estado, detalle)
+        WHERE e.emision_id = $1::uuid
+          AND e.dispositivo_id = ANY($2::uuid[])
+          AND e.dispositivo_id = u.dispositivo_id`,
+      [emisionId, dispositivos, estados, detalles],
+    );
   }
 
   /**
@@ -398,9 +572,14 @@ export class AlertasService {
 
     if (muertos.length === 0) return;
 
-    await this.dataSource.getRepository(Dispositivo).delete({
-      push_token: In(muertos),
-    });
+    // `= ANY` con un arreglo y no `In(...)`: `In` pone un parámetro por token y
+    // arrastra el mismo techo de 65 535 que tenían las entregas. Es improbable
+    // llegar ahí con aparatos muertos, pero la función no debe depender del
+    // tamaño de la emisión.
+    await this.dataSource.query(
+      `DELETE FROM dispositivos WHERE push_token = ANY($1::varchar[])`,
+      [muertos],
+    );
 
     this.logger.log(
       `${muertos.length} dispositivo(s) dado(s) de baja: la pasarela los reporta desinstalados`,

@@ -5,31 +5,42 @@ import { UrlTile } from 'react-native-maps';
 /**
  * Teselas del mapa en Android.
  *
- * En iOS el mapa lo dibuja Apple Maps y no hace falta nada. En Android lo dibuja
- * el SDK de Google, que **exige una clave de API**: sin ella se ve el marco, los
- * controles y el logo, pero ninguna calle. Es exactamente ese síntoma, y no un
- * fallo de red.
+ * En iOS el mapa lo dibuja Apple Maps, funciona y no hace falta nada de aquí. En
+ * Android lo dibuja el SDK de Google, y ahí dejó de cargar: se veía el marco,
+ * los controles y el logo, pero ninguna calle. Sin una clave de API propia no
+ * hay forma de arreglarlo desde el código —y en Expo Go ni siquiera eso serviría,
+ * porque Expo Go va compilado con la suya y la de `app.json` solo entra en un
+ * build propio—.
  *
- * La clave no se puede arreglar desde aquí mientras se use Expo Go: Expo Go es
- * una aplicación ya compilada con la suya, y la que pongas en `app.json` solo
- * entra en un dev build. Así que en Expo Go no hay forma de que Google dibuje.
+ * La salida es no depender del SDK de Google para dibujar: con `mapType="none"`
+ * —propio de Android— el mapa deja de pedirle la base a Google, y estas teselas,
+ * que son imágenes por HTTP normales, la ponen.
  *
- * OpenStreetMap sí: son imágenes por HTTP, sin clave y sin SDK de por medio.
- * Con `mapType="none"` —que es propio de Android— el mapa deja de pedirle nada a
- * Google y se dibuja solo con estas teselas.
- *
- * Contrapartida a declarar: el aspecto no es idéntico entre plataformas, y la
- * política de uso de OSM pide atribución visible y desaconseja el tráfico
- * intenso. Para un prototipo es adecuado; para producción, o se contrata la
- * clave de Google o se paga un proveedor de teselas.
+ * Contrapartida a declarar en el informe: el aspecto no es idéntico entre las
+ * dos plataformas, y las teselas vienen de un servicio gratuito con cuota. Para
+ * producción corresponde una clave de Google o una cuenta propia de teselas.
  */
 
-/** Servidor de teselas de OpenStreetMap. `z/x/y` los sustituye el componente. */
-const PLANTILLA_OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+/**
+ * Servidor de teselas. `z/x/y` los sustituye el componente.
+ *
+ * **No se usa `tile.openstreetmap.org`**, aunque sea la fuente evidente. Sus
+ * servidores los pagan voluntarios y su política exige que cada aplicación se
+ * identifique con un `User-Agent` propio; a quien no lo hace le responden
+ * **403 Access blocked**, y eso es exactamente lo que se veía en el mapa. No es
+ * negociable desde aquí: `UrlTile` no expone ninguna forma de añadir cabeceras.
+ *
+ * CARTO sirve el mismo mapa —los datos siguen siendo de OpenStreetMap— desde
+ * una red de distribución pensada para que la consuman aplicaciones, sin clave.
+ * Para producción correspondería una cuenta propia con su cuota; para un
+ * prototipo, este uso es el previsto.
+ */
+const PLANTILLA_TESELAS =
+  'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
 
 /**
- * Niveles de acercamiento que sirve OSM. Por debajo de 3 no hay nada útil y por
- * encima de 19 el servidor devuelve error en vez de imagen.
+ * Niveles de acercamiento que sirve el proveedor. Por debajo de 3 no hay nada
+ * útil y por encima de 19 responde error en vez de imagen.
  */
 const ZOOM_MINIMO = 3;
 const ZOOM_MAXIMO = 19;
@@ -47,34 +58,38 @@ export const TeselasDelMapa: React.FC = () => {
   if (!esAndroid) return null;
 
   return (
+    // Solo lo documentado como soportado en Android, y nada más.
+    //
+    // Llevaba también `tileCachePath="osm"` y `shouldReplaceMapContent`, y las
+    // dos estaban mal: la primera quiere una ruta de directorio real o en
+    // formato `file://` —un nombre suelto no lo es, y con una ruta inválida el
+    // proveedor no llega a dibujar ninguna tesela—, y la segunda está marcada
+    // «Android: Not supported» en la propia biblioteca. Guardar las imágenes en
+    // disco habría estado bien para no regastar datos, pero no a cambio de que
+    // el mapa no se vea.
     <UrlTile
-      urlTemplate={PLANTILLA_OSM}
+      urlTemplate={PLANTILLA_TESELAS}
       minimumZ={ZOOM_MINIMO}
       maximumZ={ZOOM_MAXIMO}
-      // Sin esto las teselas se dibujan encima de los marcadores y el pin de la
-      // denuncia queda tapado por el propio mapa.
-      zIndex={-1}
-      // Deja las imágenes en disco: al volver a la misma zona no se vuelven a
-      // descargar, que en una conexión de datos compartida se nota.
-      shouldReplaceMapContent
-      tileCachePath="osm"
     />
   );
 };
 
 /**
- * Atribución de OpenStreetMap.
+ * Atribución del mapa.
  *
- * No es cortesía: la política de uso de las teselas la exige, igual que la
- * licencia ODbL de los datos. Se pinta **sobre** el mapa y no dentro del
- * `MapView`, cuyos hijos solo pueden ser elementos de mapa.
+ * No es cortesía: la licencia ODbL de los datos la exige, y los términos de
+ * CARTO piden además nombrar el servicio. Se pinta **sobre** el mapa y no dentro
+ * del `MapView`, cuyos hijos solo pueden ser elementos de mapa.
  *
  * En iOS no sale porque allí las teselas son de Apple, que pone su propio
  * distintivo.
  */
-export const AtribucionOSM: React.FC = () => {
+export const AtribucionDelMapa: React.FC = () => {
   if (!esAndroid) return null;
-  return <Text style={estilos.atribucion}>© OpenStreetMap</Text>;
+  return (
+    <Text style={estilos.atribucion}>© OpenStreetMap · CARTO</Text>
+  );
 };
 
 const estilos = StyleSheet.create({

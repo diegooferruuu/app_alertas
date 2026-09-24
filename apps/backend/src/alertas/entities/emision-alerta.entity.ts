@@ -102,6 +102,17 @@ export class EmisionAlerta {
   @Column({ type: 'timestamptz', nullable: true })
   emitida_en!: Date | null;
 
+  /**
+   * Arrendamiento: cuándo tomó esta emisión el trabajador que la procesa.
+   *
+   * Se renueva después de cada lote enviado. Si deja de renovarse, ese
+   * trabajador murió a mitad —reinicio, despliegue, falta de memoria— y otro
+   * puede retomar la emisión. Sin esto, una emisión «procesando» huérfana no se
+   * volvía a tomar nunca y la alerta no salía.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  tomada_en!: Date | null;
+
   @ManyToOne(() => Denuncia, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'denuncia_id' })
   denuncia!: Denuncia;

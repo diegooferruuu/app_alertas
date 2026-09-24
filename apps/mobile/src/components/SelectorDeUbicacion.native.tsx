@@ -10,7 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker, Circle, MapPressEvent } from 'react-native-maps';
-import { AtribucionOSM, TeselasDelMapa, tipoDeMapa } from './TeselasDelMapa';
+import { AtribucionDelMapa, TeselasDelMapa, tipoDeMapa } from './TeselasDelMapa';
 import { AMPLITUD_INICIAL, CENTRO_POR_DEFECTO } from '../utils/ubicacion-inicial';
 
 export interface Coordenadas {
@@ -212,7 +212,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
             )}
           </MapView>
 
-          <AtribucionOSM />
+          <AtribucionDelMapa />
 
           <View style={estilos.pie}>
             <Text style={estilos.pieTexto}>

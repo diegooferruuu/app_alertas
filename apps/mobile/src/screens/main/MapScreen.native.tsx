@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
 import {
-  AtribucionOSM,
+  AtribucionDelMapa,
   TeselasDelMapa,
   tipoDeMapa,
 } from '../../components/TeselasDelMapa';
@@ -108,7 +108,7 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </MapView>
       )}
 
-      <AtribucionOSM />
+      <AtribucionDelMapa />
 
       <TouchableOpacity style={styles.reportButton} onPress={handleReport}>
         <Ionicons name="add" size={22} color="#fff" style={{ marginRight: 6 }} />

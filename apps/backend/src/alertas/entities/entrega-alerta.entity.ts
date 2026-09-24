@@ -25,7 +25,13 @@ export type EstadoEntrega = 'encolada' | 'aceptada' | 'fallida';
  * se mueve: recalcularla mañana daría otro número.
  */
 @Entity('entregas_alerta')
-@Index('idx_entregas_emision', ['emision_id'])
+// Una sola entrega por teléfono en cada emisión. Es lo que permite reintentar
+// una emisión que falló a mitad sin volver a notificar a quien ya consta como
+// notificado. Como empieza por `emision_id`, sirve también para buscar las
+// entregas de una emisión.
+@Index('uq_entregas_emision_dispositivo', ['emision_id', 'dispositivo_id'], {
+  unique: true,
+})
 @Index('idx_entregas_usuario', ['usuario_id'])
 export class EntregaAlerta {
   @PrimaryGeneratedColumn('uuid')

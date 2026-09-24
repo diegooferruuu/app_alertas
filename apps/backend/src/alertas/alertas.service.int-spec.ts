@@ -2,7 +2,7 @@ import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
-import { AlertasService } from './alertas.service';
+import { AlertasService, LOTE_DE_ENVIO } from './alertas.service';
 import { DispositivosService } from './dispositivos.service';
 import { UbicacionService } from './ubicacion.service';
 import {
@@ -32,7 +32,38 @@ class PasarelaProgramable extends PasarelaPush {
   /** Tokens que la pasarela reportará como aparatos que ya no existen. */
   desinstalados = new Set<string>();
 
+  /**
+   * Cada token al que se le mandó algo, una vez por envío.
+   *
+   * Es lo que ve la gente: si un token aparece dos veces, ese teléfono recibió
+   * la misma alerta dos veces.
+   */
+  envios: string[] = [];
+
+  /**
+   * Si se fija, la llamada con ese número (desde 1) entrega y **después** lanza.
+   *
+   * Es el caso que importa: la pasarela tomó los mensajes y pudieron llegar,
+   * pero quien envía no recibió la confirmación. Desde el servicio no hay forma
+   * de saber si esos teléfonos se enteraron.
+   */
+  fallarEnLlamada: number | null = null;
+  private llamadas = 0;
+
+  reiniciar(): void {
+    this.desinstalados.clear();
+    this.envios = [];
+    this.fallarEnLlamada = null;
+    this.llamadas = 0;
+  }
+
   async enviar(mensajes: MensajePush[]): Promise<ResultadoEnvio[]> {
+    this.llamadas++;
+    this.envios.push(...mensajes.map((m) => m.push_token));
+    if (this.llamadas === this.fallarEnLlamada) {
+      throw new Error('la pasarela se cayó después de entregar');
+    }
+
     return mensajes.map((m) =>
       this.desinstalados.has(m.push_token)
         ? {
@@ -41,7 +72,10 @@ class PasarelaProgramable extends PasarelaPush {
             detalle: 'DeviceNotRegistered',
             token_invalido: true,
           }
-        : { push_token: m.push_token, aceptado: true, detalle: 'ticket de prueba' },
+        : // El detalle lleva el token: así una prueba puede comprobar que cada
+          // resultado quedó escrito en la fila de su destinatario y no en la de
+          // otro. Con un detalle fijo, un cruce de filas pasaría inadvertido.
+          { push_token: m.push_token, aceptado: true, detalle: `ticket ${m.push_token}` },
     );
   }
 }
@@ -90,7 +124,7 @@ describe('Emisión de alertas (integración)', () => {
   afterAll(async () => ctx.cerrar());
   beforeEach(async () => {
     await ctx.limpiar();
-    pasarela.desinstalados.clear();
+    pasarela.reiniciar();
   });
 
   const crearUsuario = async (email: string) =>
@@ -131,6 +165,32 @@ describe('Emisión de alertas (integración)', () => {
         expira_en: new Date(Date.now() + 86_400_000),
       }),
     );
+
+  /**
+   * Crea `n` vecinos alertables en dos sentencias y no uno a uno.
+   *
+   * Por el camino normal —cuenta, dispositivo y ubicación, cada uno con su
+   * viaje a la base— veinte mil vecinos tardarían minutos solo en prepararse.
+   * Aquí se generan con `generate_series` en el servidor. Todos en el mismo
+   * punto que la denuncia: lo que se prueba es el registro de entregas, no la
+   * geometría, que ya está cubierta arriba.
+   */
+  const sembrarVecinos = async (n: number) => {
+    await ctx.dataSource.query(
+      `INSERT INTO users (full_name, email, password_hash, documento_registrado,
+                          ci_hash, last_location, last_location_at)
+       SELECT 'Vecino ' || n, 'vecino' || n || '@carga.test', 'x', true,
+              encode(sha256(('carga-' || n)::bytea), 'hex'),
+              ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, now()
+         FROM generate_series(1, $3) AS n`,
+      [LA_PAZ.lng, LA_PAZ.lat, n],
+    );
+    await ctx.dataSource.query(
+      `INSERT INTO dispositivos (usuario_id, push_token, plataforma, ultima_actividad)
+       SELECT id, 'ExponentPushToken[' || email || ']', 'android', now()
+         FROM users WHERE email LIKE '%@carga.test'`,
+    );
+  };
 
   describe('dispositivos', () => {
     it('una persona puede tener varios dispositivos', async () => {
@@ -405,6 +465,257 @@ describe('Emisión de alertas (integración)', () => {
       expect(await entregas.count()).toBe(2);
       expect(await entregas.countBy({ estado: 'aceptada' })).toBe(1);
       expect(await aparatos.count()).toBe(1);
+    });
+  });
+
+  /**
+   * Emisiones a escala de ciudad.
+   *
+   * A 200 000 usuarios en la mancha urbana de Cochabamba —unos 670 por km²— un
+   * radio de 2 km alcanza a ~8 400 personas y uno de 10 km a la ciudad entera.
+   * Estas pruebas fijan que el registro de entregas aguante esas cifras.
+   */
+  describe('a escala de ciudad', () => {
+    const encolarPara = async (denunciaId: string, radioM = 2000) =>
+      ctx.dataSource.transaction((manager) =>
+        alertas.encolar(manager, denunciaId, radioM, 'firma'),
+      );
+
+    it('registra completa una emisión a 20 000 destinatarios', async () => {
+      // Por encima del techo que tenía el INSERT único: 5 columnas por fila
+      // contra los 65 535 parámetros que admite una sentencia de PostgreSQL
+      // daban ~13 100 filas como máximo, o sea un radio de ~2,5 km a densidad
+      // de ciudad. Pasado eso la emisión fallaba entera y no avisaba a nadie.
+      const N = 20_000;
+      const autor = await crearUsuario('autor@test.com');
+      await sembrarVecinos(N);
+
+      // Uno de cada siete, desinstalado: la actualización tiene que repartir dos
+      // estados distintos y dar de baja un bloque grande de aparatos a la vez.
+      const tokens: Array<{ push_token: string }> = await ctx.dataSource.query(
+        `SELECT push_token FROM dispositivos ORDER BY push_token`,
+      );
+      tokens.forEach(({ push_token }, i) => {
+        if (i % 7 === 0) pasarela.desinstalados.add(push_token);
+      });
+      const muertos = pasarela.desinstalados.size;
+
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await alertas.procesarPendientes();
+
+      const [emision] = await emisiones.find();
+      expect(emision.ultimo_error).toBeNull();
+      expect(emision.estado).toBe('completada');
+      expect(emision.destinatarios).toBe(N);
+
+      // Una fila por destinatario, y ninguna olvidada en «encolada».
+      expect(await entregas.count()).toBe(N);
+      expect(await entregas.countBy({ estado: 'aceptada' })).toBe(N - muertos);
+      expect(await entregas.countBy({ estado: 'fallida' })).toBe(muertos);
+      expect(await entregas.countBy({ estado: 'encolada' })).toBe(0);
+
+      // Cada resultado en la fila de su destinatario. El doble escribe el token
+      // en el detalle, así que un cruce de filas aparecería aquí.
+      const [{ cruzadas }] = await ctx.dataSource.query(
+        `SELECT count(*)::int AS cruzadas
+           FROM entregas_alerta e JOIN dispositivos d ON d.id = e.dispositivo_id
+          WHERE e.resultado_pasarela <> 'ticket ' || d.push_token`,
+      );
+      expect(cruzadas).toBe(0);
+      expect(
+        await entregas.countBy({ resultado_pasarela: 'DeviceNotRegistered' }),
+      ).toBe(muertos);
+
+      // `actualizada_en` la movía TypeORM solo, por ser `@UpdateDateColumn`. Una
+      // actualización escrita a mano tiene que moverla ella; si no, la marca se
+      // queda en la hora de inserción y cualquier medida de latencia de entrega
+      // sale en cero.
+      const [{ sin_marca }] = await ctx.dataSource.query(
+        `SELECT count(*)::int AS sin_marca FROM entregas_alerta
+          WHERE actualizada_en <= creada_en`,
+      );
+      expect(sin_marca).toBe(0);
+
+      // Los desinstalados, dados de baja; el resto sigue.
+      expect(await aparatos.count()).toBe(N - muertos);
+    }, 240_000);
+  });
+
+  /**
+   * Fallos a mitad de una emisión.
+   *
+   * El envío de una alerta no es atómico: la pasarela es un sistema externo y lo
+   * que ya salió hacia los teléfonos no se deshace con un `ROLLBACK`. Lo que sí
+   * se puede garantizar son dos cosas: que ninguna alerta se pierda porque el
+   * proceso murió en medio, y que un reintento no vuelva a notificar a quien ya
+   * consta como notificado.
+   */
+  describe('fallos a mitad de una emisión', () => {
+    const encolarPara = async (denunciaId: string, radioM = 2000) =>
+      ctx.dataSource.transaction((manager) =>
+        alertas.encolar(manager, denunciaId, radioM, 'firma'),
+      );
+
+    it('retoma una emisión que quedó «procesando» porque el proceso murió', async () => {
+      // Un trabajador la tomó y murió antes de terminar —un reinicio, un
+      // despliegue, falta de memoria—, así que nunca llegó a su `catch`. Si nadie
+      // vuelve a tomarla, la alerta no sale y nadie se entera.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await ctx.dataSource.query(
+        `UPDATE emisiones_alerta SET estado = 'procesando'`,
+      );
+
+      expect(await alertas.procesarPendientes()).toBe(1);
+
+      const [emision] = await emisiones.find();
+      expect(emision.estado).toBe('completada');
+      expect(pasarela.envios).toEqual(['token-vecino@test.com']);
+      // La muerte del trabajador anterior cuenta como un intento: si no, una
+      // emisión que tumba el proceso cada vez se reintentaría sin fin.
+      expect(emision.intentos).toBe(1);
+    });
+
+    it('un fallo al cerrar la emisión no vuelve a notificar a nadie', async () => {
+      // El peor momento para fallar: todo se entregó y lo que no se pudo escribir
+      // es la marca de «completada». La emisión vuelve a `pendiente` y se
+      // reintenta. Si el reintento empezara de cero, cada vecino recibiría la
+      // misma alerta otra vez, hasta tantas veces como intentos haya.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('uno@test.com');
+      await crearVecino('dos@test.com');
+      await crearVecino('tres@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+
+      const cerrar = jest
+        .spyOn(emisiones, 'update')
+        .mockRejectedValueOnce(new Error('la base no respondió'));
+
+      await alertas.procesarPendientes(); // entrega, y falla al cerrar
+      await alertas.procesarPendientes(); // el reintento
+      cerrar.mockRestore();
+
+      expect([...pasarela.envios].sort()).toEqual([
+        'token-dos@test.com',
+        'token-tres@test.com',
+        'token-uno@test.com',
+      ]);
+      expect(await entregas.count()).toBe(3);
+
+      const [emision] = await emisiones.find();
+      expect(emision.estado).toBe('completada');
+      // Exactamente un intento fallido: el simulado. Sin esta comprobación, si
+      // el fallo dejara de inyectarse —porque el cierre cambió de camino—, la
+      // prueba pasaría sin haber probado nada.
+      expect(emision.intentos).toBe(1);
+    });
+
+    it('si la pasarela cae a mitad, el reintento solo repite el lote sin confirmar', async () => {
+      // Dos lotes y medio. El tercero llega a la pasarela y la respuesta se
+      // pierde: esos teléfonos pudieron enterarse, pero no consta. En el
+      // reintento se les vuelve a enviar —es preferible un aviso repetido a uno
+      // perdido—, y a nadie más: los dos primeros lotes ya constaban.
+      const autor = await crearUsuario('autor@test.com');
+      const N = 2 * LOTE_DE_ENVIO + LOTE_DE_ENVIO / 2;
+      await sembrarVecinos(N);
+      pasarela.fallarEnLlamada = 3;
+
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await alertas.procesarPendientes(); // cae en el tercer lote
+      await alertas.procesarPendientes(); // reintento
+
+      const vecesPorToken = new Map<string, number>();
+      for (const t of pasarela.envios) {
+        vecesPorToken.set(t, (vecesPorToken.get(t) ?? 0) + 1);
+      }
+      const repetidos = [...vecesPorToken.values()].filter((v) => v === 2).length;
+      const unaVez = [...vecesPorToken.values()].filter((v) => v === 1).length;
+
+      expect(vecesPorToken.size).toBe(N); // nadie se quedó sin aviso
+      expect(repetidos).toBe(LOTE_DE_ENVIO / 2); // solo el lote en vuelo
+      expect(unaVez).toBe(N - LOTE_DE_ENVIO / 2);
+
+      expect(await entregas.count()).toBe(N);
+      expect(await entregas.countBy({ estado: 'aceptada' })).toBe(N);
+      const [emision] = await emisiones.find();
+      expect(emision.estado).toBe('completada');
+    });
+
+    it('retoma una emisión cuyo arrendamiento venció', async () => {
+      // El caso real tras el arreglo: el trabajador tomó la emisión, la marcó, y
+      // dejó de renovar la marca porque murió.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await ctx.dataSource.query(
+        `UPDATE emisiones_alerta
+            SET estado = 'procesando', tomada_en = now() - interval '1 hour'`,
+      );
+
+      expect(await alertas.procesarPendientes()).toBe(1);
+      expect(pasarela.envios).toEqual(['token-vecino@test.com']);
+    });
+
+    it('no toma una emisión que otro trabajador está procesando', async () => {
+      // Arrendamiento vigente: hay un trabajador vivo con ella. Tomarla también
+      // sería enviar la misma alerta dos veces en paralelo.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await ctx.dataSource.query(
+        `UPDATE emisiones_alerta SET estado = 'procesando', tomada_en = now()`,
+      );
+
+      expect(await alertas.procesarPendientes()).toBe(0);
+      expect(pasarela.envios).toEqual([]);
+    });
+
+    it('da por fallida una huérfana que ya gastó sus intentos', async () => {
+      // Una emisión que tumba el proceso cada vez que se procesa no puede
+      // quedarse «procesando» para siempre: tiene que constar como fallida.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await ctx.dataSource.query(
+        `UPDATE emisiones_alerta
+            SET estado = 'procesando', intentos = 3,
+                tomada_en = now() - interval '1 hour'`,
+      );
+
+      expect(await alertas.procesarPendientes()).toBe(0);
+      expect(pasarela.envios).toEqual([]);
+
+      const [emision] = await emisiones.find();
+      expect(emision.estado).toBe('fallida');
+      expect(emision.ultimo_error).toContain('el proceso murió');
+    });
+
+    it('la base rechaza dos entregas de la misma emisión al mismo teléfono', async () => {
+      // La garantía vive en el índice único, no solo en el código: aunque
+      // alguien escriba entregas por otro camino, no puede duplicarlas.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+      await alertas.procesarPendientes();
+
+      const [entrega] = await entregas.find();
+      await expect(
+        entregas.insert({
+          emision_id: entrega.emision_id,
+          usuario_id: entrega.usuario_id,
+          dispositivo_id: entrega.dispositivo_id,
+          distancia_m: 0,
+        }),
+      ).rejects.toThrow(/uq_entregas_emision_dispositivo/);
     });
   });
 
