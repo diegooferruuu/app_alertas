@@ -10,7 +10,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker, Circle, MapPressEvent } from 'react-native-maps';
-import { AtribucionDelMapa, TeselasDelMapa, tipoDeMapa } from './TeselasDelMapa';
+import {
+  AtribucionDelMapa,
+  TeselasDelMapa,
+  mapaDisponible,
+  tipoDeMapa,
+} from './TeselasDelMapa';
 import { AMPLITUD_INICIAL, CENTRO_POR_DEFECTO } from '../utils/ubicacion-inicial';
 
 export interface Coordenadas {
@@ -31,8 +36,6 @@ interface Props {
  * quien denuncia que no se está guardando el portón que acaba de marcar.
  */
 const RADIO_ZONA_M = 550;
-
-
 
 /**
  * Dónde se vio por última vez a la persona.
@@ -94,7 +97,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
           }));
         }
       } catch {
-        // Sin permiso se abre en La Paz; no es motivo para no abrir el mapa.
+        // Sin permiso se abre en el centro por defecto; no es motivo para no abrir el mapa.
       }
     }
     setMapaAbierto(true);
@@ -124,14 +127,21 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
           <Text style={estilos.opcionTexto}>Mi ubicación actual</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={estilos.opcion}
-          onPress={abrirMapa}
-          accessibilityRole="button"
-        >
-          <Ionicons name="map" size={20} color="#007AFF" />
-          <Text style={estilos.opcionTexto}>Elegir en el mapa</Text>
-        </TouchableOpacity>
+        {/*
+          Sin mapa disponible, la opción no se ofrece: abrirla montaría el mapa
+          y cerraría la pantalla a mitad de la denuncia. La ubicación actual
+          sigue sirviendo para denunciar.
+        */}
+        {mapaDisponible && (
+          <TouchableOpacity
+            style={estilos.opcion}
+            onPress={abrirMapa}
+            accessibilityRole="button"
+          >
+            <Ionicons name="map" size={20} color="#007AFF" />
+            <Text style={estilos.opcionTexto}>Elegir en el mapa</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {valor ? (

@@ -1,6 +1,8 @@
 import React from 'react';
 import { Platform, StyleSheet, Text } from 'react-native';
 import { UrlTile } from 'react-native-maps';
+import { requireOptionalNativeModule } from 'expo';
+import Constants from 'expo-constants';
 
 /**
  * Teselas del mapa en Android.
@@ -15,6 +17,10 @@ import { UrlTile } from 'react-native-maps';
  * La salida es no depender del SDK de Google para dibujar: con `mapType="none"`
  * —propio de Android— el mapa deja de pedirle la base a Google, y estas teselas,
  * que son imágenes por HTTP normales, la ponen.
+ *
+ * En el development build pasa lo mismo a propósito: lleva una clave de relleno
+ * (ver `app.config.js`) solo para que el SDK arranque, Google la rechaza, y lo
+ * que se ve son estas teselas.
  *
  * Contrapartida a declarar en el informe: el aspecto no es idéntico entre las
  * dos plataformas, y las teselas vienen de un servicio gratuito con cuota. Para
@@ -46,6 +52,49 @@ const ZOOM_MINIMO = 3;
 const ZOOM_MAXIMO = 19;
 
 export const esAndroid = Platform.OS === 'android';
+
+/**
+ * La configuración con la que se compiló **este** APK.
+ *
+ * No sirve `Constants.expoConfig`: en un development build esa la manda Metro
+ * en cada arranque, calculada en ese momento desde el `app.json` del Mac. Si el
+ * Mac ya tiene clave pero el APK instalado es anterior, diría que hay mapa y el
+ * mapa reventaría igual. Esta otra la escribe el propio build dentro del APK
+ * —expo-constants la guarda como recurso— y solo cambia al instalar otro.
+ */
+function configuracionDelApk(): { extra?: { mapaAndroid?: unknown } } | null {
+  const bruta = requireOptionalNativeModule<{ manifest?: unknown }>(
+    'ExponentConstants',
+  )?.manifest;
+  if (!bruta) return null;
+  try {
+    // En Android llega como texto JSON; expo-constants la lee igual.
+    return typeof bruta === 'string' ? JSON.parse(bruta) : (bruta as object);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Si este build puede montar un mapa.
+ *
+ * En Android, un build propio sin clave de Google Maps **revienta** al crear el
+ * mapa —`API key not found`—, y con él toda la pantalla. Aquí se decide antes de
+ * montarlo, para mostrar un aviso en su lugar.
+ *
+ *  - iOS dibuja con Apple Maps: no necesita clave.
+ *  - Expo Go trae la suya: siempre puede.
+ *  - Un build propio en Android puede si se compiló con clave, real o de
+ *    relleno (ver `app.config.js`). Lo dice `extra.mapaAndroid` del APK; el
+ *    primer development build es anterior a ese indicador y no lo tiene.
+ *
+ * Si el indicador falta, se asume que no hay mapa: mostrar un aviso de más es
+ * recuperable, reventar la pantalla no.
+ */
+export const mapaDisponible: boolean =
+  !esAndroid ||
+  Constants.executionEnvironment === 'storeClient' ||
+  configuracionDelApk()?.extra?.mapaAndroid === true;
 
 /**
  * En Android el mapa no debe pedirle la base a Google; en iOS sí la pide a

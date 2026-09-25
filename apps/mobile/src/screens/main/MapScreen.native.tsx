@@ -7,6 +7,7 @@ import MapView, { Marker } from 'react-native-maps';
 import {
   AtribucionDelMapa,
   TeselasDelMapa,
+  mapaDisponible,
   tipoDeMapa,
 } from '../../components/TeselasDelMapa';
 import { useAuth } from '../../hooks/useAuth';
@@ -81,7 +82,18 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {loading ? (
+      {!mapaDisponible ? (
+        // Un APK compilado sin clave de Google Maps cierra la pantalla al montar
+        // el mapa. El resto de la app no lo necesita: la lista muestra lo mismo.
+        <View style={styles.center}>
+          <Ionicons name="map-outline" size={40} color="#9AA3AF" />
+          <Text style={styles.sinMapaTitulo}>Mapa no disponible en esta versión</Text>
+          <Text style={styles.sinMapaTexto}>
+            Instala la versión más reciente de la app para ver el mapa. Mientras
+            tanto, las denuncias cercanas están en la pestaña «Lista de denuncias».
+          </Text>
+        </View>
+      ) : loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#007AFF" />
         </View>
@@ -108,7 +120,7 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         </MapView>
       )}
 
-      <AtribucionDelMapa />
+      {mapaDisponible && <AtribucionDelMapa />}
 
       <TouchableOpacity style={styles.reportButton} onPress={handleReport}>
         <Ionicons name="add" size={22} color="#fff" style={{ marginRight: 6 }} />
@@ -120,7 +132,9 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },
+  sinMapaTitulo: { fontSize: 17, fontWeight: '600', color: '#1a1a1a', textAlign: 'center' },
+  sinMapaTexto: { fontSize: 14, lineHeight: 20, color: '#666', textAlign: 'center' },
   map: { flex: 1 },
   reportButton: {
     position: 'absolute',
