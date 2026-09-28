@@ -22,7 +22,6 @@
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ]
@@ -42,14 +41,17 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to verify your identity."
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to verify your identity.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       [
         "expo-image-picker",
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to upload ID card.",
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to capture ID card."
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to capture ID card.",
+          "microphonePermission": false
         }
       ],
       "@react-native-community/datetimepicker",
