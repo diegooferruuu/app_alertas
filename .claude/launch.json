@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mobile-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--web", "--port", "8081"],
+      "cwd": "apps/mobile",
+      "port": 8081,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:3000/api",
+        "BROWSER": "none"
+      }
+    }
+  ]
+}

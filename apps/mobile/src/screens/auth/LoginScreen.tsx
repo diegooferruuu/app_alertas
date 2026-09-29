@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
+import { CampoContrasena } from '../../components/CampoContrasena';
 
 export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [email, setEmail] = useState('');
@@ -17,39 +18,56 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Faltan datos', 'Completa el correo y la contraseña.');
       return;
     }
 
     try {
-      await login(email, password);
-    } catch (error) {
-      Alert.alert('Login Failed', error.message || 'An error occurred');
+      // Se recorta antes de enviar. Los teclados de los teléfonos añaden un
+      // espacio al aceptar una sugerencia, y el servidor respondía
+      // «Credenciales inválidas» —indistinguible de una contraseña equivocada—.
+      // El servidor también lo normaliza; esto evita el viaje de ida y vuelta.
+      await login(email.trim(), password);
+    } catch (error: any) {
+      // El servidor ya responde en español; se prefiere su mensaje al genérico.
+      Alert.alert(
+        'No se pudo iniciar sesión',
+        error?.response?.data?.message ||
+          error?.message ||
+          'Revisa tus datos e inténtalo de nuevo.',
+      );
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Emergency Alert App</Text>
-      <Text style={styles.subtitle}>Login</Text>
+      <Text style={styles.title}>Alerta Temprana</Text>
+      <Text style={styles.subtitle}>Iniciar sesión</Text>
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder="Correo electrónico"
         value={email}
         onChangeText={setEmail}
         editable={!isLoading}
         keyboardType="email-address"
         autoCapitalize="none"
+        autoCorrect={false}
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
+      {/*
+        Con ojito, igual que en el registro. No es solo comodidad: el campo
+        anterior era un TextInput suelto sin declarar qué clase de contraseña
+        contenía, y ahí el autorrelleno del sistema puede escribir un valor
+        distinto del tecleado sin que se note. Poder ver lo escrito convierte un
+        «credenciales inválidas» inexplicable en algo que se diagnostica solo.
+      */}
+      <CampoContrasena
+        placeholder="Contraseña"
         value={password}
         onChangeText={setPassword}
         editable={!isLoading}
-        secureTextEntry
+        clase="existente"
       />
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -62,7 +80,7 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         {isLoading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.buttonText}>Login</Text>
+          <Text style={styles.buttonText}>Iniciar sesión</Text>
         )}
       </TouchableOpacity>
 
@@ -70,7 +88,7 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         onPress={() => navigation.navigate('Register')}
         disabled={isLoading}
       >
-        <Text style={styles.link}>Don't have an account? Register</Text>
+        <Text style={styles.link}>¿No tienes cuenta? Crea una</Text>
       </TouchableOpacity>
     </View>
   );

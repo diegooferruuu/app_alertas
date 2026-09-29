@@ -1,8 +1,12 @@
 # Dependencies
+#
+# `pnpm-lock.yaml` NO se ignora, y es a propósito. EAS Build sube el proyecto
+# respetando este archivo: sin el lockfile, el servidor de compilación no sabe
+# que el monorepo usa pnpm y resuelve las versiones desde cero, así que el build
+# podría salir con dependencias distintas de las que funcionan en local.
 node_modules
 *.pnp
 .pnp.js
-pnpm-lock.yaml
 
 # Testing
 coverage
@@ -12,6 +16,26 @@ coverage
 dist
 build
 out
+
+# Salida de compilación que no debe vivir junto a las fuentes.
+# Un .js viejo al lado de su .ts secuestra la resolución de módulos:
+# CommonJS resuelve .js antes que .ts y carga el artefacto obsoleto.
+apps/backend/src/**/*.js
+apps/backend/src/**/*.js.map
+apps/backend/src/**/*.d.ts
+apps/backend/src/**/*.d.ts.map
+*.tsbuildinfo
+
+# Estado local de Expo: historial de dispositivos de esta máquina y archivos que
+# Metro genera al arrancar. Si viaja con el repositorio, EAS Build lo sube.
+.expo/
+
+# Proyectos nativos que genera `expo prebuild` o `expo run:*` en local. No se
+# versionan: si EAS encuentra una de estas carpetas en el repositorio, la usa tal
+# cual en vez de generarla desde `app.json`, y los plugins —notificaciones,
+# cámara, ubicación— quedan con la configuración del día en que se generó.
+apps/mobile/ios/
+apps/mobile/android/
 
 # Misc
 .DS_Store

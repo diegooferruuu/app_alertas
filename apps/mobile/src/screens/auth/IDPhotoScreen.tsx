@@ -12,95 +12,79 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/auth.store';
+import { prepararParaEnviar } from '../../services/imagenes';
 
 const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { verifyIdCard, isLoading } = useAuthStore();
+  const { extraerDatosDocumento, isLoading } = useAuthStore();
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const pickImage = async (side: 'front' | 'back') => {
-    if (Platform.OS !== 'web') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.');
-        return;
-      }
-    }
-
-    setLoading(true);
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        base64: true,
-      });
-
-      if (!result.canceled && result.assets[0].base64) {
-        if (side === 'front') {
-          setFrontImage(result.assets[0].base64);
-        } else {
-          setBackImage(result.assets[0].base64);
-        }
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  /**
+   * Única vía de captura del carnet: la cámara, en el momento.
+   *
+   * No hay opción de galería a propósito. Elegir una imagen ya guardada es el
+   * camino fácil para registrar el documento de otra persona —una foto recibida
+   * por mensajería, una descargada— y quitarlo cierra ese caso sin pedirle nada
+   * a quien sí tiene su carnet en la mano.
+   *
+   * **Esto no prueba que la foto sea real.** El cliente corre en un teléfono
+   * ajeno: una aplicación modificada envía lo que quiera, y quien se lo proponga
+   * fotografía una pantalla. Es fricción contra el caso casual, no una garantía;
+   * la garantía del sistema sigue siendo la atribución posterior, no esta
+   * comprobación. Escribirlo aquí para que nadie lo lea como más de lo que es.
+   *
+   * La selfie ya funcionaba así; el carnet era la incoherencia.
+   */
   const takePhoto = async (side: 'front' | 'back') => {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permiso requerido', 'Necesitamos acceso a tu cámara.');
+        Alert.alert(
+          'Permiso requerido',
+          'La foto del carnet debe tomarse ahora, así que necesitamos acceso a tu cámara.',
+        );
         return;
       }
     }
 
     setLoading(true);
     try {
+      // En web esto solo marca `capture` en un `<input type="file">`, que los
+      // navegadores de escritorio ignoran: allí la restricción no se sostiene y
+      // se degrada a un selector de archivos. En iOS y Android sí abre la cámara.
       const result = await ImagePicker.launchCameraAsync({
+        // El carnet se fotografía con la cámara trasera; la delantera es para la
+        // selfie.
+        cameraType: ImagePicker.CameraType.back,
         quality: 0.8,
-        base64: true,
+        allowsEditing: false,
       });
 
-      if (!result.canceled && result.assets[0].base64) {
-        if (side === 'front') {
-          setFrontImage(result.assets[0].base64);
-        } else {
-          setBackImage(result.assets[0].base64);
-        }
+      if (!result.canceled) {
+        const { uri, width } = result.assets[0];
+        const base64 = await prepararParaEnviar(uri, width);
+        if (side === 'front') setFrontImage(base64);
+        else setBackImage(base64);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const showOptions = (side: 'front' | 'back') => {
-    if (Platform.OS === 'web') {
-      pickImage(side);
-      return;
-    }
-    Alert.alert('Cargar foto', 'Elige una opción', [
-      { text: 'Tomar foto', onPress: () => takePhoto(side) },
-      { text: 'Galería', onPress: () => pickImage(side) },
-      { text: 'Cancelar', style: 'cancel' },
-    ]);
-  };
-
   const handleNext = async () => {
     if (!frontImage || !backImage) {
-      Alert.alert('Fotos requeridas', 'Por favor sube el anverso y reverso de tu carnet.');
+      Alert.alert('Fotos requeridas', 'Falta fotografiar el anverso o el reverso de tu carnet.');
       return;
     }
 
     try {
       // Valida calidad de imagen + coincidencia de datos contra el OCR del backend
-      await verifyIdCard(frontImage, backImage);
+      await extraerDatosDocumento(frontImage, backImage);
       navigation.navigate('Selfie');
     } catch (err: any) {
       Alert.alert(
-        'Verificación del carnet fallida',
+        'No se pudieron leer los datos',
         err?.response?.data?.message ||
           err?.message ||
           'No pudimos leer tus datos del carnet. Asegúrate de que la foto sea clara y legible.',
@@ -112,7 +96,8 @@ const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Foto del Carnet</Text>
       <Text style={styles.subtitle}>
-        Sube una foto clara del anverso y reverso de tu carnet de identidad.
+        Fotografía el anverso y el reverso de tu carnet de identidad. Las fotos se
+        toman ahora con la cámara: no se pueden elegir de la galería.
       </Text>
 
       {loading && <ActivityIndicator size="large" color="#007AFF" style={{ marginBottom: 16 }} />}
@@ -126,14 +111,14 @@ const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               source={{ uri: `data:image/jpeg;base64,${frontImage}` }}
               style={styles.preview}
             />
-            <TouchableOpacity style={styles.retakeBtn} onPress={() => showOptions('front')}>
-              <Text style={styles.retakeBtnText}>Cambiar foto</Text>
+            <TouchableOpacity style={styles.retakeBtn} onPress={() => takePhoto('front')}>
+              <Text style={styles.retakeBtnText}>Repetir foto</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity style={styles.uploadBox} onPress={() => showOptions('front')}>
+          <TouchableOpacity style={styles.uploadBox} onPress={() => takePhoto('front')}>
             <Text style={styles.uploadIcon}>📷</Text>
-            <Text style={styles.uploadText}>Subir anverso</Text>
+            <Text style={styles.uploadText}>Fotografiar anverso</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -147,14 +132,14 @@ const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               source={{ uri: `data:image/jpeg;base64,${backImage}` }}
               style={styles.preview}
             />
-            <TouchableOpacity style={styles.retakeBtn} onPress={() => showOptions('back')}>
-              <Text style={styles.retakeBtnText}>Cambiar foto</Text>
+            <TouchableOpacity style={styles.retakeBtn} onPress={() => takePhoto('back')}>
+              <Text style={styles.retakeBtnText}>Repetir foto</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity style={styles.uploadBox} onPress={() => showOptions('back')}>
+          <TouchableOpacity style={styles.uploadBox} onPress={() => takePhoto('back')}>
             <Text style={styles.uploadIcon}>📷</Text>
-            <Text style={styles.uploadText}>Subir reverso</Text>
+            <Text style={styles.uploadText}>Fotografiar reverso</Text>
           </TouchableOpacity>
         )}
       </View>

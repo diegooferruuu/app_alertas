@@ -7,15 +7,30 @@ import { RegisterScreen } from './src/screens/auth/RegisterScreen';
 import { PersonalDataScreen } from './src/screens/auth/PersonalDataScreen';
 import { IDPhotoScreen } from './src/screens/auth/IDPhotoScreen';
 import { SelfieScreen } from './src/screens/auth/SelfieScreen';
-import { HomeScreen } from './src/screens/HomeScreen';
+import { MainTabs } from './src/navigation/MainTabs';
+import { ReportarDenunciaScreen } from './src/screens/main/ReportarDenunciaScreen';
+import { DenunciaDetailScreen } from './src/screens/main/DenunciaDetailScreen';
+import { EditDenunciaScreen } from './src/screens/main/EditDenunciaScreen';
+import { MisDenunciasScreen } from './src/screens/main/MisDenunciasScreen';
+import { AlertasSobreMiScreen } from './src/screens/main/AlertasSobreMiScreen';
+import { ConstanciaScreen } from './src/screens/main/ConstanciaScreen';
+import { TextoLegalScreen } from './src/screens/main/TextoLegalScreen';
+import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScreen';
 import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
+import { navigationRef } from './src/navigation/navigationRef';
+import { useAlertas } from './src/hooks/useAlertas';
+import { BarreraDeErrores } from './src/components/BarreraDeErrores';
 
 const Stack = createStackNavigator();
 
-export default function App() {
-  const { isAuthenticated, identityVerified, getProfile } = useAuth();
+function Aplicacion() {
+  const { isAuthenticated, getProfile } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
+
+  // Registra el dispositivo e informa la ubicación: sin las dos cosas, la
+  // consulta de destinatarios del servidor no alcanza a esta cuenta.
+  useAlertas(isAuthenticated);
 
   useEffect(() => {
     const checkAuthStatus = async () => {
@@ -41,7 +56,7 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         screenOptions={{
           headerShown: true,
@@ -49,6 +64,7 @@ export default function App() {
         }}
       >
         {!isAuthenticated ? (
+          // Stack de autenticación
           <Stack.Group>
             <Stack.Screen
               name="Login"
@@ -61,38 +77,95 @@ export default function App() {
               options={{ title: 'Crear cuenta' }}
             />
           </Stack.Group>
-        ) : !identityVerified ? (
-          // Flujo de verificación de identidad (3 pasos)
+        ) : (
+          // App principal: cualquier usuario logueado entra (Visitante o más).
+          // La verificación se exige solo al reportar.
           <Stack.Group>
+            <Stack.Screen
+              name="MainTabs"
+              component={MainTabs}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ReportarDenuncia"
+              component={ReportarDenunciaScreen}
+              options={{ title: 'Reportar', presentation: 'modal' }}
+            />
+            <Stack.Screen
+              name="DenunciaDetail"
+              component={DenunciaDetailScreen}
+              options={{ title: 'Detalle de la denuncia' }}
+            />
+            <Stack.Screen
+              name="EditDenuncia"
+              component={EditDenunciaScreen}
+              options={{ title: 'Editar denuncia' }}
+            />
+            <Stack.Screen
+              name="MisDenuncias"
+              component={MisDenunciasScreen}
+              options={{ title: 'Mis denuncias' }}
+            />
+            {/* El interruptor de desactivación, del lado de quien es reportado.
+                Se llega desde el perfil, desde el registro del documento y
+                —cuando exista el push— desde la propia notificación. */}
+            <Stack.Screen
+              name="AlertasSobreMi"
+              component={AlertasSobreMiScreen}
+              options={{ title: 'Alertas sobre mí' }}
+            />
+            {/* La constancia probatoria: la única pantalla que revela la
+                identidad de quien denunció, y solo se llega pidiéndola. */}
+            <Stack.Screen
+              name="Constancia"
+              component={ConstanciaScreen}
+              options={{ title: 'Constancia' }}
+            />
+            {/* Declaración jurada: leer el texto, luego declarar y firmar. */}
+            <Stack.Screen
+              name="TextoLegal"
+              component={TextoLegalScreen}
+              options={{ title: 'Declaración jurada' }}
+            />
+            <Stack.Screen
+              name="FirmarDeclaracion"
+              component={FirmarDeclaracionScreen}
+              options={{ title: 'Firmar declaración' }}
+            />
+            {/* Flujo de verificación de identidad (on-demand) */}
             <Stack.Screen
               name="PersonalData"
               component={PersonalDataScreen}
-              options={{
-                title: 'Paso 1: Datos personales',
-                headerBackVisible: false,
-              }}
+              options={{ title: 'Documento: datos' }}
             />
             <Stack.Screen
               name="IDPhoto"
               component={IDPhotoScreen}
-              options={{ title: 'Paso 2: Foto del carnet' }}
+              options={{ title: 'Documento: fotos' }}
             />
             <Stack.Screen
               name="Selfie"
               component={SelfieScreen}
-              options={{ title: 'Paso 3: Selfie' }}
-            />
-          </Stack.Group>
-        ) : (
-          <Stack.Group>
-            <Stack.Screen
-              name="Home"
-              component={HomeScreen}
-              options={{ title: 'Alerta de Emergencia' }}
+              options={{ title: 'Documento: selfie' }}
             />
           </Stack.Group>
         )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+/**
+ * La barrera envuelve a `Aplicacion` y no va dentro de ella a propósito: una
+ * barrera solo atrapa lo que ocurre **por debajo**. Puesta dentro no cubriría
+ * los efectos del propio componente raíz, que es justo donde se registra el
+ * dispositivo para alertas y donde más fácil es que algo reviente en un
+ * teléfono distinto del de desarrollo.
+ */
+export default function App() {
+  return (
+    <BarreraDeErrores>
+      <Aplicacion />
+    </BarreraDeErrores>
   );
 }

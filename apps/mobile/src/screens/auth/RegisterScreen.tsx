@@ -10,72 +10,170 @@ import {
   ScrollView,
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
+import { CampoContrasena } from '../../components/CampoContrasena';
 
 export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  // El nombre se pide por partes y no como una sola línea. Un campo único admite
+  // «Ana Q.» o el apellido en el lugar del nombre, y este nombre no es una
+  // etiqueta: es la identidad a la que quedará atribuida una denuncia.
+  const [primerNombre, setPrimerNombre] = useState('');
+  const [segundoNombre, setSegundoNombre] = useState('');
+  const [primerApellido, setPrimerApellido] = useState('');
+  const [segundoApellido, setSegundoApellido] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [repetirPassword, setRepetirPassword] = useState('');
   const { register, isLoading, error } = useAuth();
 
+  // Solo se avisa cuando ya hay algo escrito en la repetición: marcar el error
+  // desde la primera tecla es regañar a alguien que aún está escribiendo.
+  const contrasenasNoCoinciden =
+    repetirPassword.length > 0 && password !== repetirPassword;
+
   const handleRegister = async () => {
-    if (!email || !password || !fullName || !phone) {
-      Alert.alert('Error', 'Please fill in all fields');
+    if (
+      !primerNombre.trim() ||
+      !primerApellido.trim() ||
+      !segundoApellido.trim() ||
+      !email ||
+      !phone ||
+      !password
+    ) {
+      Alert.alert(
+        'Faltan datos',
+        'Completa todos los campos. El segundo nombre es el único opcional.',
+      );
+      return;
+    }
+
+    if (password !== repetirPassword) {
+      Alert.alert(
+        'Las contraseñas no coinciden',
+        'Revisa que las dos sean iguales. Puedes usar el ojito para verlas.',
+      );
       return;
     }
 
     try {
-      // For now, use a placeholder for ID card - user will verify identity later
-      await register(email, password, fullName, phone);
-      // Navigation to VerifyIdentity will be handled by the navigation flow
+      // El documento de identidad se registra después, cuando la persona vaya a
+      // reportar: crear la cuenta no lo exige.
+      await register({
+        email: email.trim(),
+        password,
+        phone: phone.trim(),
+        primer_nombre: primerNombre.trim(),
+        // Ausente es un dato, no una cadena vacía: mucha gente no tiene segundo
+        // nombre, y el servidor distingue los dos casos.
+        segundo_nombre: segundoNombre.trim() || undefined,
+        primer_apellido: primerApellido.trim(),
+        segundo_apellido: segundoApellido.trim(),
+      });
     } catch (error: any) {
-      Alert.alert('Registration Failed', error?.message || 'An error occurred');
+      Alert.alert(
+        'No se pudo crear la cuenta',
+        error?.response?.data?.message ||
+          error?.message ||
+          'Revisa tus datos e inténtalo de nuevo.',
+      );
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Create Account</Text>
-      <Text style={styles.subtitle}>Emergency Alert App</Text>
+    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+      <Text style={styles.title}>Crear cuenta</Text>
+      <Text style={styles.subtitle}>Alerta Temprana</Text>
+
+      <Text style={styles.seccion}>Tu nombre</Text>
+      <Text style={styles.ayuda}>
+        Escríbelo como aparece en tu cédula de identidad.
+      </Text>
 
       <TextInput
         style={styles.input}
-        placeholder="Full Name"
-        value={fullName}
-        onChangeText={setFullName}
+        placeholder="Primer nombre"
+        value={primerNombre}
+        onChangeText={setPrimerNombre}
         editable={!isLoading}
+        autoCapitalize="words"
       />
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder="Segundo nombre (opcional)"
+        value={segundoNombre}
+        onChangeText={setSegundoNombre}
+        editable={!isLoading}
+        autoCapitalize="words"
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Primer apellido"
+        value={primerApellido}
+        onChangeText={setPrimerApellido}
+        editable={!isLoading}
+        autoCapitalize="words"
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Segundo apellido"
+        value={segundoApellido}
+        onChangeText={setSegundoApellido}
+        editable={!isLoading}
+        autoCapitalize="words"
+      />
+
+      <Text style={styles.seccion}>Tus datos de contacto</Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Correo electrónico"
         value={email}
         onChangeText={setEmail}
         editable={!isLoading}
         keyboardType="email-address"
         autoCapitalize="none"
+        autoCorrect={false}
       />
 
       <TextInput
         style={styles.input}
-        placeholder="Phone Number"
+        placeholder="Teléfono"
         value={phone}
         onChangeText={setPhone}
         editable={!isLoading}
         keyboardType="phone-pad"
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Password (min 8 characters)"
+      <Text style={styles.seccion}>Tu contraseña</Text>
+
+      <CampoContrasena
+        placeholder="Contraseña (mínimo 8 caracteres)"
         value={password}
         onChangeText={setPassword}
         editable={!isLoading}
-        secureTextEntry
+        etiquetaVisibilidad="Mostrar u ocultar la contraseña"
+        clase="nueva"
       />
 
+      <CampoContrasena
+        placeholder="Repetir contraseña"
+        value={repetirPassword}
+        onChangeText={setRepetirPassword}
+        editable={!isLoading}
+        clase="nueva"
+        etiquetaVisibilidad="Mostrar u ocultar la repetición de la contraseña"
+        style={contrasenasNoCoinciden ? styles.inputConError : undefined}
+      />
+
+      {contrasenasNoCoinciden && (
+        <Text style={styles.error}>Las dos contraseñas no coinciden.</Text>
+      )}
+
       <Text style={styles.info}>
-        Password must contain uppercase, lowercase, and number
+        Debe incluir al menos una mayúscula, una minúscula y un número.
       </Text>
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -88,7 +186,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         {isLoading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.buttonText}>Register</Text>
+          <Text style={styles.buttonText}>Crear cuenta</Text>
         )}
       </TouchableOpacity>
 
@@ -96,7 +194,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         onPress={() => navigation.navigate('Login')}
         disabled={isLoading}
       >
-        <Text style={styles.link}>Already have an account? Login</Text>
+        <Text style={styles.link}>¿Ya tienes cuenta? Inicia sesión</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -121,6 +219,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#666',
   },
+  seccion: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+    marginTop: 6,
+  },
+  ayuda: {
+    color: '#666',
+    fontSize: 12,
+    marginBottom: 12,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -128,6 +238,9 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderRadius: 8,
     fontSize: 16,
+  },
+  inputConError: {
+    borderColor: '#FF3B30',
   },
   button: {
     backgroundColor: '#007AFF',

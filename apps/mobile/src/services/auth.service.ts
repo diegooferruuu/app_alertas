@@ -1,8 +1,5 @@
-import axios from 'axios';
 import { storage } from '../utils/storage';
-
-// En dispositivo físico usa la IP de tu Mac. En simulador/web usa localhost.
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.6.200:3000/api';
+import { apiClient } from './api';
 
 export interface LoginResponse {
   accessToken: string;
@@ -11,86 +8,113 @@ export interface LoginResponse {
     id: string;
     email: string;
     full_name: string;
-    identity_verified: boolean;
+    documento_registrado: boolean;
   };
 }
+
+/**
+ * Estado de la cuenta frente a las sanciones (§5.4).
+ *
+ * Sustituye al antiguo booleano `is_suspended`, que el servidor ya no devuelve:
+ * la sanción es graduada y un booleano no distinguía «restringida un tiempo» de
+ * «suspendida».
+ */
+export type EstadoCuenta = 'ACTIVA' | 'RESTRINGIDA' | 'SUSPENDIDA';
 
 export interface User {
   id: string;
   email: string;
   full_name: string;
   phone: string;
-  identity_verified: boolean;
+  documento_registrado: boolean;
   reputation_score: number;
+  role: 'citizen' | 'admin' | 'moderator';
+  estado_cuenta: EstadoCuenta;
+  /** Hasta cuándo dura la restricción. Nulo si no hay plazo que cumplir. */
+  restringida_hasta: string | null;
+}
+
+export interface SancionVisible {
+  titulo: string;
+  detalle: string;
+  color: string;
+}
+
+/**
+ * Cómo se le explica a una persona su sanción, o `null` si no hay ninguna
+ * vigente.
+ *
+ * Espeja la regla del servidor: una restricción cuyo plazo ya venció **no
+ * restringe**, aunque la cuenta siga etiquetada como RESTRINGIDA. Avisar ahí le
+ * diría a alguien que no puede reportar cuando sí puede.
+ */
+export function sancionVigente(user: User | null): SancionVisible | null {
+  if (!user) return null;
+
+  if (user.estado_cuenta === 'SUSPENDIDA') {
+    return {
+      titulo: 'Cuenta suspendida',
+      detalle:
+        'No puedes crear denuncias ni firmar declaraciones. Sí puedes retirar alertas que te identifiquen.',
+      color: '#B32C24',
+    };
+  }
+
+  if (user.estado_cuenta === 'RESTRINGIDA') {
+    const hasta = user.restringida_hasta ? new Date(user.restringida_hasta) : null;
+    if (!hasta || hasta <= new Date()) return null;
+    return {
+      titulo: 'Cuenta restringida',
+      detalle: `No puedes crear denuncias nuevas hasta el ${hasta.toLocaleDateString()}. Conservas el resto de funciones.`,
+      color: '#8F5600',
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Lo que responde el servidor al registrar el documento.
+ *
+ * `denuncias_que_te_identifican` es la vía de acceso de H4.4: una denuncia pudo
+ * presentarse contra este documento antes de que la persona tuviera cuenta. El
+ * servidor lo dice aquí mismo para que la app pueda llevarla al interruptor de
+ * inmediato —«minutos, no horas»— sin depender de que llegue la notificación.
+ */
+export interface RegistroDocumentoResultado {
+  documento_registrado: boolean;
+  message: string;
+  denuncias_que_te_identifican: number;
+}
+
+/**
+ * Datos con los que se crea una cuenta.
+ *
+ * El nombre viaja desglosado; el servidor compone con él el nombre completo y
+ * rechaza un `full_name` enviado desde aquí. Es un objeto y no una lista de
+ * argumentos porque con siete campos —cuatro de ellos cadenas de nombre— el
+ * orden posicional es una invitación a cruzar el apellido con el teléfono.
+ */
+export interface DatosDeRegistro {
+  email: string;
+  password: string;
+  phone: string;
+  primer_nombre: string;
+  /** Se omite si la persona no tiene; no se manda cadena vacía. */
+  segundo_nombre?: string;
+  primer_apellido: string;
+  segundo_apellido: string;
 }
 
 class AuthService {
-  private axiosInstance = axios.create({
-    baseURL: API_URL,
-  });
-
-  constructor() {
-    this.setupInterceptors();
-  }
-
-  private setupInterceptors() {
-    this.axiosInstance.interceptors.request.use(
-      async (config) => {
-        const token = await storage.getItem('accessToken');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error),
-    );
-
-    this.axiosInstance.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        const originalRequest = error.config;
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-          try {
-            const refreshToken = await storage.getItem('refreshToken');
-            if (refreshToken) {
-              const response = await axios.post(`${API_URL}/auth/refresh`, {
-                refreshToken,
-              });
-              const { accessToken, refreshToken: newRefreshToken } = response.data;
-
-              await storage.setItem('accessToken', accessToken);
-              await storage.setItem('refreshToken', newRefreshToken);
-
-              originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-              return this.axiosInstance(originalRequest);
-            }
-          } catch (refreshError) {
-            // Refresh token failed, logout user
-            await this.logout();
-            return Promise.reject(refreshError);
-          }
-        }
-
-        return Promise.reject(error);
-      },
-    );
-  }
-
-  async register(email: string, password: string, full_name: string, phone: string): Promise<LoginResponse> {
-    const response = await this.axiosInstance.post<LoginResponse>('/auth/register', {
-      email,
-      password,
-      full_name,
-      phone,
-    });
+  async register(datos: DatosDeRegistro): Promise<LoginResponse> {
+    const response = await apiClient.post<LoginResponse>('/auth/register', datos);
     await this.saveTokens(response.data);
     return response.data;
   }
 
   async login(email: string, password: string): Promise<LoginResponse> {
-    const response = await this.axiosInstance.post<LoginResponse>('/auth/login', {
+    const response = await apiClient.post<LoginResponse>('/auth/login', {
       email,
       password,
     });
@@ -104,35 +128,37 @@ class AuthService {
     await storage.removeItem('userId');
   }
 
-  async verifyIdCard(payload: {
+  async extraerDatosDocumento(payload: {
     id_front_base64: string;
     id_back_base64: string;
     personal_data: {
-      full_name: string;
       ci_number: string;
       birth_place: string;
       birth_date: string;
     };
   }): Promise<any> {
-    return this.axiosInstance.post('/auth/verify-id', payload);
+    return apiClient.post('/auth/documento/extraer', payload);
   }
 
-  async verifyIdentity(payload: {
+  async registrarDocumento(payload: {
     id_front_base64: string;
     id_back_base64: string;
     selfie_base64: string;
     personal_data: {
-      full_name: string;
       ci_number: string;
       birth_place: string;
       birth_date: string;
     };
-  }): Promise<any> {
-    return this.axiosInstance.post('/auth/verify-identity', payload);
+  }): Promise<RegistroDocumentoResultado> {
+    const response = await apiClient.post<RegistroDocumentoResultado>(
+      '/auth/documento/registrar',
+      payload,
+    );
+    return response.data;
   }
 
   async getProfile(): Promise<User> {
-    const response = await this.axiosInstance.get<User>('/auth/me');
+    const response = await apiClient.get<User>('/auth/me');
     return response.data;
   }
 

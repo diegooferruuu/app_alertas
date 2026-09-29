@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from './user.entity';
 
 @Entity('reputation_events')
@@ -21,6 +21,9 @@ export class ReputationEvent {
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;
 
+  // Sin @JoinColumn, TypeORM crea una columna "userId" aparte y cuelga de ella
+  // la llave foránea, dejando sin proteger la user_id que escribe el código.
   @ManyToOne(() => User, (user) => user.reputation_events, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
   user!: User;
 }

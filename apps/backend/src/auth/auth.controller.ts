@@ -1,9 +1,13 @@
 import { Controller, Post, Body, UseGuards, Get, BadRequestException } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { UsersService } from '../users/users.service';
 import { VerificationService } from '../verification/verification.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { VerifyIdentityDto, VerifyIdCardDto } from '../verification/dto/verify-identity.dto';
+import {
+  RegistrarDocumentoDto,
+  ExtraerDatosDocumentoDto,
+} from '../verification/dto/documento.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -12,6 +16,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class AuthController {
   constructor(
     private authService: AuthService,
+    private usersService: UsersService,
     private verificationService: VerificationService,
   ) {}
 
@@ -34,38 +39,51 @@ export class AuthController {
     return this.authService.refreshAccessToken(refreshToken);
   }
 
-  @Post('verify-id')
+  @Post('documento/extraer')
   @UseGuards(JwtAuthGuard)
-  async verifyIdCard(
+  async extraerDatosDocumento(
     @CurrentUser() user: any,
-    @Body() verifyIdCardDto: VerifyIdCardDto,
+    @Body() dto: ExtraerDatosDocumentoDto,
   ) {
-    return this.verificationService.verifyIdCard(
+    return this.verificationService.extraerDatosDocumento(
       user.userId,
-      verifyIdCardDto.id_front_base64,
-      verifyIdCardDto.id_back_base64,
-      verifyIdCardDto.personal_data,
+      dto.id_front_base64,
+      dto.id_back_base64,
+      dto.personal_data,
     );
   }
 
-  @Post('verify-identity')
+  @Post('documento/registrar')
   @UseGuards(JwtAuthGuard)
-  async verifyIdentity(
+  async registrarDocumento(
     @CurrentUser() user: any,
-    @Body() verifyIdentityDto: VerifyIdentityDto,
+    @Body() dto: RegistrarDocumentoDto,
   ) {
-    return this.verificationService.verifyIdentity(
+    return this.verificationService.registrarDocumento(
       user.userId,
-      verifyIdentityDto.id_front_base64,
-      verifyIdentityDto.id_back_base64,
-      verifyIdentityDto.selfie_base64,
-      verifyIdentityDto.personal_data,
+      dto.id_front_base64,
+      dto.id_back_base64,
+      dto.selfie_base64,
+      dto.personal_data,
     );
   }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async getProfile(@CurrentUser() user: any) {
-    return user;
+    const fullUser = await this.usersService.findById(user.userId);
+    return {
+      id: fullUser.id,
+      email: fullUser.email,
+      full_name: fullUser.full_name,
+      phone: fullUser.phone,
+      documento_registrado: fullUser.documento_registrado,
+      reputation_score: fullUser.reputation_score,
+      role: fullUser.role,
+      // La app necesita ambos: el estado dice si está sancionada; el plazo, hasta
+      // cuándo, para poder mostrar cuándo se levanta una restricción.
+      estado_cuenta: fullUser.estado_cuenta,
+      restringida_hasta: fullUser.restringida_hasta,
+    };
   }
 }

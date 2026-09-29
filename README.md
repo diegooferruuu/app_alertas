@@ -68,9 +68,46 @@ This starts:
 - PostgreSQL with PostGIS enabled
 - pgAdmin for database management (http://localhost:5050)
 
-The database will be automatically initialized with the schema from `docker/init.sql`.
+`docker/init.sql` only enables the required extensions (`uuid-ossp`, `postgis`).
+The schema itself comes from migrations — see the next step.
 
-### 4. Verify Database Connection
+### 4. Run Database Migrations
+
+The schema is defined by versioned migrations, **not** by `synchronize`. After
+starting the database, apply them:
+
+```bash
+cd apps/backend
+pnpm migration:run
+```
+
+| Command | What it does |
+| --- | --- |
+| `pnpm migration:run` | Applies every pending migration |
+| `pnpm migration:revert` | Rolls back the last applied migration |
+| `pnpm migration:show` | Lists migrations and which ones are applied |
+| `pnpm migration:generate src/database/migrations/MyChange` | Writes a migration from the diff between entities and the database |
+| `pnpm migration:create src/database/migrations/MyChange` | Creates an empty migration to write by hand |
+
+**Never turn `synchronize` back on.** It alters the database to match the
+entities with no record of what changed and no way to roll back. Changing an
+entity is only half the job — the paired migration is the other half.
+
+After adding a migration, confirm entities and schema still agree:
+
+```bash
+pnpm migration:generate src/database/migrations/Check
+```
+
+It should answer *"No changes in database schema were found"*. If it produces a
+file instead, entities and schema have drifted — delete the file and fix the
+mismatch rather than applying it.
+
+When a change renames a column, write the migration by hand with
+`ALTER TABLE ... RENAME COLUMN`. The generator emits `DROP` + `ADD` for renames,
+which silently discards the data in that column.
+
+### 5. Verify Database Connection
 
 Check that PostgreSQL is running:
 ```bash
@@ -80,6 +117,35 @@ docker ps
 Access pgAdmin at http://localhost:5050 with:
 - Email: admin@example.com
 - Password: admin
+
+## Testing
+
+Two suites, split by what they need to run:
+
+```bash
+cd apps/backend
+
+pnpm test              # unit — pure logic, no database, fast
+pnpm test:integration  # integration — real PostgreSQL
+pnpm test:all          # both
+pnpm typecheck         # type-checks src/ and test/ together
+```
+
+| Suite | Files | Needs |
+| --- | --- | --- |
+| Unit | `*.spec.ts` | nothing |
+| Integration | `*.int-spec.ts` | Docker running |
+
+Integration tests use their own database, `app_alertas_test`, created and
+migrated automatically on first run — your development data is never touched.
+Each test starts from empty tables, so tests can't leak state into each other.
+
+They run the real migrations rather than letting TypeORM build the schema from
+the entities. That way every run also confirms the migrations produce the schema
+the code expects.
+
+Write an integration test when the behaviour lives in the database and a mock
+would prove nothing: check constraints, generated columns, geographic queries.
 
 ## Development
 
@@ -237,10 +303,11 @@ DB_USERNAME=postgres
 DB_PASSWORD=postgres
 DB_NAME=app_alertas
 
-# JWT
-JWT_SECRET=your_jwt_secret_key_here_min_32_chars
+# JWT — genera cada secreto con `openssl rand -base64 48`, distintos entre sí.
+# El servidor no arranca si faltan, si son cortos o si son valores de ejemplo.
+JWT_SECRET=
 JWT_EXPIRATION=15m
-JWT_REFRESH_SECRET=your_refresh_secret_key_here_min_32_chars
+JWT_REFRESH_SECRET=
 JWT_REFRESH_EXPIRATION=7d
 
 # Google Cloud Vision API

@@ -1,8 +1,16 @@
 import { create } from 'zustand';
-import authService, { LoginResponse, User } from '../services/auth.service';
+import authService, {
+  DatosDeRegistro,
+  LoginResponse,
+  User,
+} from '../services/auth.service';
 
+/**
+ * Datos del carnet que la persona declara. Ya no incluye el nombre: se declaró,
+ * desglosado, al crear la cuenta, y es el de la cuenta el que el servidor
+ * contrasta contra el carnet.
+ */
 interface PersonalData {
-  full_name: string;
   ci_number: string;
   birth_place: string;
   birth_date: string;
@@ -19,14 +27,15 @@ interface AuthStore {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  identityVerified: boolean;
+  documentoRegistrado: boolean;
   verificationDraft: VerificationDraft;
 
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, full_name: string, phone: string) => Promise<void>;
+  register: (datos: DatosDeRegistro) => Promise<void>;
   logout: () => Promise<void>;
-  verifyIdCard: (frontBase64: string, backBase64: string) => Promise<void>;
-  verifyIdentity: (selfieBase64: string) => Promise<void>;
+  extraerDatosDocumento: (frontBase64: string, backBase64: string) => Promise<void>;
+  /** Devuelve cuántas denuncias activas identifican a esta persona (H4.4). */
+  registrarDocumento: (selfieBase64: string) => Promise<number>;
   getProfile: () => Promise<void>;
   setError: (error: string | null) => void;
   setPersonalData: (data: PersonalData) => void;
@@ -37,7 +46,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   isAuthenticated: false,
   isLoading: false,
   error: null,
-  identityVerified: false,
+  documentoRegistrado: false,
   verificationDraft: {
     personalData: null,
     idFrontBase64: null,
@@ -50,7 +59,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }));
   },
 
-  verifyIdCard: async (frontBase64: string, backBase64: string) => {
+  extraerDatosDocumento: async (frontBase64: string, backBase64: string) => {
     set({ isLoading: true, error: null });
     try {
       const { personalData } = get().verificationDraft;
@@ -59,11 +68,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       }
 
       // Valida la calidad/coincidencia del carnet contra el OCR del backend
-      await authService.verifyIdCard({
+      await authService.extraerDatosDocumento({
         id_front_base64: frontBase64,
         id_back_base64: backBase64,
         personal_data: {
-          full_name: personalData.full_name,
           ci_number: personalData.ci_number,
           birth_place: personalData.birth_place,
           birth_date: personalData.birth_date,
@@ -95,8 +103,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       set({
         user: response.user as User,
         isAuthenticated: true,
-        identityVerified: response.user.identity_verified,
+        documentoRegistrado: response.user.documento_registrado,
       });
+      // El login devuelve un usuario mínimo; el perfil completo trae el estado
+      // de cuenta y la reputación, sin los cuales no se puede explicar por qué
+      // una cuenta sancionada no puede reportar.
+      await get().getProfile();
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Login failed';
       set({ error: errorMessage });
@@ -106,15 +118,16 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
-  register: async (email: string, password: string, full_name: string, phone: string) => {
+  register: async (datos: DatosDeRegistro) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await authService.register(email, password, full_name, phone);
+      const response = await authService.register(datos);
       set({
         user: response.user as User,
         isAuthenticated: true,
-        identityVerified: response.user.identity_verified,
+        documentoRegistrado: response.user.documento_registrado,
       });
+      await get().getProfile();
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Registration failed';
       set({ error: errorMessage });
@@ -131,7 +144,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       set({
         user: null,
         isAuthenticated: false,
-        identityVerified: false,
+        documentoRegistrado: false,
         error: null,
         verificationDraft: { personalData: null, idFrontBase64: null, idBackBase64: null },
       });
@@ -140,7 +153,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
-  verifyIdentity: async (selfieBase64: string) => {
+  registrarDocumento: async (selfieBase64: string) => {
     set({ isLoading: true, error: null });
     try {
       const { personalData, idFrontBase64, idBackBase64 } = get().verificationDraft;
@@ -149,12 +162,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         throw new Error('Datos de verificación incompletos. Reinicia el proceso.');
       }
 
-      await authService.verifyIdentity({
+      const resultado = await authService.registrarDocumento({
         id_front_base64: idFrontBase64,
         id_back_base64: idBackBase64,
         selfie_base64: selfieBase64,
         personal_data: {
-          full_name: personalData.full_name,
           ci_number: personalData.ci_number,
           birth_place: personalData.birth_place,
           birth_date: personalData.birth_date,
@@ -162,10 +174,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       });
 
       set({
-        identityVerified: true,
+        documentoRegistrado: true,
         verificationDraft: { personalData: null, idFrontBase64: null, idBackBase64: null },
       });
       await get().getProfile();
+
+      return resultado.denuncias_que_te_identifican ?? 0;
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Verification failed';
       set({ error: errorMessage });
@@ -180,7 +194,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const profile = await authService.getProfile();
       set({
         user: profile,
-        identityVerified: profile.identity_verified,
+        documentoRegistrado: profile.documento_registrado,
       });
     } catch (error) {
       console.error('Failed to fetch profile:', error);

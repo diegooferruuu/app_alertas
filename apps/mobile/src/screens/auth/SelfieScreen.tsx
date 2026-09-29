@@ -10,9 +10,10 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/auth.store';
+import { prepararParaEnviar } from '../../services/imagenes';
 
 const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { verifyIdentity, isLoading, error } = useAuthStore();
+  const { registrarDocumento, isLoading, error } = useAuthStore();
   const [selfieImage, setSelfieImage] = useState<string | null>(null);
 
   const takeSelfie = async () => {
@@ -29,31 +30,59 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     const result = await ImagePicker.launchCameraAsync({
       cameraType: ImagePicker.CameraType.front,
       quality: 0.8,
-      base64: true,
       allowsEditing: false,
     });
 
-    if (!result.canceled && result.assets[0].base64) {
-      setSelfieImage(result.assets[0].base64);
+    if (!result.canceled) {
+      const { uri, width } = result.assets[0];
+      setSelfieImage(await prepararParaEnviar(uri, width));
     }
   };
 
-  const handleVerify = async () => {
+  const handleRegistrar = async () => {
     if (!selfieImage) {
       Alert.alert('Selfie requerida', 'Por favor toma una selfie para continuar.');
       return;
     }
 
     try {
-      // Al completar la verificación, identityVerified pasa a true y el stack
-      // de navegación cambia automáticamente a la pantalla Home (ver App.tsx).
-      // No se navega manualmente para evitar el error 'NAVIGATE Home not handled'.
-      await verifyIdentity(selfieImage);
-      Alert.alert('¡Verificado!', 'Tu identidad ha sido verificada correctamente.');
+      const meIdentifican = await registrarDocumento(selfieImage);
+
+      // H4.4 — Vía de acceso para la persona reportada sin cuenta previa.
+      //
+      // Pudieron denunciarla antes de que existiera en el sistema. Ahora que su
+      // documento quedó registrado, el servidor ya sabe cuántas denuncias la
+      // identifican, y se la lleva al interruptor en el acto: es lo que hace
+      // real el «minutos, no horas» sin depender de la notificación push.
+      if (meIdentifican > 0) {
+        Alert.alert(
+          'Hay una alerta que te identifica',
+          meIdentifican === 1
+            ? 'Existe una denuncia que te identifica por tu documento. Si estás bien, puedes retirarla.'
+            : `Existen ${meIdentifican} denuncias que te identifican por tu documento. Si estás bien, puedes retirarlas.`,
+          [
+            {
+              text: 'Ver',
+              onPress: () => navigation.navigate('AlertasSobreMi'),
+            },
+          ],
+        );
+        return;
+      }
+
+      // Registrado el documento, volvemos a la app principal: ya puede reportar,
+      // porque sus denuncias quedan atribuidas a este documento.
+      Alert.alert(
+        'Documento registrado',
+        'Tu documento quedó registrado. Ya puedes reportar.',
+        [{ text: 'Continuar', onPress: () => navigation.navigate('MainTabs') }],
+      );
     } catch (err: any) {
       Alert.alert(
-        'Verificación fallida',
-        err?.response?.data?.message || err?.message || 'Error al verificar identidad.',
+        'No se pudo registrar el documento',
+        err?.response?.data?.message ||
+          err?.message ||
+          'No se pudo registrar el documento.',
       );
     }
   };
@@ -62,7 +91,8 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     <View style={styles.container}>
       <Text style={styles.title}>Selfie</Text>
       <Text style={styles.subtitle}>
-        Toma una foto de tu cara para compararla con la foto de tu carnet.
+        El servidor compara esta foto con el rostro impreso en el carnet que
+        fotografiaste. Si no se parecen, el documento no se registra.
       </Text>
 
       <View style={styles.hints}>
@@ -70,6 +100,16 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <Text style={styles.hint}>• Mira directamente a la cámara</Text>
         <Text style={styles.hint}>• No uses gafas ni cubras tu rostro</Text>
       </View>
+
+      {/*
+        El proyecto prohíbe decir «verificado» o «validado»: la comparación no
+        autentica a nadie. Establece que quien se toma la selfie se parece a
+        quien aparece impreso en el documento, que es bastante menos, y la
+        pantalla no puede prometer más de lo que el sistema comprueba.
+      */}
+      <Text style={styles.aclaracion}>
+        Tu selfie no se guarda: se compara y se descarta.
+      </Text>
 
       {selfieImage ? (
         <View style={styles.previewContainer}>
@@ -92,13 +132,13 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
       <TouchableOpacity
         style={[styles.button, (!selfieImage || isLoading) && styles.buttonDisabled]}
-        onPress={handleVerify}
+        onPress={handleRegistrar}
         disabled={!selfieImage || isLoading}
       >
         {isLoading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.buttonText}>Verificar identidad</Text>
+          <Text style={styles.buttonText}>Registrar documento</Text>
         )}
       </TouchableOpacity>
 
@@ -135,6 +175,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 14,
     marginBottom: 24,
+  },
+  aclaracion: {
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 17,
   },
   hint: {
     fontSize: 13,

@@ -5,3 +5,13 @@ allowBuilds:
   '@nestjs/core': false
   bcrypt: false
   protobufjs: false
+
+# Fuerza una sola versión en todo el árbol.
+#
+# `expo` 57 declara `@expo/dom-webview` a la vez como dependencia (~57.0.1) y
+# como par opcional (*). Los paquetes de Expo se referencian entre sí como pares,
+# y pnpm conservaba una combinación heredada del SDK 56 con la 56.0.6. Es un
+# módulo nativo: tener uno del SDK anterior en un build del 57 es lo que rompe
+# el enlazado nativo en EAS. Revisar al subir de SDK.
+overrides:
+  '@expo/dom-webview': '~57.0.1'
