@@ -6,6 +6,7 @@ import { DispositivosService } from './dispositivos.service';
 import { UbicacionService } from './ubicacion.service';
 import { AlertasController } from './alertas.controller';
 import { EmisionWorker } from './emision.worker';
+import { RecibosWorker } from './recibos.worker';
 import { PasarelaPush, PasarelaPushSimulada } from './pasarela-push';
 import { PasarelaPushExpo } from './pasarela-push-expo';
 import { Dispositivo } from './entities/dispositivo.entity';
@@ -30,6 +31,7 @@ import { User } from '../users/entities/user.entity';
     DispositivosService,
     UbicacionService,
     EmisionWorker,
+    RecibosWorker,
     {
       provide: PasarelaPush,
       inject: [ConfigService],

@@ -58,8 +58,8 @@ describe('PasarelaPushExpo', () => {
   });
 
   it('guarda el identificador del ticket de un envío aceptado', async () => {
-    // El id es lo único con lo que después se puede consultar el recibo y saber
-    // si la notificación llegó de verdad. Perderlo deja la entrega sin rastro.
+    // El id es lo único con lo que después se puede pedir el recibo y saber si
+    // Apple o Google recibieron la notificación. Perderlo deja la entrega sin rastro.
     (global as any).fetch = respondeCon([{ status: 'ok', id: 'XXX-YYY' }]);
 
     const [resultado] = await pasarela.enviar([mensaje('ExponentPushToken[a]')]);
@@ -67,6 +67,7 @@ describe('PasarelaPushExpo', () => {
     expect(resultado).toEqual({
       push_token: 'ExponentPushToken[a]',
       aceptado: true,
+      ticket_id: 'XXX-YYY',
       detalle: 'ticket XXX-YYY',
     });
   });
@@ -227,5 +228,140 @@ describe('PasarelaPushExpo', () => {
     await pasarela.enviar([mensaje('ExponentPushToken[a]')]);
 
     expect(fetch.mock.calls[0][1].headers.authorization).toBeUndefined();
+  });
+
+  /**
+   * Recibos: lo que pasó con cada notificación después de que Expo la aceptara.
+   *
+   * Lo que hay que fijar es que un fallo al *preguntar* nunca se escriba como un
+   * fallo de *entrega*: no saber algo no es saber que salió mal.
+   */
+  describe('recibos', () => {
+    /** Respuesta correcta de Expo: un objeto con un recibo por ticket listo. */
+    const recibosCon = (data: Record<string, unknown>) =>
+      jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data }),
+      });
+
+    it('no sale a la red si no hay tickets', async () => {
+      const fetch = recibosCon({});
+      (global as any).fetch = fetch;
+
+      expect((await pasarela.consultarRecibos([])).size).toBe(0);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('pide los recibos de los tickets dados a su propio endpoint', async () => {
+      const fetch = recibosCon({});
+      (global as any).fetch = fetch;
+
+      await pasarela.consultarRecibos(['t1', 't2']);
+
+      expect(fetch.mock.calls[0][0]).toBe('https://exp.host/--/api/v2/push/getReceipts');
+      expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ ids: ['t1', 't2'] });
+    });
+
+    it('traduce cada recibo a despachado o no, con su motivo', async () => {
+      (global as any).fetch = recibosCon({
+        t1: { status: 'ok' },
+        t2: {
+          status: 'error',
+          message: 'mismatched sender',
+          details: { error: 'MismatchSenderId' },
+        },
+      });
+
+      const recibos = await pasarela.consultarRecibos(['t1', 't2']);
+
+      expect(recibos.get('t1')).toEqual({ despachado: true, detalle: 'ok' });
+      expect(recibos.get('t2')).toEqual({
+        despachado: false,
+        detalle: 'MismatchSenderId: mismatched sender',
+        token_invalido: false,
+      });
+    });
+
+    it('marca para dar de baja el aparato que el recibo reporta desinstalado', async () => {
+      (global as any).fetch = recibosCon({
+        t1: {
+          status: 'error',
+          message: 'not a registered device',
+          details: { error: 'DeviceNotRegistered' },
+        },
+      });
+
+      const recibos = await pasarela.consultarRecibos(['t1']);
+
+      expect(recibos.get('t1')?.token_invalido).toBe(true);
+    });
+
+    it('un ticket cuyo recibo no está listo no aparece', async () => {
+      (global as any).fetch = recibosCon({ t1: { status: 'ok' } });
+
+      const recibos = await pasarela.consultarRecibos(['t1', 't2']);
+
+      expect([...recibos.keys()]).toEqual(['t1']);
+    });
+
+    it('ignora recibos de tickets que no se pidieron', async () => {
+      (global as any).fetch = recibosCon({ t1: { status: 'ok' }, ajeno: { status: 'ok' } });
+
+      const recibos = await pasarela.consultarRecibos(['t1']);
+
+      expect([...recibos.keys()]).toEqual(['t1']);
+    });
+
+    it('parte en lotes de 1000', async () => {
+      // Por encima de 1000 Expo rechaza la consulta; una emisión de ciudad los
+      // supera sin esfuerzo.
+      const fetch = recibosCon({});
+      (global as any).fetch = fetch;
+
+      await pasarela.consultarRecibos(Array.from({ length: 2500 }, (_, i) => `t${i}`));
+
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(JSON.parse(fetch.mock.calls[0][1].body).ids).toHaveLength(1000);
+      expect(JSON.parse(fetch.mock.calls[2][1].body).ids).toHaveLength(500);
+    });
+
+    it('un corte de red no inventa recibos ni lanza', async () => {
+      // Esos tickets se vuelven a pedir en el siguiente ciclo. Escribirlos como
+      // no despachados culparía a Apple o a Google de un fallo de la red.
+      (global as any).fetch = jest.fn().mockRejectedValue(new Error('ETIMEDOUT'));
+
+      expect((await pasarela.consultarRecibos(['t1'])).size).toBe(0);
+    });
+
+    it('una respuesta de error de la pasarela no inventa recibos', async () => {
+      (global as any).fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: async () => 'service unavailable',
+      });
+
+      expect((await pasarela.consultarRecibos(['t1'])).size).toBe(0);
+    });
+
+    it('un rechazo de la consulta completa no inventa recibos', async () => {
+      (global as any).fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ errors: [{ message: 'Invalid credentials' }] }),
+      });
+
+      expect((await pasarela.consultarRecibos(['t1'])).size).toBe(0);
+    });
+
+    it('manda la credencial también al pedir recibos', async () => {
+      const fetch = recibosCon({});
+      (global as any).fetch = fetch;
+
+      const conToken = new PasarelaPushExpo(config({ EXPO_ACCESS_TOKEN: 'secreto' }));
+      await conToken.consultarRecibos(['t1']);
+
+      expect(fetch.mock.calls[0][1].headers.authorization).toBe('Bearer secreto');
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MensajePush, PasarelaPush, ResultadoEnvio } from './pasarela-push';
+import { MensajePush, PasarelaPush, Recibo, ResultadoEnvio } from './pasarela-push';
 
 /**
  * Salida real hacia el servicio de notificaciones de Expo.
@@ -16,6 +16,7 @@ import { MensajePush, PasarelaPush, ResultadoEnvio } from './pasarela-push';
  */
 
 const ENDPOINT = 'https://exp.host/--/api/v2/push/send';
+const ENDPOINT_RECIBOS = 'https://exp.host/--/api/v2/push/getReceipts';
 
 /**
  * Mensajes por petición. Es el máximo que acepta Expo.
@@ -26,6 +27,9 @@ const ENDPOINT = 'https://exp.host/--/api/v2/push/send';
  */
 const TAMANO_LOTE = 100;
 
+/** Tickets por consulta de recibos. Es el máximo que acepta Expo. */
+const TAMANO_LOTE_RECIBOS = 1000;
+
 /** Espera de la petición. Sin esto, una pasarela colgada bloquea el worker. */
 const TIEMPO_LIMITE_MS = 30_000;
 
@@ -33,6 +37,13 @@ const TIEMPO_LIMITE_MS = 30_000;
 interface Ticket {
   status: 'ok' | 'error';
   id?: string;
+  message?: string;
+  details?: { error?: string };
+}
+
+/** Lo que Expo devuelve por cada ticket al pedir su recibo. */
+interface ReciboExpo {
+  status: 'ok' | 'error';
   message?: string;
   details?: { error?: string };
 }
@@ -83,19 +94,79 @@ export class PasarelaPushExpo extends PasarelaPush {
     return resultados;
   }
 
+  async consultarRecibos(ticketIds: string[]): Promise<Map<string, Recibo>> {
+    const recibos = new Map<string, Recibo>();
+
+    // En serie, por lo mismo que los envíos: el límite de tasa es por proyecto.
+    for (let i = 0; i < ticketIds.length; i += TAMANO_LOTE_RECIBOS) {
+      const lote = ticketIds.slice(i, i + TAMANO_LOTE_RECIBOS);
+      for (const [id, recibo] of await this.consultarLoteDeRecibos(lote)) {
+        recibos.set(id, recibo);
+      }
+    }
+
+    return recibos;
+  }
+
+  /**
+   * Un fallo aquí no se reporta como recibo negativo: no se sabe nada de esas
+   * notificaciones, así que simplemente no aparecen y se vuelven a pedir en el
+   * siguiente ciclo. Marcarlas como no despachadas atribuiría a Apple o a Google
+   * un fallo que fue de la red.
+   */
+  private async consultarLoteDeRecibos(ids: string[]): Promise<Array<[string, Recibo]>> {
+    let respuesta: Response;
+    try {
+      respuesta = await fetch(ENDPOINT_RECIBOS, {
+        method: 'POST',
+        headers: this.cabeceras(),
+        body: JSON.stringify({ ids }),
+        signal: AbortSignal.timeout(TIEMPO_LIMITE_MS),
+      });
+    } catch (error) {
+      this.logger.error(
+        `Recibos no consultados (${ids.length}): no se pudo contactar la pasarela — ${(error as Error).message}`,
+      );
+      return [];
+    }
+
+    if (!respuesta.ok) {
+      const cuerpo = await respuesta.text().catch(() => '');
+      this.logger.error(
+        `Recibos no consultados (${ids.length}): la pasarela respondió ${respuesta.status} — ${cuerpo.slice(0, 200)}`,
+      );
+      return [];
+    }
+
+    let cuerpo: { data?: Record<string, ReciboExpo>; errors?: { message?: string }[] };
+    try {
+      cuerpo = await respuesta.json();
+    } catch (error) {
+      this.logger.error(`Recibos ilegibles: ${(error as Error).message}`);
+      return [];
+    }
+
+    if (cuerpo.errors?.length) {
+      const detalle = cuerpo.errors.map((e) => e.message ?? 'sin detalle').join('; ');
+      this.logger.error(`La pasarela rechazó la consulta de recibos: ${detalle}`);
+      return [];
+    }
+
+    // Solo los tickets que se pidieron: un identificador ajeno en la respuesta
+    // no tiene fila a la que corresponder.
+    const data = cuerpo.data ?? {};
+    return ids
+      .filter((id) => data[id])
+      .map((id): [string, Recibo] => [id, this.aRecibo(data[id])]);
+  }
+
   private async enviarLote(lote: MensajePush[]): Promise<ResultadoEnvio[]> {
     let respuesta: Response;
 
     try {
       respuesta = await fetch(ENDPOINT, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-          ...(this.accessToken
-            ? { authorization: `Bearer ${this.accessToken}` }
-            : {}),
-        },
+        headers: this.cabeceras(),
         body: JSON.stringify(lote.map((m) => this.aFormatoExpo(m))),
         signal: AbortSignal.timeout(TIEMPO_LIMITE_MS),
       });
@@ -145,6 +216,14 @@ export class PasarelaPushExpo extends PasarelaPush {
     );
   }
 
+  private cabeceras(): Record<string, string> {
+    return {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      ...(this.accessToken ? { authorization: `Bearer ${this.accessToken}` } : {}),
+    };
+  }
+
   private aFormatoExpo(mensaje: MensajePush) {
     return {
       to: mensaje.push_token,
@@ -164,10 +243,11 @@ export class PasarelaPushExpo extends PasarelaPush {
   private aResultado(push_token: string, ticket: Ticket): ResultadoEnvio {
     if (ticket?.status === 'ok') {
       // Se guarda el identificador del ticket: es lo único con lo que después se
-      // puede consultar el recibo y saber si la notificación llegó de verdad.
+      // puede pedir el recibo y saber si Apple o Google recibieron la notificación.
       return {
         push_token,
         aceptado: true,
+        ...(ticket.id ? { ticket_id: ticket.id } : {}),
         detalle: `ticket ${ticket.id ?? 'sin id'}`,
       };
     }
@@ -177,6 +257,22 @@ export class PasarelaPushExpo extends PasarelaPush {
       push_token,
       aceptado: false,
       detalle: `${codigo ?? 'error'}: ${ticket?.message ?? 'sin detalle'}`,
+      token_invalido: codigo === 'DeviceNotRegistered',
+    };
+  }
+
+  private aRecibo(recibo: ReciboExpo): Recibo {
+    if (recibo.status === 'ok') {
+      return { despachado: true, detalle: 'ok' };
+    }
+
+    // Los códigos posibles son los mismos que en el ticket, más los de
+    // credenciales: `MismatchSenderId` e `InvalidCredentials` señalan una
+    // configuración de Firebase o de Apple rota, no un aparato muerto.
+    const codigo = recibo.details?.error;
+    return {
+      despachado: false,
+      detalle: `${codigo ?? 'error'}: ${recibo.message ?? 'sin detalle'}`,
       token_invalido: codigo === 'DeviceNotRegistered',
     };
   }

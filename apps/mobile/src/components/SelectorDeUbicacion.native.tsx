@@ -9,13 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import MapView, { Marker, Circle, MapPressEvent } from 'react-native-maps';
-import {
-  AtribucionDelMapa,
-  TeselasDelMapa,
-  mapaDisponible,
-  tipoDeMapa,
-} from './TeselasDelMapa';
+import { Mapa } from './mapa/Mapa';
 import { AMPLITUD_INICIAL, CENTRO_POR_DEFECTO } from '../utils/ubicacion-inicial';
 
 export interface Coordenadas {
@@ -127,21 +121,14 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
           <Text style={estilos.opcionTexto}>Mi ubicación actual</Text>
         </TouchableOpacity>
 
-        {/*
-          Sin mapa disponible, la opción no se ofrece: abrirla montaría el mapa
-          y cerraría la pantalla a mitad de la denuncia. La ubicación actual
-          sigue sirviendo para denunciar.
-        */}
-        {mapaDisponible && (
-          <TouchableOpacity
-            style={estilos.opcion}
-            onPress={abrirMapa}
-            accessibilityRole="button"
-          >
-            <Ionicons name="map" size={20} color="#007AFF" />
-            <Text style={estilos.opcionTexto}>Elegir en el mapa</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={estilos.opcion}
+          onPress={abrirMapa}
+          accessibilityRole="button"
+        >
+          <Ionicons name="map" size={20} color="#007AFF" />
+          <Text style={estilos.opcionTexto}>Elegir en el mapa</Text>
+        </TouchableOpacity>
       </View>
 
       {valor ? (
@@ -186,43 +173,34 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
             </TouchableOpacity>
           </View>
 
-          <MapView
+          {/*
+            El círculo es la zona que realmente se guarda. Ver el punto dentro
+            de un área y no como una chincheta exacta es lo que comunica la
+            reducción sin tener que leer un aviso.
+          */}
+          <Mapa
             style={estilos.mapa}
-            initialRegion={region}
-            mapType={tipoDeMapa}
-            onPress={(e: MapPressEvent) => {
-              const { latitude, longitude } = e.nativeEvent.coordinate;
-              setProvisional({ lat: latitude, lng: longitude });
-            }}
-          >
-            <TeselasDelMapa />
-            {provisional && (
-              <>
-                <Marker
-                  coordinate={{
-                    latitude: provisional.lat,
-                    longitude: provisional.lng,
-                  }}
-                />
-                {/*
-                  El círculo es la zona que realmente se guarda. Ver el punto
-                  dentro de un área y no como una chincheta exacta es lo que
-                  comunica la reducción sin tener que leer un aviso.
-                */}
-                <Circle
-                  center={{
-                    latitude: provisional.lat,
-                    longitude: provisional.lng,
-                  }}
-                  radius={RADIO_ZONA_M}
-                  strokeColor="rgba(0,122,255,0.8)"
-                  fillColor="rgba(0,122,255,0.15)"
-                />
-              </>
-            )}
-          </MapView>
-
-          <AtribucionDelMapa />
+            region={region}
+            marcadores={
+              provisional
+                ? [
+                    {
+                      id: 'elegido',
+                      lat: provisional.lat,
+                      lng: provisional.lng,
+                      titulo: 'Zona elegida',
+                      color: '#FF3B30',
+                    },
+                  ]
+                : []
+            }
+            zona={
+              provisional
+                ? { lat: provisional.lat, lng: provisional.lng, radioM: RADIO_ZONA_M }
+                : null
+            }
+            alTocar={setProvisional}
+          />
 
           <View style={estilos.pie}>
             <Text style={estilos.pieTexto}>

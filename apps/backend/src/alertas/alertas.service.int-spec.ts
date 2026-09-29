@@ -2,12 +2,13 @@ import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
-import { AlertasService, LOTE_DE_ENVIO } from './alertas.service';
+import { AlertasService, LOTE_DE_ENVIO, LOTE_DE_RECIBOS } from './alertas.service';
 import { DispositivosService } from './dispositivos.service';
 import { UbicacionService } from './ubicacion.service';
 import {
   MensajePush,
   PasarelaPush,
+  Recibo,
   ResultadoEnvio,
 } from './pasarela-push';
 import { Dispositivo } from './entities/dispositivo.entity';
@@ -50,11 +51,35 @@ class PasarelaProgramable extends PasarelaPush {
   fallarEnLlamada: number | null = null;
   private llamadas = 0;
 
+  /** Recibos que devolverá, por ticket. Un ticket sin entrada: todavía no está listo. */
+  recibos = new Map<string, Recibo>();
+
+  /** Si se fija, todo ticket sin recibo dictado vuelve como despachado. */
+  todosDespachados = false;
+
+  /** Los tickets por los que se preguntó, una lista por consulta. */
+  consultas: string[][] = [];
+
   reiniciar(): void {
     this.desinstalados.clear();
     this.envios = [];
     this.fallarEnLlamada = null;
     this.llamadas = 0;
+    this.recibos.clear();
+    this.todosDespachados = false;
+    this.consultas = [];
+  }
+
+  async consultarRecibos(ticketIds: string[]): Promise<Map<string, Recibo>> {
+    this.consultas.push(ticketIds);
+    const respuesta = new Map<string, Recibo>();
+    for (const id of ticketIds) {
+      const recibo =
+        this.recibos.get(id) ??
+        (this.todosDespachados ? { despachado: true, detalle: 'ok' } : undefined);
+      if (recibo) respuesta.set(id, recibo);
+    }
+    return respuesta;
   }
 
   async enviar(mensajes: MensajePush[]): Promise<ResultadoEnvio[]> {
@@ -72,10 +97,15 @@ class PasarelaProgramable extends PasarelaPush {
             detalle: 'DeviceNotRegistered',
             token_invalido: true,
           }
-        : // El detalle lleva el token: así una prueba puede comprobar que cada
-          // resultado quedó escrito en la fila de su destinatario y no en la de
-          // otro. Con un detalle fijo, un cruce de filas pasaría inadvertido.
-          { push_token: m.push_token, aceptado: true, detalle: `ticket ${m.push_token}` },
+        : // El detalle y el ticket llevan el token: así una prueba puede comprobar
+          // que cada resultado quedó escrito en la fila de su destinatario y no
+          // en la de otro. Con valores fijos, un cruce de filas pasaría inadvertido.
+          {
+            push_token: m.push_token,
+            aceptado: true,
+            ticket_id: `ticket-${m.push_token}`,
+            detalle: `ticket ${m.push_token}`,
+          },
     );
   }
 }
@@ -716,6 +746,196 @@ describe('Emisión de alertas (integración)', () => {
           distancia_m: 0,
         }),
       ).rejects.toThrow(/uq_entregas_emision_dispositivo/);
+    });
+  });
+
+  /**
+   * Recibos de entrega: qué pasó con cada notificación después de que Expo la
+   * aceptara.
+   *
+   * Es lo que separa la tasa de entrega real del techo que daba `aceptada`. Las
+   * pruebas fijan el recorrido completo, las esperas que impone la pasarela y
+   * que la latencia de envío —que se mide con `actualizada_en`— no se estropee
+   * al llegar el recibo.
+   */
+  describe('recibos de entrega', () => {
+    /** Emite a los vecinos dados y deja sus entregas `aceptadas`, con ticket. */
+    const emitirA = async (...correos: string[]) => {
+      const autor = await crearUsuario('autor@test.com');
+      for (const correo of correos) await crearVecino(correo);
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await ctx.dataSource.transaction((manager) =>
+        alertas.encolar(manager, denuncia.id, 2000, 'firma'),
+      );
+      await alertas.procesarPendientes();
+    };
+
+    /** Mueve hacia atrás la hora en que Expo aceptó, como si hubiera pasado el tiempo. */
+    const envejecer = (minutos: number) =>
+      ctx.dataSource.query(
+        `UPDATE entregas_alerta
+            SET actualizada_en = actualizada_en - make_interval(mins => $1)`,
+        [minutos],
+      );
+
+    const laEntrega = async () => {
+      const [entrega] = await entregas.find();
+      return entrega;
+    };
+
+    it('el envío guarda el ticket de cada entrega aceptada', async () => {
+      await emitirA('vecino@test.com');
+
+      const entrega = await laEntrega();
+      expect(entrega.estado).toBe('aceptada');
+      expect(entrega.ticket_id).toBe('ticket-token-vecino@test.com');
+    });
+
+    it('un recibo positivo deja la entrega despachada sin mover la latencia de envío', async () => {
+      await emitirA('vecino@test.com');
+      await envejecer(20);
+      const aceptadaEn = (await laEntrega()).actualizada_en;
+      pasarela.recibos.set('ticket-token-vecino@test.com', {
+        despachado: true,
+        detalle: 'ok',
+      });
+
+      expect(await alertas.procesarRecibos()).toBe(1);
+
+      const entrega = await laEntrega();
+      expect(entrega.estado).toBe('despachada');
+      expect(entrega.resultado_recibo).toBe('ok');
+      expect(entrega.recibo_en).toBeInstanceOf(Date);
+      // Si el recibo moviera `actualizada_en`, la latencia de envío pasaría a
+      // medir los quince minutos de espera del recibo.
+      expect(entrega.actualizada_en.getTime()).toBe(aceptadaEn.getTime());
+    });
+
+    it('un recibo con error la deja no despachada, con el motivo', async () => {
+      await emitirA('vecino@test.com');
+      await envejecer(20);
+      pasarela.recibos.set('ticket-token-vecino@test.com', {
+        despachado: false,
+        detalle: 'MismatchSenderId: credenciales de FCM que no corresponden',
+      });
+
+      await alertas.procesarRecibos();
+
+      const entrega = await laEntrega();
+      expect(entrega.estado).toBe('no_despachada');
+      expect(entrega.resultado_recibo).toContain('MismatchSenderId');
+      // Un problema de credenciales no es un aparato muerto: no se da de baja.
+      expect(await aparatos.count()).toBe(1);
+    });
+
+    it('si el recibo dice que el aparato ya no existe, lo da de baja y conserva la entrega', async () => {
+      await emitirA('vecino@test.com');
+      await envejecer(20);
+      pasarela.recibos.set('ticket-token-vecino@test.com', {
+        despachado: false,
+        detalle: 'DeviceNotRegistered: desinstalada',
+        token_invalido: true,
+      });
+
+      await alertas.procesarRecibos();
+
+      expect(await aparatos.count()).toBe(0);
+      // La auditoría de a quién se intentó avisar sobrevive a la baja.
+      expect((await laEntrega()).estado).toBe('no_despachada');
+    });
+
+    it('no pregunta antes de la espera que recomienda Expo', async () => {
+      await emitirA('vecino@test.com');
+      pasarela.todosDespachados = true;
+
+      expect(await alertas.procesarRecibos()).toBe(0);
+
+      expect(pasarela.consultas).toHaveLength(0);
+      expect((await laEntrega()).estado).toBe('aceptada');
+    });
+
+    it('un recibo que todavía no está listo se vuelve a pedir en el ciclo siguiente', async () => {
+      await emitirA('vecino@test.com');
+      await envejecer(20);
+
+      expect(await alertas.procesarRecibos()).toBe(0);
+      expect((await laEntrega()).estado).toBe('aceptada');
+
+      pasarela.recibos.set('ticket-token-vecino@test.com', {
+        despachado: true,
+        detalle: 'ok',
+      });
+      expect(await alertas.procesarRecibos()).toBe(1);
+
+      expect(pasarela.consultas).toHaveLength(2);
+      expect((await laEntrega()).estado).toBe('despachada');
+    });
+
+    it('pasadas 24 horas sin recibo la da por perdida, sin preguntar', async () => {
+      // Expo ya borró el recibo: preguntar no devuelve nada, y dejarla
+      // `aceptada` la contaría como éxito para siempre.
+      await emitirA('vecino@test.com');
+      await envejecer(25 * 60);
+      pasarela.todosDespachados = true;
+
+      expect(await alertas.procesarRecibos()).toBe(1);
+
+      expect(pasarela.consultas).toHaveLength(0);
+      const entrega = await laEntrega();
+      expect(entrega.estado).toBe('sin_recibo');
+      expect(entrega.resultado_recibo).toContain('venció');
+    });
+
+    it('lo aceptado sin ticket queda sin recibo de inmediato', async () => {
+      await emitirA('vecino@test.com');
+      await ctx.dataSource.query(`UPDATE entregas_alerta SET ticket_id = NULL`);
+
+      await alertas.procesarRecibos();
+
+      const entrega = await laEntrega();
+      expect(entrega.estado).toBe('sin_recibo');
+      expect(entrega.resultado_recibo).toBe('la pasarela no dio ticket');
+    });
+
+    it('una entrega ya resuelta no se vuelve a consultar', async () => {
+      await emitirA('vecino@test.com');
+      await envejecer(20);
+      pasarela.todosDespachados = true;
+
+      await alertas.procesarRecibos();
+      expect(await alertas.procesarRecibos()).toBe(0);
+
+      expect(pasarela.consultas).toHaveLength(1);
+    });
+
+    it('recorre más de una página de recibos en el mismo ciclo', async () => {
+      const cuantos = LOTE_DE_RECIBOS * 2 + 500;
+      const autor = await crearUsuario('autor@test.com');
+      await sembrarVecinos(cuantos);
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await ctx.dataSource.transaction((manager) =>
+        alertas.encolar(manager, denuncia.id, 2000, 'firma'),
+      );
+      await alertas.procesarPendientes();
+      await envejecer(20);
+      pasarela.todosDespachados = true;
+
+      expect(await alertas.procesarRecibos()).toBe(cuantos);
+
+      expect(pasarela.consultas.map((c) => c.length)).toEqual([
+        LOTE_DE_RECIBOS,
+        LOTE_DE_RECIBOS,
+        500,
+      ]);
+      expect(await entregas.count({ where: { estado: 'despachada' } })).toBe(cuantos);
+    });
+
+    it('la base rechaza un estado de entrega que el código no conoce', async () => {
+      await emitirA('vecino@test.com');
+
+      await expect(
+        ctx.dataSource.query(`UPDATE entregas_alerta SET estado = 'entregada'`),
+      ).rejects.toThrow(/chk_entregas_estado/);
     });
   });
 

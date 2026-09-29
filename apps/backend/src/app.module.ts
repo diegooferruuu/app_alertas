@@ -12,6 +12,7 @@ import { DesactivacionesModule } from './desactivaciones/desactivaciones.module'
 import { ConstanciasModule } from './constancias/constancias.module';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
+import { validarEntorno } from './config/validar-entorno';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { denunciasConfig } from './config/denuncias.config';
       isGlobal: true,
       envFilePath: '../../.env',
       load: [denunciasConfig],
+      validate: validarEntorno,
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],

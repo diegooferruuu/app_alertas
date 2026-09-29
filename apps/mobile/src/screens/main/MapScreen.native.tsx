@@ -1,15 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
-import {
-  AtribucionDelMapa,
-  TeselasDelMapa,
-  mapaDisponible,
-  tipoDeMapa,
-} from '../../components/TeselasDelMapa';
+import { Mapa } from '../../components/mapa/Mapa';
+import type { MarcadorMapa, PuntoMapa } from '../../components/mapa/Mapa';
 import { useAuth } from '../../hooks/useAuth';
 import denunciaService, { Denuncia, DENUNCIA_META } from '../../services/denuncia.service';
 import { AMPLITUD_INICIAL, CENTRO_POR_DEFECTO } from '../../utils/ubicacion-inicial';
@@ -24,6 +19,7 @@ const DEFAULT_REGION = {
 const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { documentoRegistrado } = useAuth();
   const [region, setRegion] = useState(DEFAULT_REGION);
+  const [miUbicacion, setMiUbicacion] = useState<PuntoMapa | null>(null);
   const [denuncias, setDenuncias] = useState<Denuncia[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -48,6 +44,7 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         lat = pos.coords.latitude;
         lng = pos.coords.longitude;
         setRegion({ ...DEFAULT_REGION, latitude: lat, longitude: lng });
+        setMiUbicacion({ lat, lng });
       }
       await loadNearby(lat, lng);
     } finally {
@@ -63,6 +60,19 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     useCallback(() => {
       loadNearby(region.latitude, region.longitude);
     }, [loadNearby, region.latitude, region.longitude]),
+  );
+
+  const marcadores = useMemo<MarcadorMapa[]>(
+    () =>
+      denuncias.map((inc) => ({
+        id: inc.id,
+        lat: inc.latitude,
+        lng: inc.longitude,
+        titulo: DENUNCIA_META.label,
+        detalle: inc.nombre_persona_buscada ?? undefined,
+        color: DENUNCIA_META.color,
+      })),
+    [denuncias],
   );
 
   const handleReport = () => {
@@ -82,45 +92,18 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {!mapaDisponible ? (
-        // Un APK compilado sin clave de Google Maps cierra la pantalla al montar
-        // el mapa. El resto de la app no lo necesita: la lista muestra lo mismo.
-        <View style={styles.center}>
-          <Ionicons name="map-outline" size={40} color="#9AA3AF" />
-          <Text style={styles.sinMapaTitulo}>Mapa no disponible en esta versión</Text>
-          <Text style={styles.sinMapaTexto}>
-            Instala la versión más reciente de la app para ver el mapa. Mientras
-            tanto, las denuncias cercanas están en la pestaña «Lista de denuncias».
-          </Text>
-        </View>
-      ) : loading ? (
+      {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#007AFF" />
         </View>
       ) : (
-        <MapView
+        <Mapa
           style={styles.map}
           region={region}
-          showsUserLocation
-          mapType={tipoDeMapa}
-        >
-          <TeselasDelMapa />
-          {denuncias.map((inc) => {
-            const meta = DENUNCIA_META;
-            return (
-              <Marker
-                key={inc.id}
-                coordinate={{ latitude: inc.latitude, longitude: inc.longitude }}
-                title={meta.label}
-                description={inc.nombre_persona_buscada ?? undefined}
-                pinColor={meta.color}
-              />
-            );
-          })}
-        </MapView>
+          marcadores={marcadores}
+          ubicacionUsuario={miUbicacion}
+        />
       )}
-
-      {mapaDisponible && <AtribucionDelMapa />}
 
       <TouchableOpacity style={styles.reportButton} onPress={handleReport}>
         <Ionicons name="add" size={22} color="#fff" style={{ marginRight: 6 }} />
@@ -132,9 +115,7 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },
-  sinMapaTitulo: { fontSize: 17, fontWeight: '600', color: '#1a1a1a', textAlign: 'center' },
-  sinMapaTexto: { fontSize: 14, lineHeight: 20, color: '#666', textAlign: 'center' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   map: { flex: 1 },
   reportButton: {
     position: 'absolute',

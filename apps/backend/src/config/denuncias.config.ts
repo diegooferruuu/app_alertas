@@ -83,6 +83,21 @@ export interface DenunciasConfig {
   arrendamientoEmisionMin: number;
 
   /**
+   * Cada cuántos minutos se piden los recibos de entrega.
+   *
+   * Va en su propio ciclo y no en el de emisión: una consulta lenta a la
+   * pasarela no debe demorar la salida de una alerta.
+   */
+  intervaloRecibosMin: number;
+
+  /**
+   * Minutos que se espera después de enviar antes de pedir el recibo. Expo
+   * recomienda 15: suele estar listo antes, pero así hay margen. Bajarlo sirve
+   * para una demostración; en producción, preguntar antes solo gasta consultas.
+   */
+  esperaReciboMin: number;
+
+  /**
    * Precisión del geohash de un avistamiento. 6 caracteres ≈ 1.2 × 0.6 km,
    * que es la resolución de ~1 km que pide §3.3. Subirlo estrecha la zona y
    * acerca el dato a una ubicación identificable: no aumentar sin motivo.
@@ -136,6 +151,8 @@ export const denunciasConfig = registerAs(
     intervaloEmisionMin: entero(process.env.INTERVALO_EMISION_MIN, 1),
     maxIntentosEmision: entero(process.env.MAX_INTENTOS_EMISION, 3),
     arrendamientoEmisionMin: entero(process.env.ARRENDAMIENTO_EMISION_MIN, 5),
+    intervaloRecibosMin: entero(process.env.INTERVALO_RECIBOS_MIN, 5),
+    esperaReciboMin: entero(process.env.ESPERA_RECIBO_MIN, 15),
 
     precisionGeohash: entero(process.env.PRECISION_GEOHASH, 6),
   }),

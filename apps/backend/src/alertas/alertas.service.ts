@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { EmisionAlerta, MotivoEmision } from './entities/emision-alerta.entity';
 import { EstadoEntrega } from './entities/entrega-alerta.entity';
-import { PasarelaPush, ResultadoEnvio } from './pasarela-push';
+import { PasarelaPush, Recibo, ResultadoEnvio } from './pasarela-push';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from '../denuncias/domain/estados';
 import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
@@ -18,6 +18,29 @@ import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
  * lote es una sola llamada a la pasarela.
  */
 export const LOTE_DE_ENVIO = 100;
+
+/** Recibos por consulta a la pasarela: el máximo que acepta Expo. */
+export const LOTE_DE_RECIBOS = 1000;
+
+/**
+ * Páginas de recibos por ciclo del worker. Acota lo que tarda un ciclo —a lo
+ * sumo este número de consultas a la pasarela—; lo que quede, lo toma el
+ * siguiente.
+ */
+const PAGINAS_DE_RECIBOS_POR_CICLO = 50;
+
+/**
+ * Horas que Expo guarda un recibo. No es política sino un dato de la pasarela:
+ * pasado este plazo ya no hay a quién preguntar.
+ */
+const VIGENCIA_RECIBO_H = 24;
+
+/** Una entrega que espera recibo. */
+interface EsperandoRecibo {
+  id: string;
+  ticket_id: string;
+  dispositivo_id: string;
+}
 
 /** Un destinatario alcanzado por el radio, con el dispositivo donde avisarle. */
 interface Destinatario {
@@ -511,6 +534,7 @@ export class AlertasService {
     const dispositivos: string[] = [];
     const estados: EstadoEntrega[] = [];
     const detalles: string[] = [];
+    const tickets: Array<string | null> = [];
 
     for (const resultado of resultados) {
       const destinatario = porToken.get(resultado.push_token);
@@ -519,6 +543,7 @@ export class AlertasService {
       dispositivos.push(destinatario.dispositivo_id);
       estados.push(resultado.aceptado ? 'aceptada' : 'fallida');
       detalles.push(resultado.detalle);
+      tickets.push(resultado.ticket_id ?? null);
     }
 
     if (dispositivos.length === 0) return;
@@ -539,13 +564,14 @@ export class AlertasService {
       `UPDATE entregas_alerta AS e
           SET estado = u.estado,
               resultado_pasarela = u.detalle,
+              ticket_id = u.ticket_id,
               actualizada_en = now()
-         FROM unnest($2::uuid[], $3::varchar[], $4::text[])
-              AS u(dispositivo_id, estado, detalle)
+         FROM unnest($2::uuid[], $3::varchar[], $4::text[], $5::varchar[])
+              AS u(dispositivo_id, estado, detalle, ticket_id)
         WHERE e.emision_id = $1::uuid
           AND e.dispositivo_id = ANY($2::uuid[])
           AND e.dispositivo_id = u.dispositivo_id`,
-      [emisionId, dispositivos, estados, detalles],
+      [emisionId, dispositivos, estados, detalles, tickets],
     );
   }
 
@@ -584,5 +610,136 @@ export class AlertasService {
     this.logger.log(
       `${muertos.length} dispositivo(s) dado(s) de baja: la pasarela los reporta desinstalados`,
     );
+  }
+
+  /**
+   * Pide los recibos de las entregas aceptadas y deja escrito qué pasó con cada una.
+   *
+   * Aceptar no es entregar: el ticket solo dice que Expo tomó el mensaje. El
+   * recibo, que Expo tiene listo unos minutos después y guarda 24 horas, dice si
+   * Apple o Google lo recibieron. Sin este paso, la tasa de entrega que se mida
+   * es un techo: cuenta como éxito todo lo que Expo tomó, llegara o no.
+   *
+   * No hace falta bloquear filas: cada escritura exige que la entrega siga
+   * `aceptada`, así que si dos procesos piden el mismo recibo, el segundo no
+   * cambia nada. Devuelve cuántas entregas quedaron resueltas.
+   */
+  async procesarRecibos(): Promise<number> {
+    // Primero lo que ya no va a tener recibo, para no preguntar en vano.
+    let resueltas = await this.cerrarSinRecibo();
+
+    // Por páginas, recorriendo por `id`. Un recibo que todavía no está listo
+    // deja su fila `aceptada`, y sin avanzar el cursor la misma página volvería
+    // una y otra vez.
+    let desde: string | null = null;
+    for (let pagina = 0; pagina < PAGINAS_DE_RECIBOS_POR_CICLO; pagina++) {
+      const filas: EsperandoRecibo[] = await this.dataSource.query(
+        `SELECT id, ticket_id, dispositivo_id
+           FROM entregas_alerta
+          WHERE estado = 'aceptada'
+            AND ticket_id IS NOT NULL
+            AND actualizada_en <= now() - make_interval(mins => $1)
+            AND ($2::uuid IS NULL OR id > $2::uuid)
+          ORDER BY id
+          LIMIT $3`,
+        [this.config.esperaReciboMin, desde, LOTE_DE_RECIBOS],
+      );
+      if (filas.length === 0) break;
+
+      const recibos = await this.pasarela.consultarRecibos(
+        filas.map((f) => f.ticket_id),
+      );
+      resueltas += await this.registrarRecibos(filas, recibos);
+
+      desde = filas[filas.length - 1].id;
+      if (filas.length < LOTE_DE_RECIBOS) break;
+    }
+
+    return resueltas;
+  }
+
+  /**
+   * Da por perdido el recibo de lo que ya no lo va a tener.
+   *
+   * Expo borra los recibos a las 24 horas: pasado ese plazo, preguntar no
+   * devuelve nada, y la entrega quedaría `aceptada` para siempre, contando como
+   * éxito sin serlo. Tampoco tendrá recibo lo aceptado sin ticket. Las dos van a
+   * `sin_recibo`: resultado desconocido, que se cuenta aparte.
+   *
+   * El plazo se mide desde que Expo aceptó, que es `actualizada_en`: esa marca no
+   * se mueve después, justamente para no perder la latencia de envío.
+   */
+  private async cerrarSinRecibo(): Promise<number> {
+    const [, cerradas]: [unknown[], number] = await this.dataSource.query(
+      `UPDATE entregas_alerta
+          SET estado = 'sin_recibo',
+              resultado_recibo = CASE
+                WHEN ticket_id IS NULL THEN 'la pasarela no dio ticket'
+                ELSE 'el recibo venció sin haberse podido consultar'
+              END,
+              recibo_en = now()
+        WHERE estado = 'aceptada'
+          AND (ticket_id IS NULL
+               OR actualizada_en < now() - make_interval(hours => $1))`,
+      [VIGENCIA_RECIBO_H],
+    );
+    return cerradas;
+  }
+
+  /**
+   * Escribe cada recibo en su entrega y da de baja los aparatos que ya no existen.
+   *
+   * Un ticket sin recibo en la respuesta todavía no está listo, o la consulta
+   * falló: su entrega sigue `aceptada` y se vuelve a pedir en el siguiente ciclo.
+   */
+  private async registrarRecibos(
+    filas: EsperandoRecibo[],
+    recibos: Map<string, Recibo>,
+  ): Promise<number> {
+    const ids: string[] = [];
+    const estados: EstadoEntrega[] = [];
+    const detalles: string[] = [];
+    const muertos: string[] = [];
+
+    for (const fila of filas) {
+      const recibo = recibos.get(fila.ticket_id);
+      if (!recibo) continue;
+
+      ids.push(fila.id);
+      estados.push(recibo.despachado ? 'despachada' : 'no_despachada');
+      detalles.push(recibo.detalle);
+      if (recibo.token_invalido) muertos.push(fila.dispositivo_id);
+    }
+
+    if (ids.length === 0) return 0;
+
+    // `actualizada_en` no se toca: mide cuándo aceptó Expo, y de ahí sale la
+    // latencia de envío. El momento del recibo va en `recibo_en`.
+    const [, escritas]: [unknown[], number] = await this.dataSource.query(
+      `UPDATE entregas_alerta AS e
+          SET estado = u.estado,
+              resultado_recibo = u.detalle,
+              recibo_en = now()
+         FROM unnest($1::uuid[], $2::varchar[], $3::text[]) AS u(id, estado, detalle)
+        WHERE e.id = u.id
+          AND e.estado = 'aceptada'`,
+      [ids, estados, detalles],
+    );
+
+    if (muertos.length > 0) {
+      // Por identificador y no por token, porque el recibo no trae el token. Es
+      // seguro: el token de una fila de `dispositivos` no cambia —un token nuevo
+      // es otra fila—, así que esta es exactamente la instalación que murió. La
+      // entrega se queda: no tiene clave foránea hacia el aparato.
+      await this.dataSource.query(
+        `DELETE FROM dispositivos WHERE id = ANY($1::uuid[])`,
+        [muertos],
+      );
+      this.logger.log(
+        `${muertos.length} dispositivo(s) dado(s) de baja: el recibo los reporta desinstalados`,
+      );
+    }
+
+    return escritas;
   }
 }

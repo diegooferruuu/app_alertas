@@ -303,10 +303,11 @@ DB_USERNAME=postgres
 DB_PASSWORD=postgres
 DB_NAME=app_alertas
 
-# JWT
-JWT_SECRET=your_jwt_secret_key_here_min_32_chars
+# JWT — genera cada secreto con `openssl rand -base64 48`, distintos entre sí.
+# El servidor no arranca si faltan, si son cortos o si son valores de ejemplo.
+JWT_SECRET=
 JWT_EXPIRATION=15m
-JWT_REFRESH_SECRET=your_refresh_secret_key_here_min_32_chars
+JWT_REFRESH_SECRET=
 JWT_REFRESH_EXPIRATION=7d
 
 # Google Cloud Vision API

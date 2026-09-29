@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 
 export interface MensajePush {
   push_token: string;
@@ -14,13 +15,14 @@ export interface ResultadoEnvio {
    * La pasarela **aceptó** el mensaje. No significa que llegara.
    *
    * Expo responde con un *ticket*, no con un acuse de entrega: dice que tomó el
-   * mensaje y lo pondrá en cola hacia Apple o Google. Saber si el teléfono lo
-   * recibió exige consultar los *recibos* con el identificador del ticket unos
-   * minutos después. Mientras eso no exista, `aceptada` en `entregas_alerta`
-   * quiere decir «entregada a la pasarela», y la tasa de entrega que se mida con
-   * esa columna es un límite superior, no la tasa real.
+   * mensaje y lo pondrá en cola hacia Apple o Google. Qué pasó después lo dice
+   * el *recibo* de ese ticket, que se pide unos minutos más tarde (ver
+   * `consultarRecibos`).
    */
   aceptado: boolean;
+
+  /** Identificador del ticket, si se aceptó: con él se pide el recibo. */
+  ticket_id?: string;
 
   detalle: string;
 
@@ -36,6 +38,27 @@ export interface ResultadoEnvio {
 }
 
 /**
+ * Lo que dice el recibo de un mensaje aceptado.
+ *
+ * Expo lo tiene listo unos minutos después del envío y lo guarda 24 horas.
+ */
+export interface Recibo {
+  /**
+   * Apple o Google recibieron la notificación.
+   *
+   * Es lo más lejos que llega lo que se puede saber. El último tramo —de Apple o
+   * Google al teléfono— no lo informa nadie: un teléfono apagado la recibe al
+   * encenderse, o nunca. Por eso esto es «despachada» y no «entregada».
+   */
+  despachado: boolean;
+
+  detalle: string;
+
+  /** Igual que en el envío: el aparato ya no existe y hay que darlo de baja. */
+  token_invalido?: boolean;
+}
+
+/**
  * Salida hacia el servicio de notificaciones.
  *
  * Es una interfaz y no una llamada directa a Expo por dos razones. La primera
@@ -46,6 +69,15 @@ export interface ResultadoEnvio {
  */
 export abstract class PasarelaPush {
   abstract enviar(mensajes: MensajePush[]): Promise<ResultadoEnvio[]>;
+
+  /**
+   * Recibos de los tickets dados, por identificador de ticket.
+   *
+   * Un ticket cuyo recibo todavía no está listo —o que ya venció— no aparece en
+   * el resultado, y tampoco los de una consulta que falló: quien llama los
+   * vuelve a pedir en el siguiente ciclo. Por eso no lanza por un fallo de red.
+   */
+  abstract consultarRecibos(ticketIds: string[]): Promise<Map<string, Recibo>>;
 }
 
 /**
@@ -70,7 +102,22 @@ export class PasarelaPushSimulada extends PasarelaPush {
     return mensajes.map((mensaje) => ({
       push_token: mensaje.push_token,
       aceptado: true,
+      // Un ticket inventado, para que el recorrido completo —envío y recibo— se
+      // pueda seguir también en desarrollo.
+      ticket_id: `simulado-${randomUUID()}`,
       detalle: 'simulado: no se envió a la pasarela real',
     }));
+  }
+
+  async consultarRecibos(ticketIds: string[]): Promise<Map<string, Recibo>> {
+    if (ticketIds.length > 0) {
+      this.logger.log(`[simulado] ${ticketIds.length} recibo(s) positivos inventados`);
+    }
+    return new Map(
+      ticketIds.map((id) => [
+        id,
+        { despachado: true, detalle: 'simulado: no hubo pasarela real' },
+      ]),
+    );
   }
 }
