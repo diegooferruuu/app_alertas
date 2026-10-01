@@ -52,14 +52,14 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       //
       // Pudieron denunciarla antes de que existiera en el sistema. Ahora que su
       // documento quedó registrado, el servidor ya sabe cuántas denuncias la
-      // identifican, y se la lleva al interruptor en el acto: es lo que hace
+      // identifican, y se la lleva a cerrarlas en el acto: es lo que hace
       // real el «minutos, no horas» sin depender de la notificación push.
       if (meIdentifican > 0) {
         Alert.alert(
           'Hay una alerta que te identifica',
           meIdentifican === 1
-            ? 'Existe una denuncia que te identifica por tu documento. Si estás bien, puedes retirarla.'
-            : `Existen ${meIdentifican} denuncias que te identifican por tu documento. Si estás bien, puedes retirarlas.`,
+            ? 'Existe una denuncia que te identifica por tu documento. Si estás bien, o si es falsa, puedes cerrarla.'
+            : `Existen ${meIdentifican} denuncias que te identifican por tu documento. Si estás bien, o si son falsas, puedes cerrarlas.`,
           [
             {
               text: 'Ver',

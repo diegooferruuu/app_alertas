@@ -94,7 +94,7 @@ export class AlertasService {
    * Va en la misma transacción que la creación de la denuncia, por el mismo
    * motivo que la difusión: si se encolara aparte, un fallo entre una operación
    * y otra dejaría a alguien reportado sin enterarse nunca, que es justo lo que
-   * el interruptor de desactivación existe para evitar.
+   * el cierre por la persona reportada existe para evitar.
    */
   async encolarAvisoDirecto(
     manager: EntityManager,
@@ -215,8 +215,8 @@ export class AlertasService {
         `u.last_location_at > now() - make_interval(hours => :antiguedad)`,
       )
       .andWhere('u.id != :autor', { autor: denuncia.denunciante_id })
-      // Una cuenta suspendida no recibe alertas; una apenas restringida sí,
-      // porque conserva el resto de funciones (§5.4).
+      // Una cuenta suspendida no recibe alertas; una con falta sí, porque la
+      // falta solo restringe difundir sin caso de la FELCC.
       .andWhere(`u.estado_cuenta <> 'SUSPENDIDA'`)
       .setParameters({
         lat: denuncia.latitude,
@@ -304,7 +304,7 @@ export class AlertasService {
         .getRepository(Denuncia)
         .findOneOrFail({ where: { id: emision.denuncia_id } });
 
-      // Entre encolar y procesar pudo caducar o ser desactivada. Emitir una
+      // Entre encolar y procesar pudo caducar o cerrarla la persona reportada. Emitir una
       // alerta que ya no debe difundirse sería exactamente lo que el diseño
       // impide, así que se descarta el trabajo en lugar de ejecutarlo.
       // El aviso directo se envía aunque la denuncia esté REGISTRADA: la persona

@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { declaracionService, Vinculo } from '../../services/denuncia.service';
+import { rechazoDe } from '../../services/restricciones';
 
 /**
  * Normaliza igual que el servidor, para que el botón se habilite exactamente
@@ -33,8 +34,7 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { denunciaId, versionId, modo = 'firmar' } = route.params;
-  const esCorroboracion = modo === 'corroborar';
+  const { denunciaId, versionId } = route.params;
   const { user } = useAuth();
 
   const [vinculos, setVinculos] = useState<Vinculo[]>([]);
@@ -87,25 +87,33 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
         nombre_escrito: nombreEscrito,
       };
 
-      if (esCorroboracion) {
-        await declaracionService.corroborar(denunciaId, payload);
-        Alert.alert(
-          'Declaración firmada',
-          'Corroboraste esta denuncia. La alerta pasa a difundirse en una zona más amplia y por más tiempo.',
-          [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
-        );
-      } else {
-        await declaracionService.firmar(denunciaId, payload);
-        Alert.alert(
-          'Declaración firmada',
-          'Tu denuncia empezó a difundirse en la zona. La alerta caducará sola si nadie la corrobora.',
-          [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
-        );
-      }
-    } catch (err: any) {
+      const { nivel_confianza } = await declaracionService.firmar(denunciaId, payload);
       Alert.alert(
-        'No se pudo firmar',
-        err?.response?.data?.message || 'Intenta de nuevo.',
+        'Declaración firmada',
+        nivel_confianza === 'CORROBORADA'
+          ? 'Tu denuncia empezó a difundirse respaldada por el caso de la FELCC, en una zona amplia.'
+          : 'Tu denuncia empezó a difundirse en la zona. Cuando hagas la denuncia en la FELCC, puedes corroborarla con su número de caso para ampliar el alcance; si no, la alerta vence sola al cumplirse su plazo.',
+        [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
+      );
+    } catch (err) {
+      const rechazo = rechazoDe(err, { titulo: 'No se pudo firmar', mensaje: 'Intenta de nuevo.' });
+      // Sin el caso no hay forma de firmar: se lleva a la persona a donde se
+      // registra, en vez de dejarla frente a un botón que va a fallar igual.
+      Alert.alert(
+        rechazo.titulo,
+        rechazo.mensaje,
+        rechazo.codigo === 'DIFUSION_REQUIERE_CASO_FELCC'
+          ? [
+              { text: 'Ahora no', style: 'cancel' },
+              {
+                text: 'Registrar el caso',
+                // `requiereCaso`: el detalle muestra el campo antes de firmar
+                // solo a quien lo necesita, y el servidor acaba de decirlo.
+                onPress: () =>
+                  navigation.navigate('DenunciaDetail', { id: denunciaId, requiereCaso: true }),
+              },
+            ]
+          : undefined,
       );
     } finally {
       setEnviando(false);
@@ -116,17 +124,11 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
     const etiqueta =
       vinculos.find((v) => v.valor === vinculo)?.etiqueta ?? 'la persona';
     Alert.alert(
-      esCorroboracion ? '¿Corroborar esta denuncia?' : '¿Firmar la declaración?',
-      esCorroboracion
-        ? `Declaras bajo juramento ser ${etiqueta} de la persona buscada.\n\nCorroborar compromete igual que denunciar: tu identidad queda asociada de forma permanente a esta denuncia, y la alerta ampliará su alcance.`
-        : `Declaras bajo juramento ser ${etiqueta} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.`,
+      '¿Firmar la declaración?',
+      `Declaras bajo juramento ser ${etiqueta} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.`,
       [
         { text: 'Cancelar', style: 'cancel' },
-        {
-          text: esCorroboracion ? 'Corroborar' : 'Firmar',
-          style: 'destructive',
-          onPress: firmar,
-        },
+        { text: 'Firmar', style: 'destructive', onPress: firmar },
       ],
     );
   };
@@ -160,9 +162,7 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
       automaticallyAdjustKeyboardInsets
       contentInsetAdjustmentBehavior="automatic"
     >
-      <Text style={styles.titulo}>
-        {esCorroboracion ? 'Corroborar la denuncia' : 'Firmar la declaración'}
-      </Text>
+      <Text style={styles.titulo}>Firmar la declaración</Text>
 
       <Text style={styles.etiqueta}>¿Qué eres de la persona desaparecida?</Text>
       <View style={styles.opciones}>
@@ -248,9 +248,7 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
         {enviando ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.botonTexto}>
-            {esCorroboracion ? 'Corroborar bajo juramento' : 'Firmar declaración jurada'}
-          </Text>
+          <Text style={styles.botonTexto}>Firmar declaración jurada</Text>
         )}
       </TouchableOpacity>
 

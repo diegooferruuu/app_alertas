@@ -31,6 +31,8 @@ import { estaSuspendida } from '../users/domain/estado-cuenta';
 import { nombreEscritoCoincide } from '../verification/domain/nombres';
 import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
 import { AlertasService } from '../alertas/alertas.service';
+import { SancionesService } from '../sanciones/sanciones.service';
+import { restriccion } from '../sanciones/restriccion';
 
 /**
  * El acto de firma de una declaración jurada.
@@ -48,6 +50,7 @@ export class FirmasService {
     private usersService: UsersService,
     private configService: ConfigService,
     private alertasService: AlertasService,
+    private sancionesService: SancionesService,
   ) {}
 
   private get config(): DenunciasConfig {
@@ -72,7 +75,7 @@ export class FirmasService {
   }
 
   /**
-   * Comprobaciones comunes a todo acto de firma, original o corroboración.
+   * Comprobaciones de quien firma, antes de abrir la transacción.
    *
    * Devuelve el usuario y la versión del texto para no releerlos después.
    */
@@ -84,11 +87,14 @@ export class FirmasService {
         'Debes registrar tu documento antes de firmar una declaración jurada',
       );
     }
-    // Solo la suspensión cierra la firma: firmar es lo que hace difundir. Una
-    // cuenta apenas RESTRINGIDA conserva el resto de funciones (§5.4), y firmar
-    // una denuncia que ya existía no es crear una nueva.
+    // La suspensión cierra la firma, porque firmar es lo que difunde. Lo que
+    // restringe una falta se comprueba al firmar, con la denuncia a la vista:
+    // depende de si ya tiene el caso de la FELCC.
     if (estaSuspendida(usuario.estado_cuenta)) {
-      throw new ForbiddenException('Tu cuenta está suspendida');
+      throw restriccion(
+        'CUENTA_SUSPENDIDA',
+        'Tu cuenta está suspendida: no puedes firmar declaraciones.',
+      );
     }
 
     // El nombre se compara contra el que quedó registrado con el documento, no
@@ -222,6 +228,38 @@ export class FirmasService {
         throw new ConflictException('Esta denuncia ya fue declarada bajo juramento');
       }
 
+      const conCasoFelcc = Boolean(denuncia.numero_caso_felcc?.trim());
+
+      // Las dos reglas valen solo para lo que se difundiría sin respaldo: con el
+      // caso de la FELCC, la Policía ya respalda la denuncia. Se comprueban antes
+      // de sellar, para no dejar una declaración firmada sin efecto.
+      if (!conCasoFelcc) {
+        if ((await this.sancionesService.faltasDe(userId, manager)) > 0) {
+          throw restriccion(
+            'DIFUSION_REQUIERE_CASO_FELCC',
+            'Por tu historial, tus denuncias solo se difunden con el número de caso de la FELCC. Regístralo y vuelve a firmar.',
+          );
+        }
+
+        // Dentro del cerrojo de la cadena, que serializa todas las firmas: dos
+        // firmas simultáneas no pueden pasar ambas el límite.
+        const provisionales = await manager
+          .getRepository(Denuncia)
+          .createQueryBuilder('d')
+          .where('d.denunciante_id = :id', { id: userId })
+          .andWhere('d.nivel_confianza = :nivel', { nivel: NivelConfianza.PROVISIONAL })
+          .andWhere('d.estado = :estado', { estado: EstadoDenuncia.ACTIVA })
+          .andWhere('d.expira_en > now()')
+          .getCount();
+        if (provisionales >= this.config.limiteAlertasProvisionales) {
+          throw restriccion(
+            'LIMITE_ALERTAS_PROVISIONALES',
+            `Ya tienes ${provisionales} alertas sin respaldo difundiéndose. Podrás difundir otra cuando alguna caduque o la respaldes con el número de caso de la FELCC.`,
+            409,
+          );
+        }
+      }
+
       await this.sellar(manager, {
         denuncia,
         usuario: { id: userId, ci_hash: usuario.ci_hash },
@@ -233,11 +271,20 @@ export class FirmasService {
         tipo: 'original',
       });
 
-      const { radio_m, horas } = this.alcanceSegunVinculo(vinculo);
+      // Con el caso de la FELCC ya registrado, la firma y el respaldo ocurren en
+      // el mismo acto: son las dos transiciones válidas —REGISTRADA a
+      // PROVISIONAL por la firma, PROVISIONAL a CORROBORADA por el respaldo—
+      // aplicadas juntas, sin saltarse la firma. Sale una sola emisión, ya con el
+      // alcance corroborado: emitir primero a 2 km y enseguida a 10 km avisaría
+      // dos veces a los mismos vecinos.
+      const nivel = conCasoFelcc ? NivelConfianza.CORROBORADA : NivelConfianza.PROVISIONAL;
+      const { radio_m, horas } = conCasoFelcc
+        ? { radio_m: this.config.radioCorroboradoM, horas: this.config.caducidadCorroboradaH }
+        : this.alcanceSegunVinculo(vinculo);
       const expiraEn = new Date(Date.now() + horas * 3_600_000);
 
       await manager.getRepository(Denuncia).update(denuncia.id, {
-        nivel_confianza: NivelConfianza.PROVISIONAL,
+        nivel_confianza: nivel,
         radio_actual_m: radio_m,
         expira_en: expiraEn,
       });
@@ -248,7 +295,7 @@ export class FirmasService {
       // guardan las tres cosas —declaración, difusión y trabajo— o ninguna.
       await this.alertasService.encolar(manager, denuncia.id, radio_m, 'firma');
 
-      return { firmada: true, nivel_confianza: NivelConfianza.PROVISIONAL };
+      return { firmada: true, nivel_confianza: nivel };
     });
   }
 
@@ -283,96 +330,17 @@ export class FirmasService {
     );
   }
 
-  /** Cuántas corroboraciones lleva una denuncia. Se deriva, no se cuenta aparte. */
-  private async corroboracionesDe(
-    manager: EntityManager,
-    denunciaId: string,
-  ): Promise<number> {
-    return manager.getRepository(DeclaracionJurada).count({
-      where: { denuncia_id: denunciaId, tipo: 'corroboracion' },
-    });
-  }
-
   /**
-   * Corrobora una denuncia ajena firmando la propia declaración jurada.
+   * Registra el número de caso de la FELCC: la **única** vía de corroboración.
    *
-   * No es un «me consta» ligero: quien corrobora firma con el mismo peso que
-   * quien denunció, y su identidad queda igual de atribuida. Por eso comparte
-   * paquete probatorio y el mismo acto de firma.
-   */
-  async corroborar(
-    userId: string,
-    denunciaId: string,
-    dto: FirmarDeclaracionDto,
-  ): Promise<{ corroborada: boolean; nivel_confianza: NivelConfianza }> {
-    const { usuario, version } = await this.validarFirmante(userId, dto);
-    const vinculo = dto.vinculo_declarado as VinculoDeclarado;
-
-    return this.dataSource.transaction(async (manager) => {
-      await manager.query('SELECT pg_advisory_xact_lock($1)', [
-        FirmasService.CERROJO_CADENA,
-      ]);
-
-      const denuncia = await this.denunciaCompleta(manager, denunciaId);
-
-      // Corroborarse a sí mismo no aporta respaldo alguno: es la misma persona
-      // diciendo dos veces lo mismo.
-      if (denuncia.denunciante_id === userId) {
-        throw new ForbiddenException(
-          'No puedes corroborar tu propia denuncia: la corroboración es el respaldo de otra persona',
-        );
-      }
-      if (denuncia.nivel_confianza === NivelConfianza.REGISTRADA) {
-        throw new ConflictException(
-          'Esta denuncia todavía no fue declarada bajo juramento por su autor',
-        );
-      }
-      if (
-        denuncia.estado === EstadoDenuncia.INVALIDADA ||
-        denuncia.estado === EstadoDenuncia.CERRADA
-      ) {
-        throw new ConflictException(
-          `Una denuncia ${denuncia.estado} no admite corroboración`,
-        );
-      }
-
-      const yaCorroboro = await manager.getRepository(DeclaracionJurada).count({
-        where: { denuncia_id: denunciaId, usuario_id: userId },
-      });
-      if (yaCorroboro > 0) {
-        throw new ConflictException('Ya firmaste una declaración sobre esta denuncia');
-      }
-
-      await this.sellar(manager, {
-        denuncia,
-        usuario: { id: userId, ci_hash: usuario.ci_hash },
-        versionId: version.id,
-        hashTextoLegal: version.hash_texto,
-        vinculo,
-        nombreEscrito: dto.nombre_escrito,
-        deviceId: dto.device_id ?? null,
-        tipo: 'corroboracion',
-      });
-
-      const corroboraciones = await this.corroboracionesDe(manager, denunciaId);
-      const suficientes = corroboraciones >= this.config.corroboradoresNecesarios;
-
-      if (suficientes && denuncia.nivel_confianza !== NivelConfianza.CORROBORADA) {
-        await this.ampliarPorCorroboracion(manager, denuncia);
-        return { corroborada: true, nivel_confianza: NivelConfianza.CORROBORADA };
-      }
-
-      // Firmó, pero todavía faltan respaldos para ampliar el alcance.
-      return { corroborada: false, nivel_confianza: denuncia.nivel_confianza };
-    });
-  }
-
-  /**
-   * Registra el número de caso de la FELCC: la otra vía de corroboración.
+   * La corroboración por otro usuario se eliminó: dos personas de acuerdo podían
+   * respaldar una denuncia falsa, y el respaldo de una autoridad no depende de
+   * eso. Aquí no hay declaración jurada porque lo que corrobora el caso es que
+   * exista una denuncia formal ante la Policía.
    *
-   * Aquí no hay declaración jurada porque el respaldo no viene de una persona
-   * del sistema sino de una autoridad: lo que corrobora el caso es que exista
-   * una denuncia formal, no que alguien más se comprometa.
+   * Se puede registrar **antes de firmar**: entonces solo se guarda, y la firma
+   * difunde la alerta ya respaldada. Es la vía de quien ya tiene el acta en la
+   * mano, y la única de quien tiene una falta.
    */
   async registrarCasoFelcc(
     userId: string,
@@ -388,9 +356,17 @@ export class FirmasService {
         );
       }
       if (denuncia.nivel_confianza === NivelConfianza.REGISTRADA) {
-        throw new ConflictException(
-          'Firma primero la declaración jurada de esta denuncia',
-        );
+        if (denuncia.estado !== EstadoDenuncia.ACTIVA) {
+          throw new ConflictException(
+            `Una denuncia ${denuncia.estado} no admite corroboración`,
+          );
+        }
+        // Todavía no se difunde nada: se guarda el número, y la firma la sacará
+        // directamente corroborada.
+        await manager.getRepository(Denuncia).update(denuncia.id, {
+          numero_caso_felcc: numeroCaso.trim(),
+        });
+        return { nivel_confianza: NivelConfianza.REGISTRADA };
       }
       if (
         denuncia.estado === EstadoDenuncia.INVALIDADA ||

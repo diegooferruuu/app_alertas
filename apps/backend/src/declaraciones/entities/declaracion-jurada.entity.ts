@@ -11,7 +11,13 @@ import { VinculoDeclarado } from '../domain/vinculos';
 import { VersionTextoLegal } from './version-texto-legal.entity';
 import { Denuncia } from '../../denuncias/entities/denuncia.entity';
 
-/** Distingue la declaración que difunde el caso de las que lo corroboran. */
+/**
+ * Distingue la declaración que difunde el caso de las que lo corroboraban.
+ *
+ * Ya no se firman corroboraciones: el único respaldo que se admite es el caso
+ * de la FELCC, que no es una declaración. El valor se conserva porque las
+ * declaraciones son de solo inserción y las firmadas antes deben poder leerse.
+ */
 export type TipoDeclaracion = 'original' | 'corroboracion';
 
 /**
@@ -47,11 +53,8 @@ export class DeclaracionJurada {
   vinculo_declarado!: VinculoDeclarado;
 
   /**
-   * Original difunde el caso; corroboración lo respalda.
-   *
-   * Un campo aquí evita una tabla aparte para las corroboraciones: son el mismo
-   * acto de firma, con el mismo paquete probatorio. El contador de
-   * corroboraciones se deriva de estas filas y no se guarda duplicado.
+   * Original difunde el caso; corroboración lo respaldaba (ver
+   * `TipoDeclaracion`: las nuevas son siempre originales).
    */
   @Column({ type: 'varchar', length: 20, default: 'original' })
   tipo!: TipoDeclaracion;

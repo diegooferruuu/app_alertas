@@ -57,20 +57,9 @@ export class DeclaracionesController {
   }
 
   /**
-   * Corrobora la denuncia de otra persona firmando la propia declaración.
-   *
-   * Compromete igual que la original: quien corrobora también queda atribuido.
+   * La única vía de corroboración: el respaldo de una denuncia formal ante la
+   * Policía. Se puede registrar antes o después de firmar.
    */
-  @Post('denuncias/:denunciaId/corroborar')
-  async corroborar(
-    @CurrentUser() user: any,
-    @Param('denunciaId') denunciaId: string,
-    @Body() dto: FirmarDeclaracionDto,
-  ) {
-    return this.firmasService.corroborar(user.userId, denunciaId, dto);
-  }
-
-  /** La otra vía de corroboración: el respaldo de una denuncia formal. */
   @Post('denuncias/:denunciaId/caso-felcc')
   async registrarCasoFelcc(
     @CurrentUser() user: any,

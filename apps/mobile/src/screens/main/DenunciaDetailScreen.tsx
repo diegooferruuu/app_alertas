@@ -20,6 +20,29 @@ import denunciaService, {
   primeraFotografia,
   declaracionService,
 } from '../../services/denuncia.service';
+import sancionesService, { SituacionSanciones } from '../../services/sanciones.service';
+import { rechazoDe } from '../../services/restricciones';
+
+/**
+ * Por qué esta cuenta no puede firmar todavía, o `null` si puede.
+ *
+ * Es una comodidad, no un control: el servidor vuelve a comprobarlo al firmar.
+ * Existe para no hacer leer el texto legal y escribir el nombre a quien se va
+ * a rechazar al final.
+ */
+const impedimentoParaFirmar = (
+  situacion: SituacionSanciones | null,
+  conCasoFelcc: boolean,
+  requiereCaso: boolean,
+): string | null => {
+  if (situacion?.estado === 'SUSPENDIDA') {
+    return 'Tu cuenta está suspendida: no puedes firmar declaraciones.';
+  }
+  if (requiereCaso && !conCasoFelcc) {
+    return 'Por tu historial, tus denuncias solo se difunden con el número de caso de la FELCC. Regístralo abajo para poder firmar.';
+  }
+  return null;
+};
 
 const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -28,22 +51,23 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   const { id } = route.params;
   const [denuncia, setDenuncia] = useState<Denuncia | null>(null);
   const [loading, setLoading] = useState(true);
+  const [situacion, setSituacion] = useState<SituacionSanciones | null>(null);
 
-  // FELCC · desactivado a propósito para la demostración (2026-09-15).
-  //
-  // El respaldo por caso formal es la segunda vía de corroboración y funciona,
-  // pero se deja fuera hasta tenerlo resuelto de punta a punta. El servidor
-  // conserva el endpoint y la columna: esto es solo la vía de entrada.
-  // Para restaurarlo, descomentar aquí, el manejador `registrarCaso` y el
-  // bloque de la interfaz, todos marcados con «FELCC ·».
-  // const [numeroCaso, setNumeroCaso] = useState('');
-  // const [mostrarCampoCaso, setMostrarCampoCaso] = useState(false);
-  // const [guardandoCaso, setGuardandoCaso] = useState(false);
+  const [numeroCaso, setNumeroCaso] = useState('');
+  const [mostrarCampoCaso, setMostrarCampoCaso] = useState(false);
+  const [guardandoCaso, setGuardandoCaso] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const data = await denunciaService.getOne(id);
       setDenuncia(data);
+      // Solo hace falta para quien todavía tiene que firmar.
+      if (data.es_mia && data.nivel_confianza === 'REGISTRADA') {
+        sancionesService
+          .miSituacion()
+          .then(setSituacion)
+          .catch(() => setSituacion(null));
+      }
     } catch {
       Alert.alert('Error', 'No se pudo cargar la denuncia.');
     } finally {
@@ -67,46 +91,125 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
 
   const meta = DENUNCIA_META;
   const isOwner = denuncia.es_mia;
-
-  // Una denuncia INVALIDADA o CERRADA ya no admite respaldo; una CADUCADA sí,
-  // porque una corroboración tardía puede devolverla a difusión. Lo usa también
-  // el botón de corroborar, que sigue activo.
-  const admiteRespaldo =
-    denuncia.nivel_confianza !== 'REGISTRADA' &&
-    denuncia.estado !== 'INVALIDADA' &&
-    denuncia.estado !== 'CERRADA';
-
-  // FELCC · desactivado a propósito para la demostración (2026-09-15).
-  //
-  // const registrarCaso = async () => {
-  //   setGuardandoCaso(true);
-  //   try {
-  //     await declaracionService.registrarCasoFelcc(denuncia.id, numeroCaso.trim());
-  //     setMostrarCampoCaso(false);
-  //     setNumeroCaso('');
-  //     await load();
-  //     Alert.alert(
-  //       'Caso registrado',
-  //       'La denuncia quedó respaldada por el caso formal y su alerta amplía el alcance.',
-  //     );
-  //   } catch (err: any) {
-  //     Alert.alert(
-  //       'No se pudo registrar',
-  //       err?.response?.data?.message || 'Revisa el número e intenta de nuevo.',
-  //     );
-  //   } finally {
-  //     setGuardandoCaso(false);
-  //   }
-  // };
+  const conCasoFelcc = Boolean(denuncia.numero_caso_felcc);
 
   // Una vez firmada, el contenido queda sellado por su hash: editarlo rompería
   // la cadena probatoria.
   const editable = denuncia.nivel_confianza === 'REGISTRADA';
+
+  // Quien tiene una falta no puede difundir sin el caso, así que a esa cuenta
+  // se le pide antes de firmar. Lo dice su situación o, si no se pudo
+  // consultar, el propio servidor al rechazar la firma (`requiereCaso`).
+  const requiereCasoParaFirmar =
+    editable && (situacion?.estado === 'CON_FALTA' || Boolean(route.params?.requiereCaso));
+
+  // El caso de la FELCC es la única vía de corroboración, y se ofrece para eso:
+  // sobre una denuncia ya difundida, o sobre una vencida, a la que devuelve a
+  // difusión. No se pide para denunciar: se puede denunciar antes de haber ido
+  // a la FELCC, y pedir el número tan pronto empujaría a inventarlo. Una
+  // INVALIDADA o CERRADA ya no lo admite.
+  const admiteCaso =
+    isOwner &&
+    !conCasoFelcc &&
+    (denuncia.estado === 'ACTIVA' || denuncia.estado === 'CADUCADA') &&
+    (!editable || requiereCasoParaFirmar);
+
+  const registrarCaso = async () => {
+    setGuardandoCaso(true);
+    try {
+      const { nivel_confianza } = await declaracionService.registrarCasoFelcc(
+        denuncia.id,
+        numeroCaso.trim(),
+      );
+      setMostrarCampoCaso(false);
+      setNumeroCaso('');
+      await load();
+      Alert.alert(
+        'Caso registrado',
+        nivel_confianza === 'REGISTRADA'
+          ? 'Al firmar, la alerta saldrá respaldada por el caso de la FELCC, con mayor alcance.'
+          : 'La alerta quedó respaldada por el caso de la FELCC y amplió su alcance.',
+      );
+    } catch (err) {
+      const rechazo = rechazoDe(err, {
+        titulo: 'No se pudo registrar',
+        mensaje: 'Revisa el número e intenta de nuevo.',
+      });
+      Alert.alert(rechazo.titulo, rechazo.mensaje);
+    } finally {
+      setGuardandoCaso(false);
+    }
+  };
+
+  const impedimento = editable
+    ? impedimentoParaFirmar(situacion, conCasoFelcc, requiereCasoParaFirmar)
+    : null;
   const fotografia = primeraFotografia(denuncia);
   const date = new Date(denuncia.created_at).toLocaleString();
 
+  const ayudaCaso = editable
+    ? 'Cuando hayas hecho la denuncia en la FELCC, registra aquí su número de caso para poder firmar.'
+    : denuncia.estado === 'CADUCADA'
+      ? 'La alerta venció. Si ya hiciste la denuncia en la FELCC, registra su número de caso y vuelve a difundirse con mayor alcance.'
+      : 'Si ya hiciste la denuncia en la FELCC, registra su número de caso: la alerta amplía su alcance y su plazo.';
+
+  const bloqueCaso = admiteCaso && (
+    <View style={styles.casoBloque}>
+      {mostrarCampoCaso ? (
+        <>
+          <Text style={styles.casoEtiqueta}>Número de caso de la FELCC</Text>
+          <TextInput
+            style={styles.casoCampo}
+            value={numeroCaso}
+            onChangeText={setNumeroCaso}
+            placeholder="Ej. 1234/2026"
+            placeholderTextColor="#9a9a9a"
+            autoCapitalize="characters"
+            autoCorrect={false}
+          />
+          <Text style={styles.casoNota}>El número queda registrado a tu nombre.</Text>
+          <View style={styles.casoAcciones}>
+            <TouchableOpacity
+              style={styles.casoCancelar}
+              onPress={() => {
+                setMostrarCampoCaso(false);
+                setNumeroCaso('');
+              }}
+            >
+              <Text style={styles.casoCancelarText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.casoGuardar,
+                numeroCaso.trim().length < 3 && styles.casoGuardarOff,
+              ]}
+              disabled={numeroCaso.trim().length < 3 || guardandoCaso}
+              onPress={registrarCaso}
+            >
+              {guardandoCaso ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.casoGuardarText}>Registrar</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={styles.casoAyuda}>{ayudaCaso}</Text>
+          <TouchableOpacity style={styles.editButton} onPress={() => setMostrarCampoCaso(true)}>
+            <Ionicons name="shield-outline" size={18} color="#007AFF" />
+            <Text style={styles.editText}>
+              {editable ? 'Registrar caso FELCC' : 'Corroborar con la FELCC'}
+            </Text>
+          </TouchableOpacity>
+        </>
+      )}
+    </View>
+  );
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       {fotografia ? (
         <Image
           source={{ uri: `data:image/jpeg;base64,${fotografia}` }}
@@ -167,8 +270,15 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
           <View style={styles.ownerActions}>
             {editable ? (
               <>
+                {impedimento && (
+                  <View style={styles.aviso}>
+                    <Ionicons name="alert-circle-outline" size={16} color="#8F5600" />
+                    <Text style={styles.avisoText}>{impedimento}</Text>
+                  </View>
+                )}
                 <TouchableOpacity
-                  style={styles.firmarButton}
+                  style={[styles.firmarButton, impedimento ? styles.firmarButtonOff : null]}
+                  disabled={Boolean(impedimento)}
                   onPress={() =>
                     navigation.navigate('TextoLegal', { denunciaId: denuncia.id })
                   }
@@ -180,6 +290,7 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                   Por ahora esta denuncia solo la ves tú. Al firmar la declaración
                   jurada empezará a alertarse a la zona.
                 </Text>
+                {bloqueCaso}
                 <TouchableOpacity
                   style={styles.editButton}
                   onPress={() => navigation.navigate('EditDenuncia', { denuncia })}
@@ -198,91 +309,9 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                     difundirse al vencer su plazo.
                   </Text>
                 </View>
-
-                {/* FELCC · desactivado a propósito para la demostración
-                    (2026-09-15). La otra vía de corroboración: el respaldo de
-                    una denuncia formal ante la FELCC, que amplía radio y plazo
-                    sin necesitar que otra persona firme. Se retoma después.
-
-                {admiteRespaldo && !denuncia.numero_caso_felcc && (
-                  <View style={styles.casoBloque}>
-                    {mostrarCampoCaso ? (
-                      <>
-                        <Text style={styles.casoEtiqueta}>
-                          Número de caso de la FELCC
-                        </Text>
-                        <TextInput
-                          style={styles.casoCampo}
-                          value={numeroCaso}
-                          onChangeText={setNumeroCaso}
-                          placeholder="Ej. 1234/2026"
-                          autoCapitalize="characters"
-                          autoCorrect={false}
-                        />
-                        <View style={styles.casoAcciones}>
-                          <TouchableOpacity
-                            style={styles.casoCancelar}
-                            onPress={() => {
-                              setMostrarCampoCaso(false);
-                              setNumeroCaso('');
-                            }}
-                          >
-                            <Text style={styles.casoCancelarText}>Cancelar</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[
-                              styles.casoGuardar,
-                              numeroCaso.trim().length < 3 && styles.casoGuardarOff,
-                            ]}
-                            disabled={numeroCaso.trim().length < 3 || guardandoCaso}
-                            onPress={registrarCaso}
-                          >
-                            {guardandoCaso ? (
-                              <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                              <Text style={styles.casoGuardarText}>Registrar</Text>
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.editButton}
-                        onPress={() => setMostrarCampoCaso(true)}
-                      >
-                        <Ionicons name="shield-outline" size={18} color="#007AFF" />
-                        <Text style={styles.editText}>Registrar caso FELCC</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )}
-
-                    fin FELCC · */}
+                {bloqueCaso}
               </>
             )}
-          </View>
-        )}
-
-        {/* Corroborar la denuncia de otra persona. Compromete igual que
-            denunciar, así que pasa por la misma declaración jurada. */}
-        {!isOwner && admiteRespaldo && (
-          <View style={styles.ownerActions}>
-            <TouchableOpacity
-              style={styles.corroborarButton}
-              onPress={() =>
-                navigation.navigate('TextoLegal', {
-                  denunciaId: denuncia.id,
-                  modo: 'corroborar',
-                })
-              }
-            >
-              <Ionicons name="people-outline" size={18} color="#fff" />
-              <Text style={styles.firmarText}>Corroborar esta denuncia</Text>
-            </TouchableOpacity>
-            <Text style={styles.firmarAyuda}>
-              Solo si te consta. Al corroborar firmas tu propia declaración jurada
-              y tu identidad queda asociada al caso.
-            </Text>
           </View>
         )}
       </View>
@@ -322,7 +351,7 @@ const styles = StyleSheet.create({
   filaEtiqueta: { fontSize: 14, color: '#888' },
   filaValor: { fontSize: 14, color: '#1a1a1a', fontWeight: '500', flexShrink: 1, textAlign: 'right' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  metaText: { fontSize: 13, color: '#888' },
+  metaText: { fontSize: 13, color: '#888', flexShrink: 1 },
   ownerActions: { marginTop: 24, gap: 12 },
   firmarButton: {
     flexDirection: 'row',
@@ -333,6 +362,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#B32C24',
   },
+  firmarButtonOff: { backgroundColor: '#c3c9d6' },
   firmarText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   firmarAyuda: { fontSize: 13, color: '#777', lineHeight: 18, textAlign: 'center' },
   aviso: {
@@ -345,7 +375,6 @@ const styles = StyleSheet.create({
   },
   avisoText: { flex: 1, fontSize: 13, color: '#6B4300', lineHeight: 19 },
   editButton: {
-    flex: 1,
     flexDirection: 'row',
     gap: 6,
     justifyContent: 'center',
@@ -356,16 +385,8 @@ const styles = StyleSheet.create({
     borderColor: '#007AFF',
   },
   editText: { color: '#007AFF', fontWeight: '600' },
-  corroborarButton: {
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 15,
-    borderRadius: 10,
-    backgroundColor: '#1F4FD8',
-  },
   casoBloque: { gap: 10 },
+  casoAyuda: { fontSize: 13, color: '#555', lineHeight: 19 },
   casoEtiqueta: { fontSize: 14, fontWeight: '600', color: '#333' },
   casoCampo: {
     borderWidth: 1.5,
@@ -374,8 +395,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
+    color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
+  casoNota: { fontSize: 12, color: '#888' },
   casoAcciones: { flexDirection: 'row', gap: 10 },
   casoCancelar: {
     flex: 1,

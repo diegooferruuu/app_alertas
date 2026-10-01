@@ -135,9 +135,9 @@ export class ConstanciasService {
    *
    * Dos vías de autorización, con alcances distintos:
    *
-   *  - **La persona reportada** ve a todos los firmantes. Corroborar compromete
-   *    igual que denunciar, así que quien respaldó el caso también queda
-   *    atribuido frente a ella.
+   *  - **La persona reportada** ve a todos los firmantes. Hoy firma solo quien
+   *    denuncia; en denuncias anteriores también firmaba quien corroboraba, y
+   *    eso compromete igual que denunciar, así que también queda atribuido.
    *  - **Quien firmó** accede solo a su propia declaración: tiene derecho a la
    *    copia de lo que declaró, no a la identidad de los demás.
    *

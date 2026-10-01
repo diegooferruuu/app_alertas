@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Logger,
 } from '@nestjs/common';
 import { Repository } from 'typeorm';
@@ -19,7 +20,9 @@ import { EstadoCuenta } from '../users/domain/estado-cuenta';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from '../users/entities/refresh-token.entity';
-import { ReputationEvent } from '../users/entities/reputation-event.entity';
+import { SancionesService } from '../sanciones/sanciones.service';
+import { Falta } from '../sanciones/entities/falta.entity';
+import { Cierre, TipoCierre } from '../cierres/entities/cierre.entity';
 import { AlertasService } from '../alertas/alertas.service';
 import { PasarelaPush, PasarelaPushSimulada } from '../alertas/pasarela-push';
 import { EmisionAlerta } from '../alertas/entities/emision-alerta.entity';
@@ -50,7 +53,8 @@ describe('DenunciasService (integración)', () => {
           FotografiaDenuncia,
           User,
           RefreshToken,
-          ReputationEvent,
+          Falta,
+          Cierre,
           EmisionAlerta,
           EntregaAlerta,
           Dispositivo,
@@ -59,6 +63,7 @@ describe('DenunciasService (integración)', () => {
       providers: [
         DenunciasService,
         UsersService,
+        SancionesService,
         AlertasService,
         { provide: PasarelaPush, useClass: PasarelaPushSimulada },
       ],
@@ -149,36 +154,6 @@ describe('DenunciasService (integración)', () => {
       await expect(service.create(visitante.id, datosDeDenuncia)).rejects.toThrow(
         ForbiddenException,
       );
-    });
-
-    it('rechaza a una cuenta suspendida (sanción 5.4)', async () => {
-      const autor = await crearDenunciante();
-      await usuarios.update(autor.id, { estado_cuenta: EstadoCuenta.SUSPENDIDA });
-
-      await expect(service.create(autor.id, datosDeDenuncia)).rejects.toThrow(
-        ForbiddenException,
-      );
-    });
-
-    it('rechaza a una cuenta con restricción vigente, pero no si ya venció', async () => {
-      const autor = await crearDenunciante();
-
-      // Restricción vigente: no puede crear.
-      await usuarios.update(autor.id, {
-        estado_cuenta: EstadoCuenta.RESTRINGIDA,
-        restringida_hasta: new Date(Date.now() + 3_600_000),
-      });
-      await expect(service.create(autor.id, datosDeDenuncia)).rejects.toThrow(
-        ForbiddenException,
-      );
-
-      // Mismo estado, plazo vencido: la restricción se levanta sola.
-      await usuarios.update(autor.id, {
-        restringida_hasta: new Date(Date.now() - 3_600_000),
-      });
-      await expect(
-        service.create(autor.id, datosDeDenuncia),
-      ).resolves.toBeDefined();
     });
 
     it('guarda el documento de la persona buscada solo como hash', async () => {
@@ -385,6 +360,158 @@ describe('DenunciasService (integración)', () => {
 
       expect(Number(filas[0].latitude)).toBe(Number(filas[1].latitude));
       expect(Number(filas[0].longitude)).toBe(Number(filas[1].longitude));
+    });
+  });
+
+  describe('régimen de sanciones al denunciar', () => {
+    const hashDe = (ci: string) => createHash('sha256').update(ci.trim()).digest('hex');
+
+    /** Ejecuta la creación esperando un rechazo, y lo devuelve para revisarlo. */
+    const rechazoDe = async (promesa: Promise<unknown>): Promise<HttpException> => {
+      try {
+        await promesa;
+      } catch (error) {
+        return error as HttpException;
+      }
+      throw new Error('Se esperaba que la creación se rechazara');
+    };
+
+    /**
+     * Deja cerrada una denuncia del autor, como la dejaría la persona reportada.
+     *
+     * Se escribe la fila directamente: cómo se llega a ella lo prueba la suite de
+     * cierres; aquí importa qué permite después.
+     */
+    const cerrar = async (
+      autor: User,
+      denunciaId: string,
+      tipo: TipoCierre,
+      bloquea: boolean,
+    ) => {
+      await denuncias.update(denunciaId, { estado: EstadoDenuncia.INVALIDADA });
+      await denuncias.manager.insert(Cierre, {
+        denuncia_id: denunciaId,
+        ci_hash_denunciante: autor.ci_hash!,
+        ci_hash_persona_buscada: hashDe(datosDeDenuncia.ci_persona_buscada),
+        tipo_cierre: tipo,
+        bloquea_nueva_denuncia: bloquea,
+      });
+    };
+
+    it('una cuenta suspendida no denuncia, y el rechazo trae su código', async () => {
+      const autor = await crearDenunciante();
+      await usuarios.update(autor.id, { estado_cuenta: EstadoCuenta.SUSPENDIDA });
+
+      const rechazo = await rechazoDe(service.create(autor.id, datosDeDenuncia));
+
+      expect(rechazo).toBeInstanceOf(ForbiddenException);
+      expect(rechazo.getResponse()).toMatchObject({ codigo: 'CUENTA_SUSPENDIDA' });
+    });
+
+    it('una falta no quita la facultad de denunciar (I9)', async () => {
+      // Lo que restringe es la difusión: firmar le exigirá el caso de la FELCC.
+      const autor = await crearDenunciante();
+      const anterior = await service.create(autor.id, {
+        ...datosDeDenuncia,
+        ci_persona_buscada: '1111111',
+      });
+      await denuncias.update(anterior.id, { estado: EstadoDenuncia.INVALIDADA });
+      await denuncias.manager.insert(Falta, {
+        usuario_id: autor.id,
+        tipo: 'CIERRE_CON_SANCION',
+        denuncia_id: anterior.id,
+      });
+
+      const nueva = await service.create(autor.id, datosDeDenuncia);
+
+      expect(nueva.nivel_confianza).toBe(NivelConfianza.REGISTRADA);
+    });
+
+    it('no admite una segunda denuncia abierta sobre la misma persona', async () => {
+      const autor = await crearDenunciante();
+      await service.create(autor.id, datosDeDenuncia);
+
+      const rechazo = await rechazoDe(service.create(autor.id, datosDeDenuncia));
+
+      expect(rechazo).toBeInstanceOf(ConflictException);
+      expect(rechazo.getResponse()).toMatchObject({
+        codigo: 'DENUNCIA_ABIERTA_SOBRE_PERSONA',
+      });
+      expect(await denuncias.count()).toBe(1);
+    });
+
+    it('una caducada sigue abierta: tampoco admite otra encima', async () => {
+      // El camino para volver a difundirla es el caso de la FELCC, no duplicarla.
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+      await denuncias.update(id, { estado: EstadoDenuncia.CADUCADA });
+
+      const rechazo = await rechazoDe(service.create(autor.id, datosDeDenuncia));
+
+      expect(rechazo.getResponse()).toMatchObject({
+        codigo: 'DENUNCIA_ABIERTA_SOBRE_PERSONA',
+      });
+    });
+
+    it('la regla es de cada denunciante: otra persona sí puede denunciar a la misma', async () => {
+      // Si fuera de todo el sistema, el rechazo revelaría que alguien ya la
+      // denunció: bastaría probar documentos para saber a quién se busca.
+      const autor = await crearDenunciante();
+      const vecina = await crearDenunciante('vecina@test.com');
+      await service.create(autor.id, datosDeDenuncia);
+
+      await expect(service.create(vecina.id, datosDeDenuncia)).resolves.toBeDefined();
+    });
+
+    it('cerrada con «Estoy bien» sin bloqueo, se puede volver a denunciar', async () => {
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+      await cerrar(autor, id, TipoCierre.SIN_SANCION, false);
+
+      const nueva = await service.create(autor.id, datosDeDenuncia);
+
+      expect(nueva.id).not.toBe(id);
+    });
+
+    it('el bloqueo no revela qué cierre eligió la persona', async () => {
+      // «Estoy bien» con bloqueo y «Es falsa» rechazan con la misma respuesta:
+      // si fueran distintas, el rechazo delataría cuál de los dos se eligió.
+      const porEstoyBien = await crearDenunciante('uno@test.com');
+      const porFalsa = await crearDenunciante('dos@test.com');
+      const primera = await service.create(porEstoyBien.id, datosDeDenuncia);
+      const segunda = await service.create(porFalsa.id, datosDeDenuncia);
+      await cerrar(porEstoyBien, primera.id, TipoCierre.SIN_SANCION, true);
+      await cerrar(porFalsa, segunda.id, TipoCierre.CON_SANCION, true);
+
+      const rechazoA = await rechazoDe(service.create(porEstoyBien.id, datosDeDenuncia));
+      const rechazoB = await rechazoDe(service.create(porFalsa.id, datosDeDenuncia));
+
+      expect(rechazoA.getResponse()).toMatchObject({
+        codigo: 'DENUNCIA_SOBRE_PERSONA_BLOQUEADA',
+      });
+      expect(rechazoA.getStatus()).toBe(rechazoB.getStatus());
+      expect(rechazoA.getResponse()).toEqual(rechazoB.getResponse());
+    });
+
+    it('dos envíos simultáneos: uno se registra y el otro recibe el 409', async () => {
+      // La comprobación previa no alcanza: las dos peticiones pueden pasarla
+      // antes de que ninguna inserte. Lo garantiza el índice único de la base.
+      const autor = await crearDenunciante();
+
+      const resultados = await Promise.allSettled([
+        service.create(autor.id, datosDeDenuncia),
+        service.create(autor.id, datosDeDenuncia),
+      ]);
+
+      const rechazos = resultados.filter(
+        (r): r is PromiseRejectedResult => r.status === 'rejected',
+      );
+      expect(rechazos).toHaveLength(1);
+      expect(rechazos[0].reason).toBeInstanceOf(ConflictException);
+      expect(rechazos[0].reason.getResponse()).toMatchObject({
+        codigo: 'DENUNCIA_ABIERTA_SOBRE_PERSONA',
+      });
+      expect(await denuncias.count()).toBe(1);
     });
   });
 

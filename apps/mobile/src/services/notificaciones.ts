@@ -195,8 +195,8 @@ export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegist
  * Suscribe la reacción a una alerta tocada.
  *
  * El servidor manda `denuncia_id` y `motivo` en los datos de la notificación, así
- * que se puede llevar a la persona directo a lo que le concierne: al interruptor
- * si la denuncia la identifica, o al detalle si es una alerta de su zona.
+ * que se puede llevar a la persona directo a lo que le concierne: a cerrarla si
+ * la denuncia la identifica, o al detalle si es una alerta de su zona.
  */
 export function alTocarUnaAlerta(
   navegar: (pantalla: string, params?: Record<string, unknown>) => void,

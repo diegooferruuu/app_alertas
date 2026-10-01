@@ -8,12 +8,14 @@ import { DeclaracionJurada } from './entities/declaracion-jurada.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { UsersModule } from '../users/users.module';
 import { AlertasModule } from '../alertas/alertas.module';
+import { SancionesModule } from '../sanciones/sanciones.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([VersionTextoLegal, DeclaracionJurada, Denuncia]),
     UsersModule,
     AlertasModule,
+    SancionesModule,
   ],
   controllers: [DeclaracionesController],
   providers: [DeclaracionesService, FirmasService],

@@ -90,5 +90,5 @@ export class DenunciasController {
 
   // No hay DELETE, y no es un olvido: el invariante I7 dice que ningún rol
   // puede eliminar una denuncia. Una alerta deja de difundirse por caducidad o
-  // por desactivación de la persona reportada, nunca borrando la fila.
+  // porque la cierra la persona reportada, nunca borrando la fila.
 }

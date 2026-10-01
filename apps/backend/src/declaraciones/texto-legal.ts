@@ -51,3 +51,51 @@ ALCANCE DE LA DIFUSIÓN
 Entiendo que esta denuncia se difundirá mediante notificaciones a personas que se encuentren en la zona del último lugar conocido, que ese alcance es limitado y que la alerta caducará por sí sola si nadie corrobora el caso dentro del plazo establecido.
 
 Declaro haber leído íntegramente este texto antes de aceptarlo.`;
+
+/**
+ * Segunda versión: el régimen de faltas.
+ *
+ * Reemplaza las consecuencias de la v1 —puntaje de reputación y restricción
+ * temporal— por las del régimen vigente, y nombra el único respaldo que amplía
+ * una alerta: el número de caso de la FELCC. Lo demás es idéntico a la v1.
+ *
+ * La v1 **no se toca nunca**: las declaraciones ya firmadas la referencian y su
+ * hash está guardado. Cambiar el texto de una versión publicada haría que esas
+ * constancias dejaran de verificar.
+ */
+export const VERSION_REGIMEN_FALTAS = 'v2';
+
+export const TEXTO_LEGAL_V2 = `DECLARACIÓN JURADA DE DENUNCIA POR DESAPARICIÓN
+
+Declaro bajo juramento ser {{VINCULO}} de la persona que reporto como desaparecida, y que los datos que he consignado en esta denuncia son verdaderos.
+
+RESPONSABILIDAD PENAL
+
+Conozco que presentar una denuncia falsa constituye un delito conforme a la legislación boliviana y acarrea responsabilidad penal. Entiendo que esta declaración puede ser presentada como prueba ante una autoridad competente.
+
+REGISTRO PERMANENTE DE MI IDENTIDAD
+
+Acepto que mi identidad, el documento con el que registré mi cuenta y el vínculo que acabo de declarar queden asociados de forma permanente e inalterable a esta denuncia.
+
+Comprendo que la persona a la que reporto puede solicitar una constancia con estos datos, y que esa constancia le será entregada sin necesidad de que justifique su solicitud. Acepto esta atribución como condición para que la alerta se difunda.
+
+CONSECUENCIAS DENTRO DEL SISTEMA
+
+Entiendo que la persona reportada puede cerrar esta alerta en cualquier momento, declarando que está bien o que esta denuncia es falsa, y que en ambos casos la alerta dejará de difundirse de inmediato.
+
+Si declara que está bien, no recibiré ninguna sanción. Podrá decidir, además, si puedo volver a denunciarla.
+
+Si declara que esta denuncia es falsa:
+
+1. Recibiré una falta, que quedará registrada de forma permanente.
+2. No podré volver a denunciar a esa persona.
+3. Mientras tenga una falta, las alertas que presente solo se difundirán si registro el número de caso de la FELCC.
+4. Si dos personas distintas declaran falsas denuncias mías, mi cuenta será suspendida y mi documento quedará bloqueado para volver a registrarse.
+
+Comprendo que estas consecuencias son automáticas y que no existe una instancia administradora ante la cual apelar.
+
+ALCANCE DE LA DIFUSIÓN
+
+Entiendo que esta denuncia se difundirá mediante notificaciones a personas que se encuentren en la zona del último lugar conocido, que ese alcance es limitado y que la alerta caducará por sí sola si el caso no se respalda con el número de caso de la FELCC dentro del plazo establecido.
+
+Declaro haber leído íntegramente este texto antes de aceptarlo.`;

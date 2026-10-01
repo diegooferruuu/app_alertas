@@ -109,12 +109,13 @@ export const ESTADO_META: Record<
 > = {
   CADUCADA: {
     label: 'Alerta vencida',
-    desc: 'Dejó de difundirse por falta de respaldo. El caso sigue registrado.',
+    // Lo leen también quienes no la presentaron: no se le habla al autor.
+    desc: 'Venció su plazo sin el caso de la FELCC. Sigue registrada y puede volver a difundirse con él.',
     color: '#8E8E93',
   },
   INVALIDADA: {
     label: 'Alerta retirada',
-    desc: 'La persona reportada retiró esta alerta.',
+    desc: 'La persona reportada cerró esta alerta.',
     color: '#B32C24',
   },
   CERRADA: {
@@ -141,7 +142,7 @@ export const NIVEL_META: Record<
   },
   CORROBORADA: {
     label: 'Corroborada',
-    desc: 'Con respaldo. Se alerta a una zona más amplia.',
+    desc: 'Respaldada por el caso de la FELCC. Se alerta a una zona más amplia.',
     color: '#34C759',
   },
 };
@@ -256,6 +257,16 @@ export interface FirmarPayload {
   device_id?: string;
 }
 
+/**
+ * Con qué nivel quedó la denuncia. CORROBORADA si el caso de la FELCC ya
+ * estaba registrado al firmar: sale con el alcance ampliado, en una sola
+ * emisión.
+ */
+export interface ResultadoFirma {
+  firmada: true;
+  nivel_confianza: NivelConfianza;
+}
+
 class DeclaracionService {
   async textoLegal(): Promise<TextoLegal> {
     const response = await apiClient.get<TextoLegal>('/declaraciones/texto-legal');
@@ -273,32 +284,32 @@ class DeclaracionService {
     return response.data;
   }
 
-  async firmar(denunciaId: string, payload: FirmarPayload): Promise<void> {
-    await apiClient.post(
+  async firmar(denunciaId: string, payload: FirmarPayload): Promise<ResultadoFirma> {
+    const response = await apiClient.post<ResultadoFirma>(
       `/declaraciones/denuncias/${denunciaId}/firmar`,
       payload,
     );
+    return response.data;
   }
 
   /**
-   * Corrobora la denuncia de otra persona.
+   * La única vía de corroboración: el número de caso de la denuncia formal ante
+   * la FELCC. La corroboración por la firma de otra persona se retiró.
    *
-   * Misma ceremonia y mismo compromiso que firmar la propia: quien corrobora
-   * también queda atribuido. Por eso reutiliza la pantalla de firma en lugar de
-   * ofrecer un botón de "confirmar" barato.
+   * Después de firmar amplía el alcance de inmediato, y revive una alerta
+   * vencida. Antes de firmar solo guarda el número (sigue REGISTRADA) y la firma
+   * la difunde ya corroborada; la app lo ofrece ahí únicamente a quien tiene una
+   * falta, que sin el caso no puede difundir.
    */
-  async corroborar(denunciaId: string, payload: FirmarPayload): Promise<void> {
-    await apiClient.post(
-      `/declaraciones/denuncias/${denunciaId}/corroborar`,
-      payload,
+  async registrarCasoFelcc(
+    denunciaId: string,
+    numeroCaso: string,
+  ): Promise<{ nivel_confianza: NivelConfianza }> {
+    const response = await apiClient.post<{ nivel_confianza: NivelConfianza }>(
+      `/declaraciones/denuncias/${denunciaId}/caso-felcc`,
+      { numero_caso: numeroCaso },
     );
-  }
-
-  /** La otra vía de corroboración: el respaldo de una denuncia formal. */
-  async registrarCasoFelcc(denunciaId: string, numeroCaso: string): Promise<void> {
-    await apiClient.post(`/declaraciones/denuncias/${denunciaId}/caso-felcc`, {
-      numero_caso: numeroCaso,
-    });
+    return response.data;
   }
 }
 

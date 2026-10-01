@@ -53,6 +53,15 @@ import {
 @Entity('denuncias')
 @Index('idx_denuncias_created_at', ['created_at'])
 @Index('idx_denuncias_ci_persona_buscada', ['ci_hash_persona_buscada'])
+// Una sola denuncia abierta por denunciante y persona. Sin esto, dos denuncias
+// simultáneas sobre la misma persona, cerradas ambas como falsas, suspenderían
+// una cuenta por la palabra de una sola persona. Vive en la base y no solo en
+// el código para que dos peticiones a la vez no lo esquiven. «Abierta» incluye
+// CADUCADA, porque una caducada todavía puede revivir con el caso de la FELCC.
+@Index('uq_denuncias_abierta_por_persona', ['denunciante_id', 'ci_hash_persona_buscada'], {
+  unique: true,
+  where: `"estado" IN ('ACTIVA', 'CADUCADA')`,
+})
 // Los valores válidos se controlan en el dominio; estas restricciones son la
 // segunda línea, para que una escritura directa a la base no pueda dejar la
 // máquina de estados en un valor que el código no sabe interpretar.
@@ -132,8 +141,8 @@ export class Denuncia {
   /**
    * SHA-256 del documento de la persona buscada. Obligatorio.
    *
-   * Es el campo que habilita el interruptor de desactivación: sin él, la persona
-   * reportada no tendría forma de demostrar que una denuncia la identifica. El
+   * Es el campo que habilita el cierre por la persona reportada: sin él, no
+   * tendría forma de demostrar que una denuncia la identifica. El
    * número nunca se almacena en claro, y este hash no viaja en ninguna respuesta.
    */
   @Column({ type: 'varchar', length: 64, select: false })

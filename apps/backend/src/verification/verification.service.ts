@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { UsersService } from '../users/users.service';
 import { AlertasService } from '../alertas/alertas.service';
-import { DocumentoBloqueado } from '../desactivaciones/entities/documento-bloqueado.entity';
+import { DocumentoBloqueado } from '../sanciones/entities/documento-bloqueado.entity';
 import { PersonalDataDto } from './dto/documento.dto';
 import { nombreConsistenteConDocumento } from './domain/nombres';
 import { MENSAJES, esConsistente } from './domain/comparacion-facial';
@@ -140,8 +140,8 @@ export class VerificationService {
     // Una denuncia pudo presentarse contra este documento antes de que la
     // persona existiera en el sistema. Ahora que su `ci_hash` se conoce, se le
     // avisa de las denuncias activas que la identifican. El registro del
-    // documento ya quedó guardado y la lista del interruptor
-    // (`GET /desactivaciones/denuncias`) la muestra igual, así que si este aviso
+    // documento ya quedó guardado y la lista de denuncias que puede cerrar
+    // (`GET /cierres/denuncias`) la muestra igual, así que si este aviso
     // fallara, el acceso no se pierde: se propaga el error y el reintento es
     // seguro (idempotente), sin dejar el documento a medio registrar.
     const denunciasQueLoIdentifican =

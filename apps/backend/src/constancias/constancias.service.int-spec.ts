@@ -254,15 +254,17 @@ describe('Constancia probatoria · solicitud (integración)', () => {
       //
       // Se firman dos denuncias distintas en vez de modificar una: las
       // declaraciones juradas son de solo inserción (I4) y un UPDATE lo rechaza
-      // la base — que es exactamente lo que debe pasar.
+      // la base — que es exactamente lo que debe pasar. Son de dos autoras
+      // porque una sola no puede tener dos denuncias abiertas sobre Luis.
       const ana = await crearUsuario('ana@t.bo', '111', 'Ana Quispe');
+      const carla = await crearUsuario('carla@t.bo', '333', 'Carla Rojas');
       const luis = await crearUsuario('luis@t.bo', '222', 'Luis Mamani');
 
       const sinFirmar = await crearDenuncia(ana.id, '222');
       await firmar(sinFirmar.id, ana.id, '111');
 
-      const conFirmar = await crearDenuncia(ana.id, '222');
-      await firmar(conFirmar.id, ana.id, '111', {
+      const conFirmar = await crearDenuncia(carla.id, '222');
+      await firmar(conFirmar.id, carla.id, '333', {
         firmaCripto: 'firma-ed25519-simulada',
       });
 

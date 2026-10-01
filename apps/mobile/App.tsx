@@ -13,6 +13,8 @@ import { DenunciaDetailScreen } from './src/screens/main/DenunciaDetailScreen';
 import { EditDenunciaScreen } from './src/screens/main/EditDenunciaScreen';
 import { MisDenunciasScreen } from './src/screens/main/MisDenunciasScreen';
 import { AlertasSobreMiScreen } from './src/screens/main/AlertasSobreMiScreen';
+import { CerrarAlertaScreen } from './src/screens/main/CerrarAlertaScreen';
+import { MiSituacionScreen } from './src/screens/main/MiSituacionScreen';
 import { ConstanciaScreen } from './src/screens/main/ConstanciaScreen';
 import { TextoLegalScreen } from './src/screens/main/TextoLegalScreen';
 import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScreen';
@@ -106,13 +108,25 @@ function Aplicacion() {
               component={MisDenunciasScreen}
               options={{ title: 'Mis denuncias' }}
             />
-            {/* El interruptor de desactivación, del lado de quien es reportado.
-                Se llega desde el perfil, desde el registro del documento y
-                —cuando exista el push— desde la propia notificación. */}
+            {/* El cierre de alertas, del lado de quien es reportado. Se llega
+                desde el perfil, desde el registro del documento y desde la
+                propia notificación. */}
             <Stack.Screen
               name="AlertasSobreMi"
               component={AlertasSobreMiScreen}
               options={{ title: 'Alertas sobre mí' }}
+            />
+            <Stack.Screen
+              name="CerrarAlerta"
+              component={CerrarAlertaScreen}
+              options={{ title: 'Cerrar alerta' }}
+            />
+            {/* El régimen de faltas, legible: las sanciones son automáticas y
+                no hay a quién reclamarle. */}
+            <Stack.Screen
+              name="MiSituacion"
+              component={MiSituacionScreen}
+              options={{ title: 'Mi situación' }}
             />
             {/* La constancia probatoria: la única pantalla que revela la
                 identidad de quien denunció, y solo se llega pidiéndola. */}

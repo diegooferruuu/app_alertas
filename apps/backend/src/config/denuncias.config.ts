@@ -25,25 +25,21 @@ export interface DenunciasConfig {
   /** Caducidad más corta para el vínculo TERCERO_NO_FAMILIAR. */
   caducidadTerceroNoFamiliarH: number;
 
-  /** Cuántas firmas de terceros hacen falta para corroborar un caso. */
-  corroboradoresNecesarios: number;
-
-  /** Señalizaciones coincidentes de moderadores para que surta efecto. */
-  senalizacionesNecesarias: number;
-  /** Puntaje a partir del cual se deriva el rol de moderador. */
-  umbralReputacionModerador: number;
-
-  /** Horas de restricción tras la primera desactivación recibida. */
-  restriccionPrimeraDesactivacionH: number;
+  /**
+   * Personas distintas que deben declarar falsas denuncias de una cuenta para
+   * suspenderla. Se cuentan personas y no cierres: el patrón tiene que venir de
+   * más de una fuente.
+   */
+  cierresConSancionParaSuspension: number;
 
   /**
-   * Puntos de reputación que se descuentan por cada desactivación recibida.
+   * Alertas provisionales que una cuenta puede tener difundiéndose a la vez.
    *
-   * Es una penalización, no la sanción en sí: la sanción es el cambio de estado
-   * de cuenta (5.4). Se descuenta en cada desactivación para que el puntaje
-   * refleje el patrón, del que depende después el rol (fase 7).
+   * Es un límite de uso, no una sanción: frena a quien quisiera lanzar muchas
+   * alertas sin respaldo sobre personas distintas. Las respaldadas por la FELCC
+   * no cuentan.
    */
-  penalizacionReputacionDesactivacion: number;
+  limiteAlertasProvisionales: number;
 
   /**
    * Cada cuántos minutos el planificador marca las alertas vencidas.
@@ -96,13 +92,6 @@ export interface DenunciasConfig {
    * para una demostración; en producción, preguntar antes solo gasta consultas.
    */
   esperaReciboMin: number;
-
-  /**
-   * Precisión del geohash de un avistamiento. 6 caracteres ≈ 1.2 × 0.6 km,
-   * que es la resolución de ~1 km que pide §3.3. Subirlo estrecha la zona y
-   * acerca el dato a una ubicación identificable: no aumentar sin motivo.
-   */
-  precisionGeohash: number;
 }
 
 /** Lee un entero de entorno; si falta o no es válido, usa el valor por defecto. */
@@ -127,23 +116,11 @@ export const denunciasConfig = registerAs(
       12,
     ),
 
-    corroboradoresNecesarios: entero(process.env.CORROBORADORES_NECESARIOS, 1),
-
-    senalizacionesNecesarias: entero(process.env.SENALIZACIONES_NECESARIAS, 3),
-    umbralReputacionModerador: entero(
-      process.env.UMBRAL_REPUTACION_MODERADOR,
-      500,
+    cierresConSancionParaSuspension: entero(
+      process.env.CIERRES_CON_SANCION_PARA_SUSPENSION,
+      2,
     ),
-
-    restriccionPrimeraDesactivacionH: entero(
-      process.env.RESTRICCION_PRIMERA_DESACTIVACION_H,
-      720,
-    ),
-
-    penalizacionReputacionDesactivacion: entero(
-      process.env.PENALIZACION_REPUTACION_DESACTIVACION,
-      50,
-    ),
+    limiteAlertasProvisionales: entero(process.env.LIMITE_ALERTAS_PROVISIONALES, 2),
 
     intervaloCaducidadMin: entero(process.env.INTERVALO_CADUCIDAD_MIN, 5),
 
@@ -153,7 +130,5 @@ export const denunciasConfig = registerAs(
     arrendamientoEmisionMin: entero(process.env.ARRENDAMIENTO_EMISION_MIN, 5),
     intervaloRecibosMin: entero(process.env.INTERVALO_RECIBOS_MIN, 5),
     esperaReciboMin: entero(process.env.ESPERA_RECIBO_MIN, 15),
-
-    precisionGeohash: entero(process.env.PRECISION_GEOHASH, 6),
   }),
 );

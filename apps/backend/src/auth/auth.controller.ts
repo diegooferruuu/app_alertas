@@ -78,12 +78,9 @@ export class AuthController {
       full_name: fullUser.full_name,
       phone: fullUser.phone,
       documento_registrado: fullUser.documento_registrado,
-      reputation_score: fullUser.reputation_score,
-      role: fullUser.role,
-      // La app necesita ambos: el estado dice si está sancionada; el plazo, hasta
-      // cuándo, para poder mostrar cuándo se levanta una restricción.
+      // Sin rol ni puntaje: no existen. El detalle de las sanciones —faltas y lo
+      // que restringen— está en `GET /usuarios/me/sanciones`.
       estado_cuenta: fullUser.estado_cuenta,
-      restringida_hasta: fullUser.restringida_hasta,
     };
   }
 }

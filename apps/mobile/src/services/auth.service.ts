@@ -13,13 +13,11 @@ export interface LoginResponse {
 }
 
 /**
- * Estado de la cuenta frente a las sanciones (§5.4).
- *
- * Sustituye al antiguo booleano `is_suspended`, que el servidor ya no devuelve:
- * la sanción es graduada y un booleano no distinguía «restringida un tiempo» de
- * «suspendida».
+ * Si la cuenta está suspendida. Es lo único que el estado guarda: las faltas
+ * no tienen plazo, y lo que restringen lo explica `GET /usuarios/me/sanciones`
+ * (ver `sanciones.service.ts`).
  */
-export type EstadoCuenta = 'ACTIVA' | 'RESTRINGIDA' | 'SUSPENDIDA';
+export type EstadoCuenta = 'ACTIVA' | 'SUSPENDIDA';
 
 export interface User {
   id: string;
@@ -27,50 +25,7 @@ export interface User {
   full_name: string;
   phone: string;
   documento_registrado: boolean;
-  reputation_score: number;
-  role: 'citizen' | 'admin' | 'moderator';
   estado_cuenta: EstadoCuenta;
-  /** Hasta cuándo dura la restricción. Nulo si no hay plazo que cumplir. */
-  restringida_hasta: string | null;
-}
-
-export interface SancionVisible {
-  titulo: string;
-  detalle: string;
-  color: string;
-}
-
-/**
- * Cómo se le explica a una persona su sanción, o `null` si no hay ninguna
- * vigente.
- *
- * Espeja la regla del servidor: una restricción cuyo plazo ya venció **no
- * restringe**, aunque la cuenta siga etiquetada como RESTRINGIDA. Avisar ahí le
- * diría a alguien que no puede reportar cuando sí puede.
- */
-export function sancionVigente(user: User | null): SancionVisible | null {
-  if (!user) return null;
-
-  if (user.estado_cuenta === 'SUSPENDIDA') {
-    return {
-      titulo: 'Cuenta suspendida',
-      detalle:
-        'No puedes crear denuncias ni firmar declaraciones. Sí puedes retirar alertas que te identifiquen.',
-      color: '#B32C24',
-    };
-  }
-
-  if (user.estado_cuenta === 'RESTRINGIDA') {
-    const hasta = user.restringida_hasta ? new Date(user.restringida_hasta) : null;
-    if (!hasta || hasta <= new Date()) return null;
-    return {
-      titulo: 'Cuenta restringida',
-      detalle: `No puedes crear denuncias nuevas hasta el ${hasta.toLocaleDateString()}. Conservas el resto de funciones.`,
-      color: '#8F5600',
-    };
-  }
-
-  return null;
 }
 
 /**
@@ -78,7 +33,7 @@ export function sancionVigente(user: User | null): SancionVisible | null {
  *
  * `denuncias_que_te_identifican` es la vía de acceso de H4.4: una denuncia pudo
  * presentarse contra este documento antes de que la persona tuviera cuenta. El
- * servidor lo dice aquí mismo para que la app pueda llevarla al interruptor de
+ * servidor lo dice aquí mismo para que la app pueda llevarla a cerrarla de
  * inmediato —«minutos, no horas»— sin depender de que llegue la notificación.
  */
 export interface RegistroDocumentoResultado {

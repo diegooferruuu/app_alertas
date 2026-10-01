@@ -1,9 +1,17 @@
 import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { DeclaracionesService } from './declaraciones.service';
 import { VersionTextoLegal } from './entities/version-texto-legal.entity';
-import { TEXTO_LEGAL_V1, VERSION_INICIAL } from './texto-legal';
+import {
+  TEXTO_LEGAL_V1,
+  TEXTO_LEGAL_V2,
+  VERSION_INICIAL,
+  VERSION_REGIMEN_FALTAS,
+} from './texto-legal';
+
+/** Las que siembran las migraciones. Ninguna prueba puede borrarlas. */
+const SEMBRADAS = [VERSION_INICIAL, VERSION_REGIMEN_FALTAS];
 
 describe('Texto legal versionado (integración)', () => {
   let ctx: ContextoDePruebas;
@@ -24,19 +32,31 @@ describe('Texto legal versionado (integración)', () => {
   });
 
   /**
-   * A diferencia de las demás pruebas, aquí no se vacía la tabla: la versión
-   * inicial la siembra la migración porque el sistema no puede funcionar sin
-   * ella. Borrarla probaría un estado que no debe existir.
+   * A diferencia de las demás pruebas, aquí no se vacía la tabla: las versiones
+   * las siembran las migraciones porque el sistema no puede funcionar sin
+   * ellas. Solo se retiran las que crea la propia prueba. Borrar la v1 por no
+   * estar vigente probaría un estado que no debe existir: hay declaraciones que
+   * la referencian.
    */
   beforeEach(async () => {
-    await versiones.delete({ vigente: false });
+    await versiones.delete({ version: Not(In(SEMBRADAS)) });
   });
 
-  it('la migración deja una versión vigente: sin ella no se puede firmar', async () => {
+  it('la migración deja vigente el texto del régimen de faltas', async () => {
     const vigente = await service.textoLegalVigente();
 
-    expect(vigente.version).toBe(VERSION_INICIAL);
-    expect(vigente.texto).toBe(TEXTO_LEGAL_V1);
+    expect(vigente.version).toBe(VERSION_REGIMEN_FALTAS);
+    expect(vigente.texto).toBe(TEXTO_LEGAL_V2);
+    // Lo que se firma no puede prometer consecuencias que el sistema ya no aplica.
+    expect(vigente.texto).not.toMatch(/reputaci[oó]n/i);
+  });
+
+  it('la v1 se conserva intacta y ya no vigente: hay declaraciones firmadas contra ella', async () => {
+    const v1 = await versiones.findOneByOrFail({ version: VERSION_INICIAL });
+
+    expect(v1.vigente).toBe(false);
+    expect(v1.texto).toBe(TEXTO_LEGAL_V1);
+    expect(service.textoNoAlterado(v1)).toBe(true);
   });
 
   it('el hash corresponde al texto, para poder verificarlo años después', async () => {
@@ -50,13 +70,17 @@ describe('Texto legal versionado (integración)', () => {
     // Es lo que permite a una autoridad comprobar una constancia sin confiar en
     // el sistema: recalcula el hash sobre el texto y lo compara.
     const vigente = await service.textoLegalVigente();
-    await versiones.update(vigente.id, { texto: vigente.texto + ' (alterado)' });
+    try {
+      await versiones.update(vigente.id, { texto: vigente.texto + ' (alterado)' });
 
-    const alterada = await service.versionPorId(vigente.id);
+      const alterada = await service.versionPorId(vigente.id);
 
-    expect(service.textoNoAlterado(alterada)).toBe(false);
-
-    await versiones.update(vigente.id, { texto: TEXTO_LEGAL_V1 });
+      expect(service.textoNoAlterado(alterada)).toBe(false);
+    } finally {
+      // Se restaura el texto que había y no una constante: cuando cambió la
+      // versión vigente, restaurar «la v1» dejó la v2 con el texto equivocado.
+      await versiones.update(vigente.id, { texto: vigente.texto });
+    }
   });
 
   it('impide que dos versiones estén vigentes a la vez', async () => {
@@ -90,6 +114,6 @@ describe('Texto legal versionado (integración)', () => {
 
     expect(recuperada.texto).toBe('Texto anterior');
     // Y la vigente sigue siendo la que corresponde.
-    expect((await service.textoLegalVigente()).version).toBe(VERSION_INICIAL);
+    expect((await service.textoLegalVigente()).version).toBe(VERSION_REGIMEN_FALTAS);
   });
 });

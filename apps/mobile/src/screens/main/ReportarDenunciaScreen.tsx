@@ -21,6 +21,7 @@ import {
   Coordenadas,
 } from '../../components/SelectorDeUbicacion';
 import denunciaService from '../../services/denuncia.service';
+import { rechazoDe } from '../../services/restricciones';
 import {
   SelectorCerrado,
   SelectorMultiple,
@@ -181,12 +182,22 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     } catch (err: any) {
-      const mensaje = err?.response?.data?.message;
+      const rechazo = rechazoDe(err, {
+        titulo: 'Error al reportar',
+        mensaje: err?.message || 'Intenta de nuevo.',
+      });
+      // La denuncia que ya existe es el camino: volver a difundirla pasa por
+      // registrar en ella el caso de la FELCC, no por crear otra.
       Alert.alert(
-        'Error al reportar',
-        Array.isArray(mensaje)
-          ? mensaje.join('\n')
-          : mensaje || err?.message || 'Intenta de nuevo.',
+        rechazo.titulo,
+        rechazo.mensaje,
+        rechazo.codigo === 'DENUNCIA_ABIERTA_SOBRE_PERSONA'
+          ? [
+              { text: 'Cerrar', style: 'cancel' },
+              // `replace`: el formulario es un modal y no tiene sentido volver a él.
+              { text: 'Ver mis denuncias', onPress: () => navigation.replace('MisDenuncias') },
+            ]
+          : undefined,
       );
     } finally {
       setSubmitting(false);

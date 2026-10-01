@@ -24,8 +24,8 @@ import { esMenorDeEdad, MOTIVO_SIN_FOTOGRAFIA } from './domain/minoria-edad';
 import { VERSION_FORMULA_ACTUAL } from '../declaraciones/domain/cadena';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
-import { EstadoCuenta, puedeCrearDenuncia } from '../users/domain/estado-cuenta';
 import { AlertasService } from '../alertas/alertas.service';
+import { SancionesService } from '../sanciones/sanciones.service';
 
 @Injectable()
 export class DenunciasService {
@@ -37,6 +37,7 @@ export class DenunciasService {
     private usersService: UsersService,
     private dataSource: DataSource,
     private alertasService: AlertasService,
+    private sancionesService: SancionesService,
   ) {}
 
   /** El número de documento nunca se almacena en claro, solo su hash. */
@@ -75,17 +76,13 @@ export class DenunciasService {
         'Debes registrar tu documento de identidad para reportar',
       );
     }
-    // La sanción graduada (§5.4) muerde aquí: crear denuncias es justo lo que
-    // pierde una cuenta restringida o suspendida. La restricción es temporal y
-    // se interpreta contra su plazo, así que una cuenta cuya restricción venció
-    // vuelve a poder sin que nada le haya cambiado el estado.
-    if (!puedeCrearDenuncia(user.estado_cuenta, user.restringida_hasta)) {
-      throw new ForbiddenException(
-        user.estado_cuenta === EstadoCuenta.SUSPENDIDA
-          ? 'Tu cuenta está suspendida y no puede crear denuncias'
-          : 'Tu cuenta está restringida temporalmente y no puede crear denuncias nuevas',
-      );
-    }
+    const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
+
+    // El régimen de sanciones muerde aquí: una cuenta suspendida no denuncia, ni
+    // nadie puede denunciar a una persona que le bloqueó hacerlo, ni tener dos
+    // denuncias abiertas sobre la misma. Ninguna de las tres revela nada que el
+    // denunciante no sepa (I5): todas miran su propio historial.
+    await this.sancionesService.verificarPuedeDenunciar(user, ciHashPersonaBuscada);
 
     this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
 
@@ -109,8 +106,6 @@ export class DenunciasService {
       latitude: dto.latitude,
       longitude: dto.longitude,
     });
-
-    const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
 
     const guardada = await this.dataSource.transaction(async (manager) => {
       const denuncias = manager.getRepository(Denuncia);
@@ -179,6 +174,13 @@ export class DenunciasService {
       }
 
       return denuncia;
+    }).catch((error) => {
+      // Dos peticiones simultáneas pasan las dos la comprobación previa; la que
+      // llega segunda choca con el índice único y recibe el mismo mensaje.
+      if (error?.driverError?.constraint === 'uq_denuncias_abierta_por_persona') {
+        throw this.sancionesService.denunciaAbierta();
+      }
+      throw error;
     });
 
     // `save()` rellena la columna generada con su representación binaria pese a
@@ -459,8 +461,8 @@ export class DenunciasService {
    * Una denuncia queda atribuida a la identidad de quien la firmó: poder
    * borrarla permitiría reportar a alguien, difundir la alerta y hacer
    * desaparecer el rastro. Lo que sí ocurre —solo por mecanismos automáticos—
-   * es que la alerta deje de difundirse: por caducidad o por desactivación de
-   * la persona reportada. La información no se borra nunca.
+   * es que la alerta deje de difundirse: por caducidad o porque la cierre la
+   * persona reportada. La información no se borra nunca.
    *
    * Si en el futuro hiciera falta retirar contenido, la vía correcta es una
    * transición de estado, no un DELETE.

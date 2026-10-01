@@ -1,6 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, OneToMany, Unique, Check } from 'typeorm';
 import { RefreshToken } from './refresh-token.entity';
-import { ReputationEvent } from './reputation-event.entity';
 import { EstadoCuenta } from '../domain/estado-cuenta';
 
 @Entity('users')
@@ -8,8 +7,8 @@ import { EstadoCuenta } from '../domain/estado-cuenta';
  * Un documento registrado siempre tiene hash.
  *
  * El código ya escribe las dos columnas juntas, pero de eso depende algo que no
- * puede quedar en manos de una convención: el interruptor de desactivación
- * reconoce a la persona reportada comparando `ci_hash`. Una cuenta marcada como
+ * puede quedar en manos de una convención: el cierre de una alerta reconoce a
+ * la persona reportada comparando `ci_hash`. Una cuenta marcada como
  * verificada sin hash podría denunciar y jamás ser identificada como
  * denunciante, ni retirar una alerta sobre sí misma.
  */
@@ -22,7 +21,7 @@ import { EstadoCuenta } from '../domain/estado-cuenta';
 // forma normalizada de Postgres para que `migration:generate` no la recree.
 @Check(
   'chk_users_estado_cuenta',
-  `((estado_cuenta)::text = ANY ((ARRAY['ACTIVA'::character varying, 'RESTRINGIDA'::character varying, 'SUSPENDIDA'::character varying])::text[]))`,
+  `((estado_cuenta)::text = ANY ((ARRAY['ACTIVA'::character varying, 'SUSPENDIDA'::character varying])::text[]))`,
 )
 /**
  * El nombre está entero o no está.
@@ -122,24 +121,16 @@ export class User {
   @Column({ type: 'varchar', length: 120, nullable: true })
   nombre_documento!: string | null;
 
-  // Reputation system
-  @Column({ type: 'integer', default: 100 })
-  reputation_score!: number;
-
   /**
-   * Estado frente a las sanciones (§5.4). Reemplaza al antiguo `is_suspended`:
-   * la sanción es graduada, así que un booleano no alcanza.
+   * Si la cuenta está suspendida.
+   *
+   * Es lo único del régimen de sanciones que se guarda en la cuenta, y es
+   * derivable: queda SUSPENDIDA en la misma transacción del cierre que la
+   * suspende, y hay una prueba de que coincide con lo que dicen los cierres. Se
+   * guarda porque la consulta de destinatarios de cada alerta lo filtra.
    */
   @Column({ type: 'varchar', length: 20, default: EstadoCuenta.ACTIVA })
   estado_cuenta!: EstadoCuenta;
-
-  /**
-   * Hasta cuándo dura la restricción de la primera desactivación. Nulo salvo
-   * mientras la cuenta esté RESTRINGIDA con plazo vigente; la suspensión no lleva
-   * plazo, así que también es nulo cuando el estado es SUSPENDIDA.
-   */
-  @Column({ type: 'timestamptz', nullable: true })
-  restringida_hasta!: Date | null;
 
   // Push notifications
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -158,10 +149,6 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   last_location_at!: Date;
 
-  // Role
-  @Column({ type: 'varchar', length: 20, default: 'citizen' })
-  role!: 'citizen' | 'admin';
-
   // Audit
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;
@@ -175,7 +162,4 @@ export class User {
   // Relations
   @OneToMany(() => RefreshToken, (token) => token.user)
   refresh_tokens!: RefreshToken[];
-
-  @OneToMany(() => ReputationEvent, (event) => event.user)
-  reputation_events!: ReputationEvent[];
 }

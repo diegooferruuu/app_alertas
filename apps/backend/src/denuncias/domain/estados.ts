@@ -17,7 +17,7 @@ export enum NivelConfianza {
   REGISTRADA = 'REGISTRADA',
   /** Firmada la declaración jurada. Se difunde con radio y plazo reducidos. */
   PROVISIONAL = 'PROVISIONAL',
-  /** Respaldada por caso FELCC o por la firma de otra persona. Radio ampliado. */
+  /** Respaldada por el número de caso de la FELCC. Radio ampliado. */
   CORROBORADA = 'CORROBORADA',
 }
 
@@ -25,9 +25,12 @@ export enum NivelConfianza {
 export enum EstadoDenuncia {
   /** En curso. */
   ACTIVA = 'ACTIVA',
-  /** Venció el plazo sin corroboración: muere la alerta, no el caso. */
+  /**
+   * Venció el plazo sin el caso de la FELCC: muere la alerta, no el caso. No es
+   * una falta: una desaparición real puede no corroborarse a tiempo.
+   */
   CADUCADA = 'CADUCADA',
-  /** La persona reportada accionó el interruptor de desactivación. */
+  /** La cerró la persona reportada: «Estoy bien» o «Esta denuncia es falsa». */
   INVALIDADA = 'INVALIDADA',
   /** El caso terminó. */
   CERRADA = 'CERRADA',
@@ -37,8 +40,11 @@ export enum EstadoDenuncia {
  * Transiciones permitidas de nivel de confianza.
  *
  * El nivel solo sube. No existe camino de vuelta: una denuncia corroborada no
- * puede degradarse a provisional, porque la corroboración ya quedó sellada en
- * una declaración jurada que es append-only y no se puede retirar.
+ * puede degradarse a provisional, porque no hay ruta que retire el caso de la
+ * FELCC una vez registrado.
+ *
+ * Firmar con el caso ya registrado aplica las dos transiciones en el mismo acto
+ * (REGISTRADA → PROVISIONAL → CORROBORADA): no hay salto directo.
  */
 const TRANSICIONES_NIVEL: Record<NivelConfianza, NivelConfianza[]> = {
   [NivelConfianza.REGISTRADA]: [NivelConfianza.PROVISIONAL],
@@ -50,7 +56,7 @@ const TRANSICIONES_NIVEL: Record<NivelConfianza, NivelConfianza[]> = {
  * Transiciones permitidas de estado.
  *
  * CADUCADA no es terminal: una denuncia cuya alerta venció puede volver a
- * difundirse si aparece una corroboración tardía. INVALIDADA y CERRADA sí lo
+ * difundirse si se registra tarde el caso de la FELCC. INVALIDADA y CERRADA sí lo
  * son — la primera porque la persona reportada ya ejerció su derecho a
  * detenerla, y reactivarla por cualquier vía anularía esa protección.
  */
