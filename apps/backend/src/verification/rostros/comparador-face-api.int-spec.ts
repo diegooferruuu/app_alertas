@@ -1,4 +1,6 @@
 import * as path from 'path';
+import { monitorEventLoopDelay } from 'perf_hooks';
+import { Worker } from 'worker_threads';
 import sharp from 'sharp';
 import { ComparadorFaceApi } from './comparador-face-api';
 import { UMBRAL_DISTANCIA } from '../domain/comparacion-facial';
@@ -65,6 +67,10 @@ describe('ComparadorFaceApi (integración, con modelo real)', () => {
       .jpeg({ quality: 45 })
       .toBuffer();
   }, 120_000);
+
+  // El modelo corre en un hilo aparte: si no se apaga, el proceso de pruebas no
+  // termina nunca. En el servidor lo apaga Nest al cerrar.
+  afterAll(() => comparador.onModuleDestroy());
 
   it('reconoce el mismo rostro pese a la degradación de un carnet', async () => {
     const resultado = await comparador.comparar(rostroAComoCarnet, rostroA);
@@ -140,4 +146,38 @@ describe('ComparadorFaceApi (integración, con modelo real)', () => {
     expect(uno.distancia).toBeLessThan(UMBRAL_DISTANCIA);
     expect(dos.distancia).toBeGreaterThan(UMBRAL_DISTANCIA);
   }, 180_000);
+
+  it('no congela el servidor mientras compara', async () => {
+    // Es la razón de ser del hilo. Con la inferencia en el hilo principal, cada
+    // imagen lo bloqueaba unos 200 ms (medido): en ese tiempo no salía ninguna
+    // alerta ni respondía ninguna otra petición.
+    await comparador.comparar(rostroAComoCarnet, rostroA); // modelos ya cargados
+
+    const retraso = monitorEventLoopDelay({ resolution: 5 });
+    retraso.enable();
+    await comparador.comparar(rostroAComoCarnet, rostroA);
+    retraso.disable();
+
+    expect(retraso.max / 1e6).toBeLessThan(100);
+  }, 120_000);
+
+  it('si el hilo muere a mitad, esa comparación falla y la siguiente funciona', async () => {
+    // Lo que pasaría con una falta de memoria dentro del modelo: quien esperaba
+    // recibe un error en vez de quedarse esperando para siempre, y el registro
+    // siguiente arranca un hilo nuevo.
+    const interno = comparador as unknown as {
+      hilo: Worker | null;
+      pendientes: Map<number, unknown>;
+    };
+    const enCurso = comparador.comparar(rostroAComoCarnet, rostroA);
+    while (interno.pendientes.size === 0) {
+      await new Promise((listo) => setTimeout(listo, 5));
+    }
+    await interno.hilo!.terminate();
+
+    await expect(enCurso).rejects.toThrow(/terminó/);
+
+    const siguiente = await comparador.comparar(rostroAComoCarnet, rostroA);
+    expect(siguiente.estado).toBe('comparado');
+  }, 120_000);
 });
