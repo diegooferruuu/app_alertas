@@ -15,6 +15,7 @@ import { MisDenunciasScreen } from './src/screens/main/MisDenunciasScreen';
 import { AlertasSobreMiScreen } from './src/screens/main/AlertasSobreMiScreen';
 import { CerrarAlertaScreen } from './src/screens/main/CerrarAlertaScreen';
 import { MiSituacionScreen } from './src/screens/main/MiSituacionScreen';
+import { ReportarAvistamientoScreen } from './src/screens/main/ReportarAvistamientoScreen';
 import { ConstanciaScreen } from './src/screens/main/ConstanciaScreen';
 import { TextoLegalScreen } from './src/screens/main/TextoLegalScreen';
 import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScreen';
@@ -102,6 +103,13 @@ function Aplicacion() {
               name="EditDenuncia"
               component={EditDenunciaScreen}
               options={{ title: 'Editar denuncia' }}
+            />
+            {/* El reporte se arma y se entrega en el teléfono: su contenido
+                nunca llega al servidor. */}
+            <Stack.Screen
+              name="ReportarAvistamiento"
+              component={ReportarAvistamientoScreen}
+              options={{ title: 'Reportar avistamiento' }}
             />
             <Stack.Screen
               name="MisDenuncias"

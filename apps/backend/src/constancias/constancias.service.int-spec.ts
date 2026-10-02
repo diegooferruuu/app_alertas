@@ -2,6 +2,10 @@ import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
+import { execFileSync } from 'child_process';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { ConstanciasService } from './constancias.service';
 import { SolicitudConstancia } from './entities/solicitud-constancia.entity';
@@ -14,6 +18,9 @@ import {
   calcularHashRegistro,
   calcularHashContenido,
 } from '../declaraciones/domain/cadena';
+import { firmaValida, mensajeAFirmar } from '../declaraciones/domain/firma-dispositivo';
+import { ClaveDispositivo } from '../declaraciones/entities/clave-dispositivo.entity';
+import { telefonoDePrueba } from '../../test/setup/telefono-de-prueba';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 
@@ -101,7 +108,12 @@ describe('Constancia probatoria · solicitud (integración)', () => {
       tipo?: 'original' | 'corroboracion';
       vinculo?: string;
       texto?: string;
-      firmaCripto?: string | null;
+      /**
+       * Con la firma Ed25519 de un teléfono, como toda declaración desde la
+       * H6.3. Sin ella, como las anteriores, que la constancia sigue
+       * verificando.
+       */
+      conFirma?: boolean;
     } = {},
   ) => {
     const [version] = await ctx.dataSource.query(
@@ -132,14 +144,24 @@ describe('Constancia probatoria · solicitud (integración)', () => {
       firmada_en: firmadaEn.toISOString(),
       device_id: null as string | null,
       hash_anterior: null as string | null,
+      clave_publica_id: null as string | null,
+      firma_criptografica: null as string | null,
     };
+
+    if (opciones.conFirma) {
+      const telefono = telefonoDePrueba();
+      const { identifiers } = await ctx.dataSource
+        .getRepository(ClaveDispositivo)
+        .insert({ usuario_id: usuarioId, clave_publica: telefono.clavePublica });
+      campos.clave_publica_id = identifiers[0].id;
+      campos.firma_criptografica = telefono.firmar(mensajeAFirmar(campos));
+    }
 
     return declaraciones.save(
       declaraciones.create({
         ...campos,
         vinculo_declarado: campos.vinculo_declarado as any,
         firmada_en: firmadaEn,
-        firma_criptografica: opciones.firmaCripto ?? null,
         hash_registro: calcularHashRegistro(campos),
       }),
     );
@@ -265,7 +287,7 @@ describe('Constancia probatoria · solicitud (integración)', () => {
 
       const conFirmar = await crearDenuncia(carla.id, '222');
       await firmar(conFirmar.id, carla.id, '333', {
-        firmaCripto: 'firma-ed25519-simulada',
+        conFirma: true,
       });
 
       const sinFirma = await servicio.solicitar(luis.id, sinFirmar.id);
@@ -311,7 +333,7 @@ describe('Constancia probatoria · solicitud (integración)', () => {
     it('publica el procedimiento y el orden de los campos', async () => {
       const c = await constanciaDeEjemplo();
 
-      expect(c.formato).toBe('constancia-denuncia/v2');
+      expect(c.formato).toBe('constancia-denuncia/v3');
       expect(c.verificacion.algoritmo).toBe('SHA-256');
       expect(c.verificacion.separador).toBe('U+001F');
       expect(c.verificacion.orden_campos_registro.length).toBeGreaterThan(0);
@@ -379,6 +401,85 @@ describe('Constancia probatoria · solicitud (integración)', () => {
 
       expect(c.verificacion.limites.length).toBeGreaterThanOrEqual(2);
       expect(c.verificacion.limites.join(' ')).toContain('firma');
+    });
+
+    describe('con la firma del teléfono (H6.3)', () => {
+      const constanciaFirmada = async () => {
+        const ana = await crearUsuario('ana@t.bo', '111', 'Ana Quispe');
+        const luis = await crearUsuario('luis@t.bo', '222', 'Luis Mamani');
+        const denuncia = await crearDenuncia(ana.id, '222');
+        await firmar(denuncia.id, ana.id, '111', { conFirma: true });
+        return servicio.solicitar(luis.id, denuncia.id);
+      };
+
+      /** El mensaje firmado, armado solo con lo que publica la constancia. */
+      const mensajeDesde = (c: Awaited<ReturnType<typeof constanciaFirmada>>, d: any) =>
+        [c.verificacion.firma.encabezado, ...c.verificacion.firma.orden_campos.map((k) => d[k])].join(
+          '\n',
+        );
+
+      it('publica la clave pública misma, no solo su identificador', async () => {
+        const c = await constanciaFirmada();
+
+        expect(c.formato).toBe('constancia-denuncia/v3');
+        expect(c.declaraciones[0].clave_publica).toMatch(/^[0-9a-f]{64}$/);
+        expect(c.firmantes[0].con_firma_criptografica).toBe(true);
+      });
+
+      it('la firma se verifica con lo publicado, sin preguntarle nada al sistema', async () => {
+        const c = await constanciaFirmada();
+        const d = c.declaraciones[0];
+
+        expect(firmaValida(d.clave_publica!, mensajeDesde(c, d), d.firma_criptografica!)).toBe(true);
+      });
+
+      it('el hash del registro suma la clave y la firma al final', async () => {
+        const c = await constanciaFirmada();
+        const d = c.declaraciones[0];
+        const orden = [
+          ...c.verificacion.orden_campos_registro,
+          ...c.verificacion.campos_registro_con_firma,
+        ];
+
+        expect(sha256(unir(d, orden))).toBe(d.hash_registro);
+        // Sin sumarlas no cuadra: quitar la firma después se detectaría.
+        expect(sha256(unir(d, c.verificacion.orden_campos_registro))).not.toBe(d.hash_registro);
+      });
+
+      it('el verificador publicado la acepta, acepta una sin firma y rechaza una alterada', async () => {
+        // `tools/verificar-constancia.mjs` es lo que usaría una autoridad: se
+        // prueba el programa mismo, no una copia de su lógica.
+        const verificador = join(__dirname, '..', '..', '..', '..', 'tools', 'verificar-constancia.mjs');
+        const dir = mkdtempSync(join(tmpdir(), 'constancia-'));
+        const guardar = (nombre: string, documento: unknown) => {
+          const ruta = join(dir, nombre);
+          writeFileSync(ruta, JSON.stringify(documento));
+          return ruta;
+        };
+        const verificar = (ruta: string) =>
+          execFileSync(process.execPath, [verificador, ruta], { stdio: 'pipe' });
+
+        const firmada = await constanciaFirmada();
+        await ctx.limpiar();
+        const sinFirma = await constanciaDeEjemplo();
+        const alterada = {
+          ...firmada,
+          declaraciones: [{ ...firmada.declaraciones[0], vinculo_declarado: 'HERMANO_A' }],
+        };
+
+        expect(() => verificar(guardar('firmada.json', firmada))).not.toThrow();
+        expect(() => verificar(guardar('sin-firma.json', sinFirma))).not.toThrow();
+        expect(() => verificar(guardar('alterada.json', alterada))).toThrow();
+      });
+
+      it('una firma alterada en el documento ya no se verifica', async () => {
+        const c = await constanciaFirmada();
+        const d = { ...c.declaraciones[0], texto_firmado: 'Otra Persona' };
+
+        expect(
+          firmaValida(d.clave_publica!, mensajeDesde(c, d), d.firma_criptografica!),
+        ).toBe(false);
+      });
     });
   });
 

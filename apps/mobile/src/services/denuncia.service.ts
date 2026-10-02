@@ -53,6 +53,8 @@ export interface Denuncia {
   radio_actual_m: number | null;
   expira_en: string | null;
   numero_caso_felcc: string | null;
+  /** Cuándo la dio por terminada quien la presentó: «La encontramos». */
+  cerrada_en: string | null;
   created_at: string;
   distance_meters?: number;
 }
@@ -120,7 +122,9 @@ export const ESTADO_META: Record<
   },
   CERRADA: {
     label: 'Caso cerrado',
-    desc: 'Este caso terminó.',
+    // Solo la ven quien la presentó y la persona reportada: para los demás,
+    // una cerrada ya no existe.
+    desc: 'Quien la presentó informó que la persona apareció.',
     color: '#0E7247',
   },
 };
@@ -132,7 +136,7 @@ export const NIVEL_META: Record<
 > = {
   REGISTRADA: {
     label: 'Registrada',
-    desc: 'Solo tú la ves. Firma la declaración para que se difunda.',
+    desc: 'Todavía no se difunde. Firma la declaración para que se alerte a la zona.',
     color: '#8E8E93',
   },
   PROVISIONAL: {
@@ -206,6 +210,18 @@ class DenunciaService {
     return response.data;
   }
 
+  /**
+   * «La encontramos»: da el caso por terminado. La alerta deja de difundirse y
+   * no se puede reactivar. La persona reportada conserva su derecho a
+   * declararla falsa.
+   */
+  async darPorEncontrada(id: string): Promise<Denuncia & { mensaje: string }> {
+    const response = await apiClient.post<Denuncia & { mensaje: string }>(
+      `/denuncias/${id}/encontrada`,
+    );
+    return response.data;
+  }
+
   // No hay método para eliminar: el servidor no expone esa operación. Una
   // denuncia queda atribuida a quien la firmó y no se puede hacer desaparecer.
 }
@@ -255,6 +271,9 @@ export interface FirmarPayload {
   vinculo_declarado: string;
   nombre_escrito: string;
   device_id?: string;
+  /** La firma del teléfono: obligatoria. Ver `firma-dispositivo.ts`. */
+  clave_dispositivo_id: string;
+  firma_dispositivo: string;
 }
 
 /**
@@ -281,6 +300,22 @@ class DeclaracionService {
    */
   async vinculos(): Promise<Vinculo[]> {
     const response = await apiClient.get<Vinculo[]>('/declaraciones/vinculos');
+    return response.data;
+  }
+
+  /** El hash del contenido que el teléfono va a firmar. */
+  async contenidoAFirmar(denunciaId: string): Promise<{ hash_contenido_denuncia: string }> {
+    const response = await apiClient.get<{ hash_contenido_denuncia: string }>(
+      `/declaraciones/denuncias/${denunciaId}/contenido`,
+    );
+    return response.data;
+  }
+
+  /** Registra la clave pública del teléfono. Idempotente: se llama antes de cada firma. */
+  async registrarClave(clavePublica: string): Promise<{ id: string }> {
+    const response = await apiClient.post<{ id: string }>('/declaraciones/claves', {
+      clave_publica: clavePublica,
+    });
     return response.data;
   }
 

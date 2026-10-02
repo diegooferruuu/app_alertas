@@ -17,19 +17,55 @@ export interface Coordenadas {
   lng: number;
 }
 
+export type ModoSelector = 'denuncia' | 'avistamiento';
+
 interface Props {
   valor: Coordenadas | null;
   onChange: (coords: Coordenadas) => void;
+  /** Para qué se marca el punto. Cambia lo que se dice de él. */
+  modo?: ModoSelector;
 }
 
 /**
- * Radio de la zona que se dibuja, en metros.
+ * Lo que se le dice a la persona sobre el punto que marca.
  *
- * Coincide con lo que el servidor guarda de verdad: el punto exacto se reduce a
- * una celda de ~1 km. Dibujarlo no es decoración —es lo que hace visible para
- * quien denuncia que no se está guardando el portón que acaba de marcar.
+ * En una denuncia, el servidor guarda solo la celda de ~1 km que lo contiene, y
+ * el círculo dibujado coincide con ella: dibujarlo no es decoración, es lo que
+ * hace visible que no se guarda el portón que se acaba de marcar. En un
+ * avistamiento el punto exacto sí sirve —va a la Policía en el reporte— y no
+ * se guarda en ningún lado, así que no hay zona que dibujar.
  */
-const RADIO_ZONA_M = 550;
+const TEXTOS: Record<
+  ModoSelector,
+  {
+    etiqueta: string;
+    elegida: string;
+    ayuda: string;
+    marcador: string;
+    pieConPunto: string;
+    pieSinPunto: string;
+    radioZonaM: number | null;
+  }
+> = {
+  denuncia: {
+    etiqueta: '¿Dónde se la vio por última vez?',
+    elegida: 'Zona seleccionada',
+    ayuda: 'Solo se guarda la zona aproximada de un kilómetro, nunca el punto exacto.',
+    marcador: 'Zona elegida',
+    pieConPunto: 'Se guardará la zona marcada, no el punto exacto.',
+    pieSinPunto: 'Toca el mapa donde se la vio por última vez.',
+    radioZonaM: 550,
+  },
+  avistamiento: {
+    etiqueta: '¿Dónde la viste?',
+    elegida: 'Punto seleccionado',
+    ayuda: 'El punto va en tu reporte a la Policía. La aplicación no lo guarda.',
+    marcador: 'Punto elegido',
+    pieConPunto: 'Este punto irá en tu reporte como enlace de mapa.',
+    pieSinPunto: 'Toca el mapa donde viste a la persona.',
+    radioZonaM: null,
+  },
+};
 
 /**
  * Dónde se vio por última vez a la persona.
@@ -39,7 +75,8 @@ const RADIO_ZONA_M = 550;
  * La alerta se difundía alrededor de quien denuncia y no de donde se vio a la
  * persona buscada, que es lo único que sirve para que alguien la reconozca.
  */
-export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
+export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange, modo = 'denuncia' }) => {
+  const textos = TEXTOS[modo];
   const [buscandoGps, setBuscandoGps] = useState(false);
   const [mapaAbierto, setMapaAbierto] = useState(false);
   const [provisional, setProvisional] = useState<Coordenadas | null>(valor);
@@ -104,7 +141,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
 
   return (
     <View style={estilos.contenedor}>
-      <Text style={estilos.etiqueta}>¿Dónde se la vio por última vez?</Text>
+      <Text style={estilos.etiqueta}>{textos.etiqueta}</Text>
 
       <View style={estilos.opciones}>
         <TouchableOpacity
@@ -135,7 +172,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
         <View style={estilos.elegida}>
           <Ionicons name="checkmark-circle" size={16} color="#2C6B3F" />
           <Text style={estilos.elegidaTexto}>
-            Zona seleccionada: {valor.lat.toFixed(4)}, {valor.lng.toFixed(4)}
+            {textos.elegida}: {valor.lat.toFixed(4)}, {valor.lng.toFixed(4)}
           </Text>
         </View>
       ) : (
@@ -149,9 +186,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
         Decirlo antes de que marquen, no después. Quien elige un punto en un mapa
         asume que se guarda ese punto; que no sea así tiene que ser visible.
       */}
-      <Text style={estilos.ayuda}>
-        Solo se guarda la zona aproximada de un kilómetro, nunca el punto exacto.
-      </Text>
+      <Text style={estilos.ayuda}>{textos.ayuda}</Text>
 
       <Modal
         visible={mapaAbierto}
@@ -174,9 +209,9 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
           </View>
 
           {/*
-            El círculo es la zona que realmente se guarda. Ver el punto dentro
-            de un área y no como una chincheta exacta es lo que comunica la
-            reducción sin tener que leer un aviso.
+            En una denuncia, el círculo es la zona que realmente se guarda. Ver
+            el punto dentro de un área y no como una chincheta exacta es lo que
+            comunica la reducción sin tener que leer un aviso.
           */}
           <Mapa
             style={estilos.mapa}
@@ -188,15 +223,15 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
                       id: 'elegido',
                       lat: provisional.lat,
                       lng: provisional.lng,
-                      titulo: 'Zona elegida',
+                      titulo: textos.marcador,
                       color: '#FF3B30',
                     },
                   ]
                 : []
             }
             zona={
-              provisional
-                ? { lat: provisional.lat, lng: provisional.lng, radioM: RADIO_ZONA_M }
+              provisional && textos.radioZonaM
+                ? { lat: provisional.lat, lng: provisional.lng, radioM: textos.radioZonaM }
                 : null
             }
             alTocar={setProvisional}
@@ -204,9 +239,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange }) => {
 
           <View style={estilos.pie}>
             <Text style={estilos.pieTexto}>
-              {provisional
-                ? 'Se guardará la zona marcada, no el punto exacto.'
-                : 'Toca el mapa donde se la vio por última vez.'}
+              {provisional ? textos.pieConPunto : textos.pieSinPunto}
             </Text>
           </View>
         </View>

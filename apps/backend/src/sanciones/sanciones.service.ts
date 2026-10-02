@@ -14,7 +14,8 @@ import {
 import { restriccion } from './restriccion';
 import { Cierre, TipoCierre } from '../cierres/entities/cierre.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
-import { EstadoDenuncia } from '../denuncias/domain/estados';
+import { EstadoDenuncia, NivelConfianza } from '../denuncias/domain/estados';
+import { revocarEmisionesPendientes } from '../alertas/revocacion';
 import { User } from '../users/entities/user.entity';
 import { EstadoCuenta, estaSuspendida } from '../users/domain/estado-cuenta';
 import { UsersService } from '../users/users.service';
@@ -160,6 +161,29 @@ export class SancionesService {
       .getRepository(User)
       .update(datos.denuncianteId, { estado_cuenta: EstadoCuenta.SUSPENDIDA });
 
+    // Sus alertas sin caso de la FELCC dejan de difundirse en el mismo acto: dos
+    // personas distintas declararon falsas sus denuncias, y seguir alertando
+    // con las demás contradiría eso. Las que tienen caso siguen, porque las
+    // respalda la Policía y no la palabra de esta cuenta. Pasan a CADUCADA:
+    // muere la alerta, no el caso, y el caso de la FELCC todavía la devuelve.
+    const [detenidas]: [Array<{ id: string }>, number] = await manager.query(
+      `UPDATE denuncias SET estado = $2
+        WHERE denunciante_id = $1
+          AND estado = $3
+          AND nivel_confianza <> $4
+          AND (numero_caso_felcc IS NULL OR btrim(numero_caso_felcc) = '')
+        RETURNING id`,
+      [
+        datos.denuncianteId,
+        EstadoDenuncia.CADUCADA,
+        EstadoDenuncia.ACTIVA,
+        NivelConfianza.REGISTRADA,
+      ],
+    );
+    for (const { id } of detenidas) {
+      await revocarEmisionesPendientes(manager, id, 'la cuenta de quien denunció fue suspendida');
+    }
+
     // Bloquea el documento para que la suspensión no se esquive registrándose de
     // nuevo. `orIgnore`: idempotente si ya estaba bloqueado.
     await manager
@@ -174,7 +198,9 @@ export class SancionesService {
       .orIgnore()
       .execute();
 
-    this.logger.log('Cuenta suspendida por dos cierres con sanción de personas distintas');
+    this.logger.log(
+      `Cuenta suspendida por dos cierres con sanción de personas distintas; alertas detenidas: ${detenidas.length}`,
+    );
     return { suspendida: true };
   }
 }

@@ -32,7 +32,10 @@ export enum EstadoDenuncia {
   CADUCADA = 'CADUCADA',
   /** La cerró la persona reportada: «Estoy bien» o «Esta denuncia es falsa». */
   INVALIDADA = 'INVALIDADA',
-  /** El caso terminó. */
+  /**
+   * Quien la presentó dio el caso por terminado: «La encontramos». La persona
+   * reportada todavía puede declararla falsa (ver `CierresService.cerrar`).
+   */
   CERRADA = 'CERRADA',
 }
 

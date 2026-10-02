@@ -5,6 +5,7 @@ import { FirmasService } from './firmas.service';
 import { DeclaracionesController } from './declaraciones.controller';
 import { VersionTextoLegal } from './entities/version-texto-legal.entity';
 import { DeclaracionJurada } from './entities/declaracion-jurada.entity';
+import { ClaveDispositivo } from './entities/clave-dispositivo.entity';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { UsersModule } from '../users/users.module';
 import { AlertasModule } from '../alertas/alertas.module';
@@ -12,7 +13,7 @@ import { SancionesModule } from '../sanciones/sanciones.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([VersionTextoLegal, DeclaracionJurada, Denuncia]),
+    TypeOrmModule.forFeature([VersionTextoLegal, DeclaracionJurada, ClaveDispositivo, Denuncia]),
     UsersModule,
     AlertasModule,
     SancionesModule,

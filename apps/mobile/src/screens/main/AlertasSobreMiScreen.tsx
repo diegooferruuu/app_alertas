@@ -17,6 +17,14 @@ import constanciaService from '../../services/constancia.service';
 
 /** Cómo se le presenta a la persona el estado de una denuncia que la identifica. */
 const situacionDe = (d: DenunciaQueMeIdentifica) => {
+  if (d.estado === 'CERRADA') {
+    return {
+      etiqueta: 'Terminada por quien la presentó',
+      icono: 'checkmark-done-outline',
+      color: '#0E7247',
+      fondo: '#E2F2EA',
+    };
+  }
   if (d.estado === 'INVALIDADA') {
     return {
       etiqueta: 'Cerrada por ti',
@@ -169,13 +177,22 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
               depende de que se esté difundiendo ahora mismo. Una ya cerrada no
               reaparece aquí como accionable —INVALIDADA es terminal— pero sigue
               en la lista porque su constancia no caduca. */}
+          {/* Una que quien la presentó ya dio por terminada no se difunde,
+              pero la persona todavía puede responderla —y declararla falsa—:
+              terminarla no puede ser la forma de escapar de la falta. */}
           {item.puede_cerrarse && (
             <TouchableOpacity
               style={styles.retirarButton}
               onPress={() => navigation.navigate('CerrarAlerta', { alerta: item })}
             >
-              <Ionicons name="hand-left-outline" size={18} color="#fff" />
-              <Text style={styles.retirarText}>Cerrar esta alerta</Text>
+              <Ionicons
+                name={item.estado === 'CERRADA' ? 'chatbubble-ellipses-outline' : 'hand-left-outline'}
+                size={18}
+                color="#fff"
+              />
+              <Text style={styles.retirarText}>
+                {item.estado === 'CERRADA' ? 'Responder a esta denuncia' : 'Cerrar esta alerta'}
+              </Text>
             </TouchableOpacity>
           )}
 

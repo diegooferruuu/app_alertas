@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   HttpException,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
@@ -515,6 +516,180 @@ describe('DenunciasService (integración)', () => {
     });
   });
 
+  describe('«La encontramos»', () => {
+    /** Una denuncia firmada y difundiéndose, con una emisión todavía pendiente. */
+    const difundidaConPendiente = async (autorId: string) => {
+      const { id } = await service.create(autorId, datosDeDenuncia);
+      await denuncias.update(id, {
+        nivel_confianza: NivelConfianza.PROVISIONAL,
+        radio_actual_m: 2000,
+        expira_en: new Date(Date.now() + 3_600_000),
+      });
+      await denuncias.manager.insert(EmisionAlerta, { denuncia_id: id, radio_m: 2000, motivo: 'firma' });
+      return id;
+    };
+
+    it('quien la presentó la da por terminada: deja de difundirse y queda la fecha', async () => {
+      const autor = await crearDenunciante();
+      const id = await difundidaConPendiente(autor.id);
+
+      const { denuncia, mensaje } = await service.darPorEncontrada(autor.id, id);
+
+      expect(denuncia.estado).toBe(EstadoDenuncia.CERRADA);
+      expect(denuncia.cerrada_en).toBeInstanceOf(Date);
+      expect(mensaje).toContain('dejó de difundirse');
+      expect(await service.findNearby(LA_PAZ.lat, LA_PAZ.lng, 5000)).toHaveLength(0);
+    });
+
+    it('revoca lo que todavía no salió', async () => {
+      const autor = await crearDenunciante();
+      const id = await difundidaConPendiente(autor.id);
+
+      await service.darPorEncontrada(autor.id, id);
+
+      const [emision] = await denuncias.manager.find(EmisionAlerta, { where: { denuncia_id: id } });
+      expect(emision.estado).toBe('completada');
+      expect(emision.destinatarios).toBe(0);
+      expect(emision.ultimo_error).toMatch(/^revocada/);
+    });
+
+    it('nadie más puede hacerlo, y para los demás es como si no existiera', async () => {
+      const autor = await crearDenunciante();
+      const vecina = await crearDenunciante('vecina@test.com');
+      const id = await difundidaConPendiente(autor.id);
+
+      await expect(service.darPorEncontrada(vecina.id, id)).rejects.toThrow(NotFoundException);
+      expect((await service.findOne(id)).estado).toBe(EstadoDenuncia.ACTIVA);
+    });
+
+    it('no se puede cerrar dos veces ni reabrir', async () => {
+      const autor = await crearDenunciante();
+      const id = await difundidaConPendiente(autor.id);
+      await service.darPorEncontrada(autor.id, id);
+
+      await expect(service.darPorEncontrada(autor.id, id)).rejects.toThrow(ConflictException);
+      // Ni la caducidad la alcanza: solo toca las ACTIVAS.
+      expect(await service.caducarVencidas()).toBe(0);
+    });
+
+    it('no pisa el cierre de la persona reportada', async () => {
+      const autor = await crearDenunciante();
+      const id = await difundidaConPendiente(autor.id);
+      await denuncias.update(id, { estado: EstadoDenuncia.INVALIDADA });
+
+      await expect(service.darPorEncontrada(autor.id, id)).rejects.toThrow(
+        /La persona reportada ya cerró esta alerta/,
+      );
+    });
+
+    it('también una vencida', async () => {
+      const autor = await crearDenunciante();
+      const id = await difundidaConPendiente(autor.id);
+      await denuncias.update(id, { estado: EstadoDenuncia.CADUCADA });
+
+      const { denuncia } = await service.darPorEncontrada(autor.id, id);
+
+      expect(denuncia.estado).toBe(EstadoDenuncia.CERRADA);
+    });
+
+    it('una sin firmar también, y libera para volver a denunciar si vuelve a desaparecer', async () => {
+      // Sin esto, la denuncia vieja seguiría «abierta» y bloquearía la nueva.
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+
+      const { mensaje } = await service.darPorEncontrada(autor.id, id);
+
+      expect(mensaje).toContain('No llegó a difundirse');
+      await expect(service.create(autor.id, datosDeDenuncia)).resolves.toBeDefined();
+    });
+
+    it('la base exige la fecha en una cerrada, y solo en ella', async () => {
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+
+      await expect(
+        denuncias.query(`UPDATE denuncias SET estado = 'CERRADA' WHERE id = $1`, [id]),
+      ).rejects.toThrow(/chk_denuncias_cerrada_con_fecha/);
+      await expect(
+        denuncias.query(`UPDATE denuncias SET cerrada_en = now() WHERE id = $1`, [id]),
+      ).rejects.toThrow(/chk_denuncias_cerrada_con_fecha/);
+    });
+  });
+
+  describe('quién ve el detalle', () => {
+    /** Una denuncia del autor, ya firmada y difundiéndose. */
+    const difundida = async (autorId: string) => {
+      const { id } = await service.create(autorId, datosDeDenuncia);
+      await denuncias.update(id, {
+        nivel_confianza: NivelConfianza.PROVISIONAL,
+        radio_actual_m: 2000,
+        expira_en: new Date(Date.now() + 3_600_000),
+      });
+      return id;
+    };
+
+    it('quien la presentó la ve siempre, aunque nadie más pueda', async () => {
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+      await denuncias.update(id, { estado: EstadoDenuncia.INVALIDADA });
+
+      await expect(service.findVisiblePara(autor.id, id)).resolves.toMatchObject({ id });
+    });
+
+    it('una sin firmar solo la ve su autor', async () => {
+      // «Por ahora solo tú la ves» tiene que ser cierto también para quien
+      // consiga el identificador.
+      const autor = await crearDenunciante();
+      const vecina = await crearDenunciante('vecina@test.com');
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+
+      await expect(service.findVisiblePara(vecina.id, id)).rejects.toThrow(NotFoundException);
+    });
+
+    it('una difundida la ve cualquiera', async () => {
+      const autor = await crearDenunciante();
+      const vecina = await crearDenunciante('vecina@test.com');
+      const id = await difundida(autor.id);
+
+      await expect(service.findVisiblePara(vecina.id, id)).resolves.toMatchObject({ id });
+    });
+
+    it('una vencida se sigue viendo desde la notificación que ya se recibió', async () => {
+      // No está en el mapa, pero quien recibió la alerta puede ver hoy a la
+      // persona y necesita sus datos para avisar a la Policía.
+      const autor = await crearDenunciante();
+      const vecina = await crearDenunciante('vecina@test.com');
+      const id = await difundida(autor.id);
+      await denuncias.update(id, { estado: EstadoDenuncia.CADUCADA });
+
+      await expect(service.findVisiblePara(vecina.id, id)).resolves.toMatchObject({ id });
+    });
+
+    it('una que la persona reportada cerró ya no la ven los vecinos', async () => {
+      // Seguir mostrándola expondría su foto después de que pidió detenerla.
+      const autor = await crearDenunciante();
+      const vecina = await crearDenunciante('vecina@test.com');
+      const id = await difundida(autor.id);
+      await denuncias.update(id, { estado: EstadoDenuncia.INVALIDADA });
+
+      await expect(service.findVisiblePara(vecina.id, id)).rejects.toThrow(NotFoundException);
+    });
+
+    it('una oculta responde igual que una que no existe', async () => {
+      const autor = await crearDenunciante();
+      const vecina = await crearDenunciante('vecina@test.com');
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+
+      const oculta = await service.findVisiblePara(vecina.id, id).catch((e) => e);
+      const inexistente = await service
+        .findVisiblePara(vecina.id, '00000000-0000-4000-8000-000000000000')
+        .catch((e) => e);
+
+      expect(oculta.getStatus()).toBe(inexistente.getStatus());
+      expect(oculta.getResponse()).toEqual(inexistente.getResponse());
+    });
+  });
+
   describe('difusión', () => {
     /** Simula el resultado del acto de firma, que llegará en la fase 2. */
     const difundir = async (id: string, expiraEn: Date) => {
@@ -656,6 +831,18 @@ describe('DenunciasService (integración)', () => {
       await expect(
         service.update(autor.id, id, { prenda_superior: 'CAMISA' }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('una cerrada ya no se edita, aunque nadie la haya firmado', async () => {
+      // Sin firma no hay sellado, pero cambiarla después alteraría lo que la
+      // persona reportada vio cuando la cerró.
+      const autor = await crearDenunciante();
+      const { id } = await service.create(autor.id, datosDeDenuncia);
+      await denuncias.update(id, { estado: EstadoDenuncia.INVALIDADA });
+
+      await expect(
+        service.update(autor.id, id, { prenda_superior: 'CAMISA' }),
+      ).rejects.toThrow(/cerrada ya no se puede editar/);
     });
 
     it('impide editar la denuncia de otra persona', async () => {

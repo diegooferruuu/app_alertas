@@ -82,6 +82,12 @@ import {
   'chk_denuncias_difusion_coherente',
   `(((((nivel_confianza)::text = 'REGISTRADA'::text) AND (radio_actual_m IS NULL) AND (expira_en IS NULL)) OR (((nivel_confianza)::text <> 'REGISTRADA'::text) AND (radio_actual_m IS NOT NULL) AND (expira_en IS NOT NULL))))`,
 )
+// Una denuncia que su autor dio por terminada sabe cuándo, y solo ella lo
+// tiene: la fecha no puede quedar suelta en otro estado ni faltar en este.
+@Check(
+  'chk_denuncias_cerrada_con_fecha',
+  `(((((estado)::text = 'CERRADA'::text) AND (cerrada_en IS NOT NULL)) OR (((estado)::text <> 'CERRADA'::text) AND (cerrada_en IS NULL))))`,
+)
 // Cada campo descriptivo, contra su dominio. La especificación lo pide explícito
 // (§7): validar solo en el servidor dejaría el dominio a merced de una escritura
 // directa, y estos valores entran en el sellado de la declaración jurada.
@@ -302,9 +308,17 @@ export class Denuncia {
   @Column({ type: 'timestamptz', nullable: true })
   expira_en!: Date | null;
 
-  /** Número de caso de la FELCC. Una de las dos vías de corroboración. */
+  /** Número de caso de la FELCC. La única vía de corroboración. */
   @Column({ type: 'varchar', length: 60, nullable: true })
   numero_caso_felcc!: string | null;
+
+  /**
+   * Cuándo la dio por terminada quien la presentó: «La encontramos». Nulo en
+   * cualquier otro estado. Con la firma, mide cuánto tardó en aparecer la
+   * persona.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  cerrada_en!: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;

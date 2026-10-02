@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { DeclaracionesService } from './declaraciones.service';
 import { FirmasService } from './firmas.service';
 import { FirmarDeclaracionDto } from './dto/firmar-declaracion.dto';
 import { RegistrarCasoFelccDto } from './dto/registrar-caso-felcc.dto';
+import { RegistrarClaveDto } from './dto/registrar-clave.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ETIQUETA_VINCULO, VINCULOS_VALIDOS } from './domain/vinculos';
@@ -45,6 +46,24 @@ export class DeclaracionesController {
       valor,
       etiqueta: ETIQUETA_VINCULO[valor],
     }));
+  }
+
+  /**
+   * La clave pública del teléfono. El teléfono la registra antes de cada
+   * firma: es idempotente, y así nunca firma con un identificador vencido.
+   */
+  @Post('claves')
+  async registrarClave(@CurrentUser() user: any, @Body() dto: RegistrarClaveDto) {
+    return this.firmasService.registrarClave(user.userId, dto.clave_publica);
+  }
+
+  /** El hash del contenido que el teléfono va a firmar. */
+  @Get('denuncias/:denunciaId/contenido')
+  async contenidoAFirmar(
+    @CurrentUser() user: any,
+    @Param('denunciaId', ParseUUIDPipe) denunciaId: string,
+  ) {
+    return this.firmasService.contenidoAFirmar(user.userId, denunciaId);
   }
 
   @Post('denuncias/:denunciaId/firmar')

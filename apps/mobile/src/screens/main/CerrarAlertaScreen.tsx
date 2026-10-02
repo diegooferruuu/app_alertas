@@ -14,40 +14,7 @@ import cierreService, {
   TipoCierre,
 } from '../../services/cierre.service';
 import { rechazoDe } from '../../services/restricciones';
-
-/** Una opción de radio con su explicación. Ninguna viene marcada de antemano. */
-const Opcion: React.FC<{
-  elegida: boolean;
-  onPress: () => void;
-  titulo: string;
-  detalle: string;
-  consecuencia?: string;
-  icono: string;
-  color: string;
-}> = ({ elegida, onPress, titulo, detalle, consecuencia, icono, color }) => (
-  <TouchableOpacity
-    style={[styles.opcion, elegida && { borderColor: color, backgroundColor: `${color}0D` }]}
-    onPress={onPress}
-    accessibilityRole="radio"
-    accessibilityState={{ checked: elegida }}
-  >
-    <Ionicons
-      name={elegida ? 'radio-button-on' : 'radio-button-off'}
-      size={22}
-      color={elegida ? color : '#bbb'}
-    />
-    <View style={styles.opcionCuerpo}>
-      <View style={styles.opcionTituloFila}>
-        <Ionicons name={icono as any} size={18} color={color} />
-        <Text style={styles.opcionTitulo}>{titulo}</Text>
-      </View>
-      <Text style={styles.opcionDetalle}>{detalle}</Text>
-      {consecuencia ? (
-        <Text style={[styles.opcionConsecuencia, { color }]}>{consecuencia}</Text>
-      ) : null}
-    </View>
-  </TouchableOpacity>
-);
+import { OpcionRadio as Opcion } from '../../components/OpcionRadio';
 
 /**
  * Cerrar una alerta que identifica a quien la ejecuta.
@@ -69,6 +36,8 @@ const CerrarAlertaScreen: React.FC<{ route: any; navigation: any }> = ({
   navigation,
 }) => {
   const alerta: DenunciaQueMeIdentifica = route.params.alerta;
+  // Quien la presentó ya la dio por terminada: no se difunde, pero se responde igual.
+  const terminada = alerta.estado === 'CERRADA';
   const [tipo, setTipo] = useState<TipoCierre | null>(null);
   const [podraVolver, setPodraVolver] = useState<boolean | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -110,21 +79,25 @@ const CerrarAlertaScreen: React.FC<{ route: any; navigation: any }> = ({
           ? 'Quien la presentó no recibe ninguna sanción y podrá volver a denunciarte.'
           : 'Quien la presentó no recibe ninguna sanción, pero no podrá volver a denunciarte.';
     Alert.alert(
-      '¿Cerrar la alerta?',
-      `Dejará de difundirse de inmediato. ${efecto}\n\nNo se puede deshacer.`,
+      terminada ? '¿Registrar tu respuesta?' : '¿Cerrar la alerta?',
+      `${terminada ? '' : 'Dejará de difundirse de inmediato. '}${efecto}\n\nNo se puede deshacer.`,
       [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Cerrar la alerta', style: 'destructive', onPress: cerrar },
+        { text: terminada ? 'Registrar' : 'Cerrar la alerta', style: 'destructive', onPress: cerrar },
       ],
     );
   };
 
   return (
     <ScrollView contentContainerStyle={styles.contenedor}>
-      <Text style={styles.titulo}>Cerrar la alerta</Text>
+      <Text style={styles.titulo}>
+        {terminada ? 'Responder a esta denuncia' : 'Cerrar la alerta'}
+      </Text>
       <Text style={styles.subtitulo}>
-        Sobre {alerta.nombre_persona_buscada || 'ti'}. Dejará de difundirse de inmediato y
-        no podrá volver a activarse.
+        Sobre {alerta.nombre_persona_buscada || 'ti'}.{' '}
+        {terminada
+          ? 'Quien la presentó ya la dio por terminada y no se difunde. Igual puedes decir si estás bien o si era falsa.'
+          : 'Dejará de difundirse de inmediato y no podrá volver a activarse.'}
       </Text>
 
       <Text style={styles.pregunta}>¿Por qué la cierras?</Text>
@@ -195,7 +168,9 @@ const CerrarAlertaScreen: React.FC<{ route: any; navigation: any }> = ({
         {enviando ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.botonTexto}>Cerrar la alerta</Text>
+          <Text style={styles.botonTexto}>
+            {terminada ? 'Registrar mi respuesta' : 'Cerrar la alerta'}
+          </Text>
         )}
       </TouchableOpacity>
 
@@ -222,20 +197,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   grupo: { gap: 10 },
-  opcion: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#e6e6e6',
-  },
-  opcionCuerpo: { flex: 1, gap: 4 },
-  opcionTituloFila: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  opcionTitulo: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
-  opcionDetalle: { fontSize: 13, color: '#555', lineHeight: 19 },
-  opcionConsecuencia: { fontSize: 13, fontWeight: '600', lineHeight: 19, marginTop: 2 },
   aviso: {
     flexDirection: 'row',
     gap: 10,

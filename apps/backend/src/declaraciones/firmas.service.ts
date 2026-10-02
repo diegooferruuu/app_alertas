@@ -11,7 +11,9 @@ import {
   DeclaracionJurada,
   TipoDeclaracion,
 } from './entities/declaracion-jurada.entity';
+import { ClaveDispositivo } from './entities/clave-dispositivo.entity';
 import { FirmarDeclaracionDto } from './dto/firmar-declaracion.dto';
+import { DatosFirmados, firmaValida, mensajeAFirmar } from './domain/firma-dispositivo';
 import { DeclaracionesService } from './declaraciones.service';
 import {
   VinculoDeclarado,
@@ -116,13 +118,95 @@ export class FirmasService {
   }
 
   /**
+   * Registra la clave pública de un teléfono y devuelve su identificador.
+   *
+   * Idempotente para su dueño: el teléfono la registra antes de cada firma, así
+   * que si la base se reinició o la clave nunca llegó, se arregla sola. Una
+   * clave ya registrada por otra cuenta se rechaza: las firmas se atribuyen a
+   * quien es dueño de la clave.
+   */
+  async registrarClave(userId: string, clavePublica: string): Promise<{ id: string }> {
+    const claves = this.dataSource.getRepository(ClaveDispositivo);
+    // `orIgnore` y releer: dos registros simultáneos de la misma clave no pueden
+    // terminar en un error de unicidad.
+    await claves
+      .createQueryBuilder()
+      .insert()
+      .values({ usuario_id: userId, clave_publica: clavePublica })
+      .orIgnore()
+      .execute();
+    const clave = await claves.findOneOrFail({ where: { clave_publica: clavePublica } });
+    if (clave.usuario_id !== userId) {
+      throw new ConflictException('Esa clave ya está registrada en otra cuenta');
+    }
+    return { id: clave.id };
+  }
+
+  /**
+   * El hash del contenido que se va a sellar, para que el teléfono lo firme.
+   *
+   * Es el mismo cálculo que hace `firmar`, con la misma función. Si la denuncia
+   * cambiara entre esta consulta y la firma, el hash dejaría de coincidir y la
+   * firma se rechazaría, que es lo correcto: se habría firmado otra cosa.
+   */
+  async contenidoAFirmar(
+    userId: string,
+    denunciaId: string,
+  ): Promise<{ hash_contenido_denuncia: string }> {
+    const denuncia = await this.denunciaCompleta(this.dataSource.manager, denunciaId);
+    if (denuncia.denunciante_id !== userId) {
+      throw new ForbiddenException('Solo puedes firmar tus propias denuncias');
+    }
+    if (
+      denuncia.estado !== EstadoDenuncia.ACTIVA ||
+      denuncia.nivel_confianza !== NivelConfianza.REGISTRADA
+    ) {
+      throw new ConflictException('Esta denuncia ya no se puede firmar');
+    }
+    return { hash_contenido_denuncia: FirmasService.hashContenidoDe(denuncia) };
+  }
+
+  private static hashContenidoDe(denuncia: Denuncia): string {
+    return calcularHashContenido(
+      contenidoSellable(denuncia),
+      denuncia.version_formula_contenido,
+    );
+  }
+
+  /**
+   * Comprueba la firma del teléfono antes de sellar nada.
+   *
+   * Una clave ajena se trata igual que una inexistente. El teléfono registra su
+   * clave antes de firmar, así que cualquiera de los dos rechazos significa que
+   * hay que volver a intentarlo, no que algo esté perdido.
+   */
+  private async verificarFirmaDelTelefono(
+    manager: EntityManager,
+    userId: string,
+    dto: FirmarDeclaracionDto,
+    firmado: DatosFirmados,
+  ): Promise<ClaveDispositivo> {
+    const clave = await manager
+      .getRepository(ClaveDispositivo)
+      .findOne({ where: { id: dto.clave_dispositivo_id } });
+    if (!clave || clave.usuario_id !== userId) {
+      throw new BadRequestException(
+        'La clave de firma de este teléfono no está registrada en tu cuenta. Vuelve a firmar.',
+      );
+    }
+    if (!firmaValida(clave.clave_publica, mensajeAFirmar(firmado), dto.firma_dispositivo)) {
+      throw new BadRequestException(
+        'La firma del teléfono no corresponde a esta declaración. Vuelve a firmar.',
+      );
+    }
+    return clave;
+  }
+
+  /**
    * Sella un registro en la cadena.
    *
-   * Es el mismo acto para una declaración original y para una corroboración:
-   * ambas comprometen igual a quien firma, y por eso comparten paquete
-   * probatorio en lugar de vivir en tablas distintas.
-   *
-   * Debe llamarse dentro de una transacción que ya tomó el cerrojo de la cadena.
+   * Debe llamarse dentro de una transacción que ya tomó el cerrojo de la cadena,
+   * y con la firma del teléfono ya verificada.
    */
   private async sellar(
     manager: EntityManager,
@@ -131,10 +215,13 @@ export class FirmasService {
       usuario: { id: string; ci_hash: string };
       versionId: string;
       hashTextoLegal: string;
+      hashContenido: string;
       vinculo: VinculoDeclarado;
       nombreEscrito: string;
       deviceId: string | null;
       tipo: TipoDeclaracion;
+      claveId: string;
+      firma: string;
     },
   ): Promise<void> {
     const declaraciones = manager.getRepository(DeclaracionJurada);
@@ -159,13 +246,12 @@ export class FirmasService {
       version_texto_legal_id: datos.versionId,
       hash_texto_legal: datos.hashTextoLegal,
       texto_firmado: datos.nombreEscrito,
-      hash_contenido_denuncia: calcularHashContenido(
-        contenidoSellable(datos.denuncia),
-        datos.denuncia.version_formula_contenido,
-      ),
+      hash_contenido_denuncia: datos.hashContenido,
       firmada_en: firmadaEn.toISOString(),
       device_id: datos.deviceId,
       hash_anterior: ultima?.hash_registro ?? null,
+      clave_publica_id: datos.claveId,
+      firma_criptografica: datos.firma,
     };
 
     await declaraciones.insert({
@@ -260,15 +346,29 @@ export class FirmasService {
         }
       }
 
+      // Lo que firmó el teléfono, armado aquí con los valores del servidor: si
+      // el teléfono hubiera firmado otra cosa, la verificación no pasa.
+      const hashContenido = FirmasService.hashContenidoDe(denuncia);
+      const clave = await this.verificarFirmaDelTelefono(manager, userId, dto, {
+        denuncia_id: denuncia.id,
+        hash_contenido_denuncia: hashContenido,
+        hash_texto_legal: version.hash_texto,
+        vinculo_declarado: vinculo,
+        texto_firmado: dto.nombre_escrito,
+      });
+
       await this.sellar(manager, {
         denuncia,
         usuario: { id: userId, ci_hash: usuario.ci_hash },
         versionId: version.id,
         hashTextoLegal: version.hash_texto,
+        hashContenido,
         vinculo,
         nombreEscrito: dto.nombre_escrito,
         deviceId: dto.device_id ?? null,
         tipo: 'original',
+        claveId: clave.id,
+        firma: dto.firma_dispositivo,
       });
 
       // Con el caso de la FELCC ya registrado, la firma y el respaldo ocurren en
@@ -415,6 +515,8 @@ export class FirmasService {
       firmada_en: registro.firmada_en.toISOString(),
       device_id: registro.device_id,
       hash_anterior: registro.hash_anterior,
+      clave_publica_id: registro.clave_publica_id,
+      firma_criptografica: registro.firma_criptografica,
       hash_registro: registro.hash_registro,
     };
   }

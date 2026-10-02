@@ -358,15 +358,66 @@ describe('Cierre de una alerta por la persona reportada (integración)', () => {
       expect(await faltas.count()).toBe(1);
     });
 
-    it('rechaza cerrar una denuncia CERRADA', async () => {
-      const autor = await crearUsuario('autor@t.bo', '111');
-      const reportada = await crearUsuario('reportada@t.bo', '222');
-      const denuncia = await crearDenunciaDifundida(autor.id, '222');
-      await denuncias.update(denuncia.id, { estado: EstadoDenuncia.CERRADA });
+    describe('una que su autor dio por terminada («La encontramos»)', () => {
+      /** Como la deja `DenunciasService.darPorEncontrada`. */
+      const terminada = async () => {
+        const autor = await crearUsuario('autor@t.bo', '111');
+        const reportada = await crearUsuario('reportada@t.bo', '222');
+        const denuncia = await crearDenunciaDifundida(autor.id, '222');
+        await denuncias.update(denuncia.id, {
+          estado: EstadoDenuncia.CERRADA,
+          cerrada_en: new Date(),
+        });
+        return { autor, reportada, denuncia };
+      };
 
-      await expect(servicio.cerrar(reportada.id, denuncia.id, ES_FALSA)).rejects.toThrow(
-        ConflictException,
-      );
+      it('todavía se puede declarar falsa, y deja la falta', async () => {
+        // Si no, dar el caso por terminado sería la forma de escapar de la
+        // sanción antes de que la persona reaccione.
+        const { autor, reportada, denuncia } = await terminada();
+
+        await servicio.cerrar(reportada.id, denuncia.id, ES_FALSA);
+
+        expect(await faltas.count({ where: { usuario_id: autor.id } })).toBe(1);
+        expect(await cierres.count({ where: { denuncia_id: denuncia.id } })).toBe(1);
+      });
+
+      it('conserva su estado: ya no se difundía, y CERRADA es terminal', async () => {
+        const { reportada, denuncia } = await terminada();
+
+        const resultado = await servicio.cerrar(reportada.id, denuncia.id, ESTOY_BIEN_CON_BLOQUEO);
+
+        expect(await estadoDe(denuncia.id)).toBe(EstadoDenuncia.CERRADA);
+        expect(resultado.mensaje).toContain('ya había dado el caso por terminado');
+      });
+
+      it('admite una sola respuesta', async () => {
+        const { reportada, denuncia } = await terminada();
+        await servicio.cerrar(reportada.id, denuncia.id, ESTOY_BIEN_SIN_BLOQUEO);
+
+        await expect(servicio.cerrar(reportada.id, denuncia.id, ES_FALSA)).rejects.toThrow(
+          ConflictException,
+        );
+        expect(await faltas.count()).toBe(0);
+      });
+
+      it('aparece en la lista de la persona, que puede responderla una vez', async () => {
+        const { reportada, denuncia } = await terminada();
+
+        const antes = await servicio.denunciasQueMeIdentifican(reportada.id);
+        await servicio.cerrar(reportada.id, denuncia.id, ESTOY_BIEN_SIN_BLOQUEO);
+        const despues = await servicio.denunciasQueMeIdentifican(reportada.id);
+
+        expect(antes).toEqual([
+          expect.objectContaining({
+            id: denuncia.id,
+            estado: EstadoDenuncia.CERRADA,
+            se_esta_difundiendo: false,
+            puede_cerrarse: true,
+          }),
+        ]);
+        expect(despues[0].puede_cerrarse).toBe(false);
+      });
     });
 
     it('INVALIDADA es terminal: la caducidad ya no la alcanza', async () => {
@@ -575,6 +626,35 @@ describe('Cierre de una alerta por la persona reportada (integración)', () => {
       expect((await sanciones.situacionDe(autor.id)).funciones_restringidas).toEqual(
         expect.arrayContaining(['DENUNCIAR', 'FIRMAR', 'RECIBIR_ALERTAS']),
       );
+    });
+
+    it('al suspender, sus alertas sin caso de la FELCC dejan de difundirse y las que lo tienen siguen', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const a = await crearUsuario('a@t.bo', '222');
+      const b = await crearUsuario('b@t.bo', '333');
+      const d1 = await crearDenunciaDifundida(autor.id, '222');
+      const d2 = await crearDenunciaDifundida(autor.id, '333');
+      const sinCaso = await crearDenunciaDifundida(autor.id, '444');
+      const conCaso = await crearDenunciaDifundida(autor.id, '555');
+      await denuncias.update(conCaso.id, {
+        nivel_confianza: NivelConfianza.CORROBORADA,
+        numero_caso_felcc: 'FELCC-2026-0451',
+      });
+      await emisiones.insert({ denuncia_id: sinCaso.id, radio_m: 2000, motivo: 'firma' });
+
+      // Una sola falta no detiene nada (I9).
+      await servicio.cerrar(a.id, d1.id, ES_FALSA);
+      expect(await estadoDe(sinCaso.id)).toBe(EstadoDenuncia.ACTIVA);
+
+      await servicio.cerrar(b.id, d2.id, ES_FALSA);
+
+      expect(await estadoCuentaDe(autor.id)).toBe(EstadoCuenta.SUSPENDIDA);
+      expect(await estadoDe(sinCaso.id)).toBe(EstadoDenuncia.CADUCADA);
+      // La respalda la Policía, no la palabra de esta cuenta.
+      expect(await estadoDe(conCaso.id)).toBe(EstadoDenuncia.ACTIVA);
+      const [emision] = await emisiones.find({ where: { denuncia_id: sinCaso.id } });
+      expect(emision.estado).toBe('completada');
+      expect(emision.ultimo_error).toMatch(/suspendida/);
     });
 
     it('la suspensión cuenta personas, no cierres: dos de la misma persona no bastan', async () => {

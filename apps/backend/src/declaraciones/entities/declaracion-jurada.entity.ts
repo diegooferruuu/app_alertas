@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { VinculoDeclarado } from '../domain/vinculos';
 import { VersionTextoLegal } from './version-texto-legal.entity';
+import { ClaveDispositivo } from './clave-dispositivo.entity';
 import { Denuncia } from '../../denuncias/entities/denuncia.entity';
 
 /**
@@ -89,12 +90,23 @@ export class DeclaracionJurada {
   @Column({ type: 'varchar', length: 120, nullable: true })
   device_id!: string | null;
 
-  /** Firma Ed25519 del dispositivo. Se implementa en la fase 6. */
+  /**
+   * Firma Ed25519 del teléfono sobre lo declarado (ver `domain/firma-dispositivo`),
+   * en hexadecimal. Nula en las declaraciones anteriores a la H6.3.
+   *
+   * Es lo que impide que el propio operador fabrique una declaración: sin la
+   * clave privada, que nunca sale del teléfono, no hay firma válida posible.
+   */
   @Column({ type: 'text', nullable: true })
   firma_criptografica!: string | null;
 
+  /** La clave del teléfono que firmó. */
   @Column({ type: 'uuid', nullable: true })
   clave_publica_id!: string | null;
+
+  @ManyToOne(() => ClaveDispositivo, { onDelete: 'NO ACTION', nullable: true })
+  @JoinColumn({ name: 'clave_publica_id' })
+  clave?: ClaveDispositivo | null;
 
   /**
    * Hash del registro anterior de la cadena.

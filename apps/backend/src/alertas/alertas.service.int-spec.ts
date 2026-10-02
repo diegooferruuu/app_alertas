@@ -971,6 +971,8 @@ describe('Emisión de alertas (integración)', () => {
           longitude: LA_PAZ.lng,
           nivel_confianza: nivel,
           estado,
+          // La base exige la fecha en una CERRADA, y solo en ella.
+          cerrada_en: estado === EstadoDenuncia.CERRADA ? new Date() : null,
           radio_actual_m: difundible ? 2000 : null,
           expira_en: difundible ? new Date(Date.now() + 86_400_000) : null,
         }),

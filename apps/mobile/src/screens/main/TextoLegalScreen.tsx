@@ -127,6 +127,7 @@ const TextoLegalScreen: React.FC<{ route: any; navigation: any }> = ({
           navigation.navigate('FirmarDeclaracion', {
             denunciaId,
             versionId: textoLegal.version_id,
+            hashTextoLegal: textoLegal.hash_texto,
           })
         }
       >

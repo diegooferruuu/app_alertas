@@ -178,7 +178,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       });
       Alert.alert(
         'Denuncia registrada',
-        'Por ahora solo tú la ves. Firma la declaración para que se alerte a la zona.',
+        'Todavía no se difunde. Firma la declaración para que se alerte a la zona.',
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     } catch (err: any) {
@@ -245,9 +245,16 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       return;
     }
 
+    // La consecuencia se dice antes de crear, no recién al firmar: crear ya
+    // tiene un efecto sobre la persona reportada, y una denuncia sin firmar
+    // declarada falsa también deja falta. Se dice en condicional para no
+    // revelar si esa persona tiene cuenta (I5).
     Alert.alert(
       '¿Confirmar denuncia?',
-      `Estás por registrar la desaparición de "${nombrePersonaBuscada.trim()}".\n\nPor ahora la verás solo tú. Para que se alerte a la zona tendrás que firmar una declaración jurada.`,
+      `Estás por registrar la desaparición de "${nombrePersonaBuscada.trim()}".\n\n` +
+        'Todavía no se alertará a la zona: para eso tendrás que firmar una declaración jurada.\n\n' +
+        'Si la persona tiene cuenta en la aplicación, recibirá un aviso de inmediato y podrá ' +
+        'cerrar la denuncia. Si declara que es falsa, recibirás una falta, aunque no la hayas firmado.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Sí, denunciar', style: 'destructive', onPress: submit },
@@ -288,8 +295,8 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         maxLength={12}
       />
       <Text style={styles.hint}>
-        Lo pedimos porque es lo que permite a esa persona retirar la alerta si hubo
-        un error. No guardamos el número: solo una huella cifrada de él.
+        Lo pedimos porque es lo que permite a esa persona enterarse y cerrar la
+        alerta si hubo un error. No guardamos el número: solo una huella cifrada de él.
       </Text>
 
       <View style={styles.campo}>

@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { declaracionService, Vinculo } from '../../services/denuncia.service';
 import { rechazoDe } from '../../services/restricciones';
+import { FirmaNoAutorizada, firmarConElTelefono } from '../../services/firma-dispositivo';
 
 /**
  * Normaliza igual que el servidor, para que el botón se habilite exactamente
@@ -34,7 +35,9 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { denunciaId, versionId } = route.params;
+  // `hashTextoLegal`: el del texto que se leyó en la pantalla anterior. Entra en
+  // lo que firma el teléfono.
+  const { denunciaId, versionId, hashTextoLegal } = route.params;
   const { user } = useAuth();
 
   const [vinculos, setVinculos] = useState<Vinculo[]>([]);
@@ -81,13 +84,24 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   const firmar = async () => {
     setEnviando(true);
     try {
-      const payload = {
+      // El teléfono firma lo declarado: el contenido sellado que le entrega el
+      // servidor, el texto legal que se leyó, el vínculo y el nombre escrito.
+      // Antes pide el desbloqueo del teléfono; sin él no hay firma.
+      const { hash_contenido_denuncia } = await declaracionService.contenidoAFirmar(denunciaId);
+      const firma = await firmarConElTelefono(user!.id, {
+        denuncia_id: denunciaId,
+        hash_contenido_denuncia,
+        hash_texto_legal: hashTextoLegal,
+        vinculo_declarado: vinculo!,
+        texto_firmado: nombreEscrito,
+      });
+
+      const { nivel_confianza } = await declaracionService.firmar(denunciaId, {
         version_texto_legal_id: versionId,
         vinculo_declarado: vinculo!,
         nombre_escrito: nombreEscrito,
-      };
-
-      const { nivel_confianza } = await declaracionService.firmar(denunciaId, payload);
+        ...firma,
+      });
       Alert.alert(
         'Declaración firmada',
         nivel_confianza === 'CORROBORADA'
@@ -96,6 +110,14 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
         [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
       );
     } catch (err) {
+      // No llegó a enviarse: o no se desbloqueó el teléfono, o no tiene bloqueo.
+      if (err instanceof FirmaNoAutorizada) {
+        Alert.alert(
+          err.motivo === 'sin_bloqueo' ? 'Tu teléfono no tiene bloqueo' : 'No se firmó',
+          err.message,
+        );
+        return;
+      }
       const rechazo = rechazoDe(err, { titulo: 'No se pudo firmar', mensaje: 'Intenta de nuevo.' });
       // Sin el caso no hay forma de firmar: se lleva a la persona a donde se
       // registra, en vez de dejarla frente a un botón que va a fallar igual.
@@ -125,7 +147,7 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
       vinculos.find((v) => v.valor === vinculo)?.etiqueta ?? 'la persona';
     Alert.alert(
       '¿Firmar la declaración?',
-      `Declaras bajo juramento ser ${etiqueta} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.`,
+      `Declaras bajo juramento ser ${etiqueta} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.\n\nPara firmar te pediremos desbloquear el teléfono.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Firmar', style: 'destructive', onPress: firmar },

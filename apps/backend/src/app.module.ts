@@ -11,8 +11,10 @@ import { AlertasModule } from './alertas/alertas.module';
 import { CierresModule } from './cierres/cierres.module';
 import { SancionesModule } from './sanciones/sanciones.module';
 import { ConstanciasModule } from './constancias/constancias.module';
+import { AvistamientosModule } from './avistamientos/avistamientos.module';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
+import { autoridadConfig } from './config/autoridad.config';
 import { validarEntorno } from './config/validar-entorno';
 
 @Module({
@@ -20,7 +22,7 @@ import { validarEntorno } from './config/validar-entorno';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../../.env',
-      load: [denunciasConfig],
+      load: [denunciasConfig, autoridadConfig],
       validate: validarEntorno,
     }),
     TypeOrmModule.forRootAsync({
@@ -59,6 +61,7 @@ import { validarEntorno } from './config/validar-entorno';
     CierresModule,
     SancionesModule,
     ConstanciasModule,
+    AvistamientosModule,
   ],
 })
 export class AppModule {}

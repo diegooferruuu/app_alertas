@@ -56,6 +56,7 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   const [numeroCaso, setNumeroCaso] = useState('');
   const [mostrarCampoCaso, setMostrarCampoCaso] = useState(false);
   const [guardandoCaso, setGuardandoCaso] = useState(false);
+  const [cerrandoCaso, setCerrandoCaso] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -68,12 +69,20 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
           .then(setSituacion)
           .catch(() => setSituacion(null));
       }
-    } catch {
-      Alert.alert('Error', 'No se pudo cargar la denuncia.');
+    } catch (err: any) {
+      // La notificación que trajo hasta aquí puede ser vieja: la alerta pudo
+      // cerrarse después. El servidor responde igual que si no existiera.
+      if (err?.response?.status === 404) {
+        Alert.alert('Alerta no disponible', 'Esta alerta ya no está disponible.', [
+          { text: 'Entendido', onPress: () => navigation.goBack() },
+        ]);
+      } else {
+        Alert.alert('Error', 'No se pudo cargar la denuncia.');
+      }
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -93,9 +102,13 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   const isOwner = denuncia.es_mia;
   const conCasoFelcc = Boolean(denuncia.numero_caso_felcc);
 
+  // Sigue abierta mientras nadie la cerró: ni la persona reportada
+  // (INVALIDADA) ni quien la presentó (CERRADA, «La encontramos»).
+  const abierta = denuncia.estado === 'ACTIVA' || denuncia.estado === 'CADUCADA';
+
   // Una vez firmada, el contenido queda sellado por su hash: editarlo rompería
-  // la cadena probatoria.
-  const editable = denuncia.nivel_confianza === 'REGISTRADA';
+  // la cadena probatoria. Y una cerrada ya no se firma ni se edita.
+  const editable = denuncia.nivel_confianza === 'REGISTRADA' && denuncia.estado === 'ACTIVA';
 
   // Quien tiene una falta no puede difundir sin el caso, así que a esa cuenta
   // se le pide antes de firmar. Lo dice su situación o, si no se pudo
@@ -109,10 +122,61 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   // a la FELCC, y pedir el número tan pronto empujaría a inventarlo. Una
   // INVALIDADA o CERRADA ya no lo admite.
   const admiteCaso =
-    isOwner &&
-    !conCasoFelcc &&
-    (denuncia.estado === 'ACTIVA' || denuncia.estado === 'CADUCADA') &&
-    (!editable || requiereCasoParaFirmar);
+    isOwner && !conCasoFelcc && abierta && (!editable || requiereCasoParaFirmar);
+
+  // Quien recibió la alerta puede avisar a la Policía si ve a la persona,
+  // también en una vencida, a la que se llega desde la notificación. Sin
+  // importar sus sanciones: el reporte no usa la credibilidad del sistema.
+  const admiteAvistamiento = !isOwner && denuncia.nivel_confianza !== 'REGISTRADA' && abierta;
+
+  const seDifundio = denuncia.nivel_confianza !== 'REGISTRADA';
+
+  const darPorEncontrada = async () => {
+    setCerrandoCaso(true);
+    try {
+      const { mensaje } = await denunciaService.darPorEncontrada(denuncia.id);
+      await load();
+      Alert.alert(seDifundio ? 'Caso cerrado' : 'Denuncia cerrada', mensaje);
+    } catch (err) {
+      const rechazo = rechazoDe(err, {
+        titulo: 'No se pudo cerrar',
+        mensaje: 'Inténtalo de nuevo.',
+      });
+      Alert.alert(rechazo.titulo, rechazo.mensaje);
+    } finally {
+      setCerrandoCaso(false);
+    }
+  };
+
+  const confirmarEncontrada = () => {
+    Alert.alert(
+      '¿La persona apareció?',
+      seDifundio
+        ? 'La alerta dejará de difundirse de inmediato y no se podrá reactivar. Si vuelve a desaparecer, tendrás que presentar una denuncia nueva.'
+        : 'La denuncia se cerrará: no llegó a difundirse. Si vuelve a desaparecer, podrás presentar una nueva.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Sí, apareció', onPress: darPorEncontrada },
+      ],
+    );
+  };
+
+  const botonEncontrada = isOwner && abierta && (
+    <TouchableOpacity
+      style={styles.encontradaButton}
+      onPress={confirmarEncontrada}
+      disabled={cerrandoCaso}
+    >
+      {cerrandoCaso ? (
+        <ActivityIndicator size="small" color="#0E7247" />
+      ) : (
+        <>
+          <Ionicons name="checkmark-circle-outline" size={18} color="#0E7247" />
+          <Text style={styles.encontradaText}>La encontramos</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  );
 
   const registrarCaso = async () => {
     setGuardandoCaso(true);
@@ -287,7 +351,7 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                   <Text style={styles.firmarText}>Firmar para difundir</Text>
                 </TouchableOpacity>
                 <Text style={styles.firmarAyuda}>
-                  Por ahora esta denuncia solo la ves tú. Al firmar la declaración
+                  Por ahora esta denuncia no se difunde. Al firmar la declaración
                   jurada empezará a alertarse a la zona.
                 </Text>
                 {bloqueCaso}
@@ -298,20 +362,59 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                   <Ionicons name="create-outline" size={18} color="#007AFF" />
                   <Text style={styles.editText}>Editar</Text>
                 </TouchableOpacity>
+                {botonEncontrada}
               </>
-            ) : (
+            ) : abierta ? (
               <>
                 <View style={styles.aviso}>
                   <Ionicons name="lock-closed-outline" size={16} color="#8F5600" />
                   <Text style={styles.avisoText}>
                     Ya declaraste esta denuncia bajo juramento, así que su contenido
                     quedó sellado. Las denuncias no se eliminan: la alerta deja de
-                    difundirse al vencer su plazo.
+                    difundirse al vencer su plazo, o cuando avisas que la persona
+                    apareció.
                   </Text>
                 </View>
                 {bloqueCaso}
+                {botonEncontrada}
               </>
+            ) : (
+              <View style={styles.cerrada}>
+                <Ionicons name="checkmark-done-outline" size={16} color="#0E7247" />
+                <Text style={styles.cerradaText}>
+                  {denuncia.estado === 'CERRADA'
+                    ? `Cerraste este caso${
+                        denuncia.cerrada_en
+                          ? ` el ${new Date(denuncia.cerrada_en).toLocaleDateString()}`
+                          : ''
+                      }: la persona apareció. La alerta ya no se difunde.`
+                    : 'La persona reportada cerró esta alerta. Ya no se difunde.'}
+                </Text>
+              </View>
             )}
+          </View>
+        )}
+
+        {admiteAvistamiento && (
+          <View style={styles.ownerActions}>
+            <TouchableOpacity
+              style={styles.avistamientoButton}
+              onPress={() =>
+                navigation.navigate('ReportarAvistamiento', {
+                  alerta: {
+                    id: denuncia.id,
+                    nombre_persona_buscada: denuncia.nombre_persona_buscada,
+                    numero_caso_felcc: denuncia.numero_caso_felcc,
+                  },
+                })
+              }
+            >
+              <Ionicons name="eye-outline" size={18} color="#fff" />
+              <Text style={styles.firmarText}>Vi a esta persona</Text>
+            </TouchableOpacity>
+            <Text style={styles.firmarAyuda}>
+              Arma un reporte para la Policía. Lo entregas tú; la aplicación no lo guarda.
+            </Text>
           </View>
         )}
       </View>
@@ -363,6 +466,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#B32C24',
   },
   firmarButtonOff: { backgroundColor: '#c3c9d6' },
+  avistamientoButton: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderRadius: 10,
+    backgroundColor: '#1F4FD8',
+  },
   firmarText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   firmarAyuda: { fontSize: 13, color: '#777', lineHeight: 18, textAlign: 'center' },
   aviso: {
@@ -374,6 +486,26 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   avisoText: { flex: 1, fontSize: 13, color: '#6B4300', lineHeight: 19 },
+  cerrada: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    backgroundColor: '#E2F2EA',
+    borderRadius: 10,
+    padding: 14,
+  },
+  cerradaText: { flex: 1, fontSize: 13, color: '#0B5A38', lineHeight: 19 },
+  encontradaButton: {
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#0E7247',
+  },
+  encontradaText: { color: '#0E7247', fontWeight: '700' },
   editButton: {
     flexDirection: 'row',
     gap: 6,

@@ -8,7 +8,11 @@ import { DeclaracionesService } from './declaraciones.service';
 import { DeclaracionJurada } from './entities/declaracion-jurada.entity';
 import { VersionTextoLegal } from './entities/version-texto-legal.entity';
 import { VinculoDeclarado } from './domain/vinculos';
-import { verificarCadena } from './domain/cadena';
+import { calcularHashContenido, verificarCadena } from './domain/cadena';
+import { mensajeAFirmar } from './domain/firma-dispositivo';
+import { ClaveDispositivo } from './entities/clave-dispositivo.entity';
+import { contenidoSellable } from '../denuncias/domain/contenido-sellado';
+import { TelefonoDePrueba, telefonoDePrueba } from '../../test/setup/telefono-de-prueba';
 import { Denuncia } from '../denuncias/entities/denuncia.entity';
 import { NivelConfianza, EstadoDenuncia } from '../denuncias/domain/estados';
 import { UsersService } from '../users/users.service';
@@ -43,6 +47,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
         TypeOrmModule.forFeature([
           DeclaracionJurada,
           VersionTextoLegal,
+          ClaveDispositivo,
           Denuncia,
           User,
           RefreshToken,
@@ -123,12 +128,56 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
     ...extra,
   });
 
+  /** Un teléfono por cuenta, como en la app. */
+  const telefonos = new Map<string, TelefonoDePrueba>();
+  const telefonoDe = (usuarioId: string) => {
+    if (!telefonos.has(usuarioId)) telefonos.set(usuarioId, telefonoDePrueba());
+    return telefonos.get(usuarioId)!;
+  };
+
+  /** Lo que firmaría el teléfono para esta denuncia y esta declaración. */
+  const mensajePara = async (denunciaId: string, payload: Record<string, string>) => {
+    const denuncia = await denuncias
+      .createQueryBuilder('d')
+      .addSelect('d.ci_hash_persona_buscada')
+      .where('d.id = :id', { id: denunciaId })
+      .getOne();
+    const version = await ctx.dataSource
+      .getRepository(VersionTextoLegal)
+      .findOneBy({ id: payload.version_texto_legal_id });
+    return mensajeAFirmar({
+      denuncia_id: denunciaId,
+      hash_contenido_denuncia: denuncia
+        ? calcularHashContenido(contenidoSellable(denuncia), denuncia.version_formula_contenido)
+        : '',
+      hash_texto_legal: version?.hash_texto ?? '',
+      vinculo_declarado: payload.vinculo_declarado,
+      texto_firmado: payload.nombre_escrito,
+    });
+  };
+
+  /**
+   * Firma como lo hace la app: registra la clave de su teléfono y firma lo
+   * declarado. Arma el mensaje por su cuenta, sin pasar por las comprobaciones
+   * de `contenidoAFirmar`, para que cada prueba de rechazo ejercite las de
+   * `firmar`.
+   */
+  const firmar = async (usuarioId: string, denunciaId: string, payload: Record<string, string>) => {
+    const telefono = telefonoDe(usuarioId);
+    const { id } = await firmas.registrarClave(usuarioId, telefono.clavePublica);
+    return firmas.firmar(usuarioId, denunciaId, {
+      ...payload,
+      clave_dispositivo_id: id,
+      firma_dispositivo: telefono.firmar(await mensajePara(denunciaId, payload)),
+    } as never);
+  };
+
   describe('la firma difunde la denuncia', () => {
     it('al firmar, la denuncia pasa a PROVISIONAL con radio y caducidad', async () => {
       const autor = await crearDenunciante();
       const denuncia = await crearDenuncia(autor.id);
 
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
 
       const despues = await denuncias.findOneByOrFail({ id: denuncia.id });
       expect(despues.nivel_confianza).toBe(NivelConfianza.PROVISIONAL);
@@ -142,7 +191,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const autor = await crearDenunciante();
       const denuncia = await crearDenuncia(autor.id);
 
-      await firmas.firmar(
+      await firmar(
         autor.id,
         denuncia.id,
         firmaValida({
@@ -160,7 +209,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
       const comoLoEscribio = '  MARÍA   fernanda Villarroel QUISPE ';
 
-      await firmas.firmar(
+      await firmar(
         autor.id,
         denuncia.id,
         firmaValida({ nombre_escrito: comoLoEscribio }) as never,
@@ -177,7 +226,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
 
       await expect(
-        firmas.firmar(
+        firmar(
           autor.id,
           denuncia.id,
           firmaValida({ nombre_escrito: 'maria fernanda villarroel quispe' }) as never,
@@ -190,7 +239,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
 
       await expect(
-        firmas.firmar(
+        firmar(
           autor.id,
           denuncia.id,
           firmaValida({ nombre_escrito: 'María Villarroel' }) as never,
@@ -210,7 +259,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(sinDocumento.id);
 
       await expect(
-        firmas.firmar(sinDocumento.id, denuncia.id, firmaValida() as never),
+        firmar(sinDocumento.id, denuncia.id, firmaValida() as never),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -220,7 +269,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
 
       await expect(
-        firmas.firmar(ajeno.id, denuncia.id, firmaValida() as never),
+        firmar(ajeno.id, denuncia.id, firmaValida() as never),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -228,10 +277,10 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const autor = await crearDenunciante();
       const denuncia = await crearDenuncia(autor.id);
 
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
 
       await expect(
-        firmas.firmar(autor.id, denuncia.id, firmaValida() as never),
+        firmar(autor.id, denuncia.id, firmaValida() as never),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -241,7 +290,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const autor = await crearDenunciante();
       const denuncia = await crearDenuncia(autor.id);
 
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
 
       const [registro] = await firmas.deLaDenuncia(denuncia.id);
       const version = await declaraciones.versionPorId(versionId);
@@ -254,7 +303,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const autor = await crearDenunciante();
       const denuncia = await crearDenuncia(autor.id);
 
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
 
       const [registro] = await firmas.deLaDenuncia(denuncia.id);
       expect(registro.firmada_en.getTime()).toBeGreaterThanOrEqual(antes);
@@ -267,8 +316,8 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const d1 = await crearDenuncia(primero.id);
       const d2 = await crearDenuncia(segundo.id);
 
-      await firmas.firmar(primero.id, d1.id, firmaValida() as never);
-      await firmas.firmar(segundo.id, d2.id, firmaValida() as never);
+      await firmar(primero.id, d1.id, firmaValida() as never);
+      await firmar(segundo.id, d2.id, firmaValida() as never);
 
       const cadena = await registros.find({ order: { firmada_en: 'ASC' } });
       expect(cadena).toHaveLength(2);
@@ -282,8 +331,8 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const d1 = await crearDenuncia(primero.id);
       const d2 = await crearDenuncia(segundo.id);
 
-      await firmas.firmar(primero.id, d1.id, firmaValida() as never);
-      await firmas.firmar(segundo.id, d2.id, firmaValida() as never);
+      await firmar(primero.id, d1.id, firmaValida() as never);
+      await firmar(segundo.id, d2.id, firmaValida() as never);
 
       const cadena = await registros.find({ order: { firmada_en: 'ASC' } });
       const paraVerificar = cadena.map((r) => ({
@@ -299,6 +348,8 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
         firmada_en: r.firmada_en.toISOString(),
         device_id: r.device_id,
         hash_anterior: r.hash_anterior,
+        clave_publica_id: r.clave_publica_id,
+        firma_criptografica: r.firma_criptografica,
         hash_registro: r.hash_registro,
       }));
 
@@ -311,7 +362,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const autor = await crearDenunciante();
       const denuncia = await crearDenuncia(autor.id);
 
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
 
       const [registro] = await firmas.deLaDenuncia(denuncia.id);
       expect(registro.hash_contenido_denuncia).toHaveLength(64);
@@ -330,7 +381,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
     const firmarUna = async () => {
       const autor = await crearDenunciante();
       const denuncia = await crearDenuncia(autor.id);
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
       const [registro] = await firmas.deLaDenuncia(denuncia.id);
       return { registro, denuncia };
     };
@@ -401,7 +452,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const otraDenuncia = await crearDenuncia(otro.id);
 
       await expect(
-        firmas.firmar(otro.id, otraDenuncia.id, firmaValida() as never),
+        firmar(otro.id, otraDenuncia.id, firmaValida() as never),
       ).resolves.toBeTruthy();
 
       expect((await firmas.verificarCadenaCompleta()).registros).toBe(2);
@@ -412,8 +463,8 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
     it('una cadena recién construida está intacta', async () => {
       const uno = await crearDenunciante('uno@test.com');
       const dos = await crearDenunciante('dos@test.com');
-      await firmas.firmar(uno.id, (await crearDenuncia(uno.id)).id, firmaValida() as never);
-      await firmas.firmar(dos.id, (await crearDenuncia(dos.id)).id, firmaValida() as never);
+      await firmar(uno.id, (await crearDenuncia(uno.id)).id, firmaValida() as never);
+      await firmar(dos.id, (await crearDenuncia(dos.id)).id, firmaValida() as never);
 
       const resultado = await firmas.verificarCadenaCompleta();
 
@@ -427,6 +478,136 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
 
       expect(resultado.intacta).toBe(true);
       expect(resultado.registros).toBe(0);
+    });
+  });
+
+  /**
+   * H6.3: toda declaración nueva lleva la firma Ed25519 del teléfono, y el
+   * servidor la verifica antes de sellar nada.
+   */
+  describe('firma del teléfono', () => {
+    it('sella la firma y la clave con la declaración, y la cadena las cubre', async () => {
+      const autor = await crearDenunciante();
+      const denuncia = await crearDenuncia(autor.id);
+
+      await firmar(autor.id, denuncia.id, firmaValida());
+
+      const [registro] = await firmas.deLaDenuncia(denuncia.id);
+      expect(registro.firma_criptografica).toMatch(/^[0-9a-f]{128}$/);
+      expect(registro.clave_publica_id).not.toBeNull();
+      expect((await firmas.verificarCadenaCompleta()).intacta).toBe(true);
+    });
+
+    it('rechaza una firma que no corresponde a lo declarado, y no sella nada', async () => {
+      // El teléfono firmó un vínculo y la petición declara otro.
+      const autor = await crearDenunciante();
+      const denuncia = await crearDenuncia(autor.id);
+      const { id } = await firmas.registrarClave(autor.id, telefonoDe(autor.id).clavePublica);
+      const firmado = await mensajePara(denuncia.id, firmaValida());
+
+      await expect(
+        firmas.firmar(autor.id, denuncia.id, {
+          ...firmaValida({ vinculo_declarado: VinculoDeclarado.MADRE }),
+          clave_dispositivo_id: id,
+          firma_dispositivo: telefonoDe(autor.id).firmar(firmado),
+        } as never),
+      ).rejects.toThrow(/no corresponde a esta declaración/);
+      expect(await registros.count()).toBe(0);
+    });
+
+    it('rechaza la clave de otra cuenta, aunque la firma sea válida para esa clave', async () => {
+      const autor = await crearDenunciante();
+      const otra = await crearDenunciante('otra@test.com');
+      const denuncia = await crearDenuncia(autor.id);
+      const { id } = await firmas.registrarClave(otra.id, telefonoDe(otra.id).clavePublica);
+
+      await expect(
+        firmas.firmar(autor.id, denuncia.id, {
+          ...firmaValida(),
+          clave_dispositivo_id: id,
+          firma_dispositivo: telefonoDe(otra.id).firmar(await mensajePara(denuncia.id, firmaValida())),
+        } as never),
+      ).rejects.toThrow(/no está registrada en tu cuenta/);
+    });
+
+    it('si la denuncia cambia después de firmarse en el teléfono, la firma ya no vale', async () => {
+      const autor = await crearDenunciante();
+      const denuncia = await crearDenuncia(autor.id);
+      const { id } = await firmas.registrarClave(autor.id, telefonoDe(autor.id).clavePublica);
+      const firma = telefonoDe(autor.id).firmar(await mensajePara(denuncia.id, firmaValida()));
+
+      await denuncias.update(denuncia.id, { nombre_persona_buscada: 'Luis Mamani Choque' });
+
+      await expect(
+        firmas.firmar(autor.id, denuncia.id, {
+          ...firmaValida(),
+          clave_dispositivo_id: id,
+          firma_dispositivo: firma,
+        } as never),
+      ).rejects.toThrow(/no corresponde a esta declaración/);
+    });
+
+    it('el hash que entrega para firmar es el mismo que queda sellado', async () => {
+      const autor = await crearDenunciante();
+      const denuncia = await crearDenuncia(autor.id);
+
+      const { hash_contenido_denuncia } = await firmas.contenidoAFirmar(autor.id, denuncia.id);
+      await firmar(autor.id, denuncia.id, firmaValida());
+
+      const [registro] = await firmas.deLaDenuncia(denuncia.id);
+      expect(registro.hash_contenido_denuncia).toBe(hash_contenido_denuncia);
+    });
+
+    it('el hash para firmar solo se entrega al autor, y mientras se pueda firmar', async () => {
+      const autor = await crearDenunciante();
+      const otra = await crearDenunciante('otra@test.com');
+      const denuncia = await crearDenuncia(autor.id);
+
+      await expect(firmas.contenidoAFirmar(otra.id, denuncia.id)).rejects.toThrow(
+        ForbiddenException,
+      );
+      await firmar(autor.id, denuncia.id, firmaValida());
+      await expect(firmas.contenidoAFirmar(autor.id, denuncia.id)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('registrar la clave es idempotente para su dueño; la misma clave en otra cuenta se rechaza', async () => {
+      const autor = await crearDenunciante();
+      const otra = await crearDenunciante('otra@test.com');
+      const { clavePublica } = telefonoDe(autor.id);
+
+      const primera = await firmas.registrarClave(autor.id, clavePublica);
+      const segunda = await firmas.registrarClave(autor.id, clavePublica);
+
+      expect(segunda.id).toBe(primera.id);
+      await expect(firmas.registrarClave(otra.id, clavePublica)).rejects.toThrow(ConflictException);
+    });
+
+    it('una clave registrada no se puede modificar ni borrar: sus firmas dejarían de verificarse', async () => {
+      const autor = await crearDenunciante();
+      const { id } = await firmas.registrarClave(autor.id, telefonoDe(autor.id).clavePublica);
+
+      await expect(
+        ctx.dataSource.query(`UPDATE claves_dispositivo SET clave_publica = $1 WHERE id = $2`, [
+          'f'.repeat(64),
+          id,
+        ]),
+      ).rejects.toThrow(/solo inserción/);
+      await expect(
+        ctx.dataSource.query(`DELETE FROM claves_dispositivo WHERE id = $1`, [id]),
+      ).rejects.toThrow(/solo inserción/);
+    });
+
+    it('la base solo acepta claves de 32 bytes en hexadecimal', async () => {
+      const autor = await crearDenunciante();
+
+      await expect(
+        ctx.dataSource.query(
+          `INSERT INTO claves_dispositivo (usuario_id, clave_publica) VALUES ($1, 'no-es-una-clave')`,
+          [autor.id],
+        ),
+      ).rejects.toThrow(/chk_claves_dispositivo_formato/);
     });
   });
 
@@ -447,7 +628,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
 
       await expect(
-        firmas.firmar(autor.id, denuncia.id, firmaValida() as never),
+        firmar(autor.id, denuncia.id, firmaValida() as never),
       ).rejects.toMatchObject({
         response: expect.objectContaining({ codigo: 'DIFUSION_REQUIERE_CASO_FELCC' }),
       });
@@ -466,7 +647,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
       await firmas.registrarCasoFelcc(autor.id, denuncia.id, 'FELCC-2026-0451');
 
-      const resultado = await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      const resultado = await firmar(autor.id, denuncia.id, firmaValida() as never);
 
       expect(resultado.nivel_confianza).toBe(NivelConfianza.CORROBORADA);
     });
@@ -476,7 +657,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
       await firmas.registrarCasoFelcc(autor.id, denuncia.id, 'FELCC-2026-0451');
 
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
 
       const despues = await denuncias.findOneByOrFail({ id: denuncia.id });
       expect(despues.nivel_confianza).toBe(NivelConfianza.CORROBORADA);
@@ -495,7 +676,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const denuncia = await crearDenuncia(autor.id);
 
       await expect(
-        firmas.firmar(autor.id, denuncia.id, firmaValida() as never),
+        firmar(autor.id, denuncia.id, firmaValida() as never),
       ).rejects.toMatchObject({
         response: expect.objectContaining({ codigo: 'CUENTA_SUSPENDIDA' }),
       });
@@ -505,12 +686,12 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const autor = await crearDenunciante('autor@test.com');
       for (let i = 0; i < 2; i++) {
         const denuncia = await crearDenuncia(autor.id);
-        await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+        await firmar(autor.id, denuncia.id, firmaValida() as never);
       }
       const tercera = await crearDenuncia(autor.id);
 
       await expect(
-        firmas.firmar(autor.id, tercera.id, firmaValida() as never),
+        firmar(autor.id, tercera.id, firmaValida() as never),
       ).rejects.toMatchObject({
         response: expect.objectContaining({ codigo: 'LIMITE_ALERTAS_PROVISIONALES' }),
       });
@@ -521,13 +702,13 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       const autor = await crearDenunciante('autor@test.com');
       const primera = await crearDenuncia(autor.id);
       const segunda = await crearDenuncia(autor.id);
-      await firmas.firmar(autor.id, primera.id, firmaValida() as never);
-      await firmas.firmar(autor.id, segunda.id, firmaValida() as never);
+      await firmar(autor.id, primera.id, firmaValida() as never);
+      await firmar(autor.id, segunda.id, firmaValida() as never);
       await firmas.registrarCasoFelcc(autor.id, primera.id, 'FELCC-2026-0451');
       await denuncias.update(segunda.id, { expira_en: new Date(Date.now() - 60_000) });
 
       const tercera = await crearDenuncia(autor.id);
-      const resultado = await firmas.firmar(autor.id, tercera.id, firmaValida() as never);
+      const resultado = await firmar(autor.id, tercera.id, firmaValida() as never);
 
       expect(resultado.nivel_confianza).toBe(NivelConfianza.PROVISIONAL);
     });
@@ -537,7 +718,7 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
     const denunciaDifundida = async () => {
       const autor = await crearDenunciante('autor@test.com');
       const denuncia = await crearDenuncia(autor.id);
-      await firmas.firmar(autor.id, denuncia.id, firmaValida() as never);
+      await firmar(autor.id, denuncia.id, firmaValida() as never);
       return { autor, denuncia };
     };
 
@@ -606,6 +787,34 @@ describe('Acto de firma de la declaración jurada (integración)', () => {
       await expect(
         firmas.registrarCasoFelcc(autor.id, denuncia.id, 'FELCC-2026-0451'),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('tampoco revive una que su autor dio por terminada', async () => {
+      // «La encontramos» es definitivo: el caso de la FELCC no la devuelve a
+      // difusión como a una vencida.
+      const { autor, denuncia } = await denunciaDifundida();
+      await denuncias.update(denuncia.id, {
+        estado: EstadoDenuncia.CERRADA,
+        cerrada_en: new Date(),
+      });
+
+      await expect(
+        firmas.registrarCasoFelcc(autor.id, denuncia.id, 'FELCC-2026-0451'),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('no se firma una sin firmar que su autor ya cerró', async () => {
+      const autor = await crearDenunciante('autor@test.com');
+      const denuncia = await crearDenuncia(autor.id);
+      await denuncias.update(denuncia.id, {
+        estado: EstadoDenuncia.CERRADA,
+        cerrada_en: new Date(),
+      });
+
+      await expect(
+        firmar(autor.id, denuncia.id, firmaValida() as never),
+      ).rejects.toThrow(ConflictException);
+      expect(await registros.count()).toBe(0);
     });
   });
 });

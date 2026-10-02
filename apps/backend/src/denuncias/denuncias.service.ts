@@ -25,6 +25,7 @@ import { VERSION_FORMULA_ACTUAL } from '../declaraciones/domain/cadena';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { AlertasService } from '../alertas/alertas.service';
+import { revocarEmisionesPendientes } from '../alertas/revocacion';
 import { SancionesService } from '../sanciones/sanciones.service';
 
 @Injectable()
@@ -368,6 +369,11 @@ export class DenunciasService {
         'Esta denuncia ya fue declarada bajo juramento y su contenido no puede modificarse',
       );
     }
+    // Sin firmar no hay sellado, pero una cerrada tampoco se edita: cambiarla
+    // después alteraría lo que la persona reportada vio cuando la cerró.
+    if (denuncia.estado !== EstadoDenuncia.ACTIVA) {
+      throw new ConflictException('Una denuncia cerrada ya no se puede editar');
+    }
 
     if (dto.ultimo_avistamiento_en !== undefined) {
       this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
@@ -523,6 +529,86 @@ export class DenunciasService {
   async findOne(id: string): Promise<Denuncia> {
     const denuncia = await this.denunciasRepository.findOne({ where: { id } });
     if (!denuncia) {
+      throw new NotFoundException('Denuncia no encontrada');
+    }
+    return denuncia;
+  }
+
+  /**
+   * El detalle de una denuncia, si quien pregunta puede verlo.
+   *
+   * Quien la presentó la ve siempre. Cualquier otra persona, solo si llegó a
+   * difundirse y nadie la cerró: activa —la que también está en el mapa— o
+   * vencida, a la que se llega desde la notificación que ya se recibió. Una sin
+   * firmar nunca salió del teléfono de su autor. Y una que la persona reportada
+   * cerró dejó de ser asunto de los vecinos: mostrarla seguiría exponiendo su
+   * foto después de que pidió detenerla.
+   *
+   * El rechazo es el mismo que para una que no existe: distinguirlos dejaría
+   * sondear qué identificadores esconden una denuncia.
+   */
+  /**
+   * «La encontramos»: quien presentó la denuncia da el caso por terminado.
+   *
+   * La alerta deja de difundirse para siempre —CERRADA es terminal— y queda la
+   * fecha, que mide cuánto tardó en aparecer la persona. No se borra nada (I7):
+   * la declaración jurada sigue siendo verificable.
+   *
+   * Lo que **no** hace es quitarle nada a la persona reportada: puede seguir
+   * declarándola falsa, con su falta. Si no fuera así, darla por terminada
+   * sería la forma de escapar de la sanción antes de que la persona reaccione.
+   *
+   * Para cualquiera que no sea su autor, responde como si no existiera.
+   */
+  async darPorEncontrada(
+    userId: string,
+    id: string,
+  ): Promise<{ denuncia: Denuncia; mensaje: string }> {
+    return this.dataSource.transaction(async (manager) => {
+      const repositorio = manager.getRepository(Denuncia);
+      const denuncia = await repositorio
+        .createQueryBuilder('d')
+        .where('d.id = :id', { id })
+        // Contra un cierre simultáneo de la persona reportada: uno de los dos
+        // gana, y el otro ve el estado que dejó.
+        .setLock('pessimistic_write')
+        .getOne();
+
+      if (!denuncia || denuncia.denunciante_id !== userId) {
+        throw new NotFoundException('Denuncia no encontrada');
+      }
+      if (!puedeTransicionarEstado(denuncia.estado, EstadoDenuncia.CERRADA)) {
+        throw new ConflictException(
+          denuncia.estado === EstadoDenuncia.INVALIDADA
+            ? 'La persona reportada ya cerró esta alerta'
+            : 'Esta denuncia ya está cerrada',
+        );
+      }
+
+      await repositorio.update(id, {
+        estado: EstadoDenuncia.CERRADA,
+        cerrada_en: () => 'now()',
+      });
+      await revocarEmisionesPendientes(manager, id, 'quien denunció dio el caso por terminado');
+
+      const seDifundio = denuncia.nivel_confianza !== NivelConfianza.REGISTRADA;
+      return {
+        denuncia: await repositorio.findOneByOrFail({ id }),
+        mensaje: seDifundio
+          ? 'Caso cerrado. La alerta dejó de difundirse y ya no se puede reactivar. Gracias por avisar.'
+          : 'Denuncia cerrada. No llegó a difundirse.',
+      };
+    });
+  }
+
+  async findVisiblePara(userId: string, id: string): Promise<Denuncia> {
+    const denuncia = await this.findOne(id);
+    if (denuncia.denunciante_id === userId) return denuncia;
+
+    const seDifundio = denuncia.nivel_confianza !== NivelConfianza.REGISTRADA;
+    const sigueAbierta =
+      denuncia.estado === EstadoDenuncia.ACTIVA || denuncia.estado === EstadoDenuncia.CADUCADA;
+    if (!seDifundio || !sigueAbierta) {
       throw new NotFoundException('Denuncia no encontrada');
     }
     return denuncia;
