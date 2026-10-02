@@ -10,6 +10,9 @@
 set -euo pipefail
 
 API=${API:-http://localhost:3000/api}
+# La base contra la que corre el servidor de `API`. Cambiarla sirve para ensayar
+# el guion contra la base de pruebas sin tocar la de desarrollo.
+BASE=${BASE_DEMO:-app_alertas}
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 export PGPASSWORD=$(grep -E "^DB_PASSWORD=" "$RAIZ/.env" | cut -d= -f2-)
 
@@ -29,7 +32,7 @@ CI_PRUEBAS=${CI_PRUEBAS:-8737666}
 LAT_DEMO=${LAT_DEMO:--17.38187981896557}
 LON_DEMO=${LON_DEMO:--66.15198734651142}
 
-psqlq() { psql -q -t -A -h localhost -p 5432 -U postgres -d app_alertas "$@" }
+psqlq() { psql -q -t -A -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d "$BASE" "$@" }
 hash() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1 }
 
 # El nombre va desglosado: el servidor compone con él el `full_name` de la cuenta
@@ -54,52 +57,62 @@ sellar() { # email ci
 
 # Borra unas cuentas y todo su rastro. Recibe una condición SQL sobre `users`.
 #
-# El orden no es negociable y lo impone el esquema: `declaraciones_juradas` y
-# `desactivaciones` apuntan a `denuncias` con NO ACTION, así que borrar al
-# usuario —que arrastra sus denuncias en cascada— falla si esas filas siguen
-# ahí. Van primero.
+# El orden no es negociable y lo impone el esquema: las declaraciones, los
+# cierres y las faltas apuntan a `denuncias` con NO ACTION, y las faltas y las
+# claves de firma apuntan a `users` igual. Borrar al usuario —que arrastra sus
+# denuncias en cascada— falla si esas filas siguen ahí. Van primero.
 #
 # Se limpia por dos caminos a la vez, y hacen falta los dos: por identificador
 # de usuario y por hash de documento. Hay rastro que no cuelga de ninguna llave
-# foránea —una desactivación guarda hashes, no identificadores— y hay denuncias
-# donde la persona no es quien denunció sino la buscada.
+# foránea —un cierre guarda hashes, no identificadores— y hay denuncias donde la
+# persona no es quien denunció sino la buscada; esas pueden ser de otra cuenta,
+# y su rastro también se va.
 #
-# La cadena de declaraciones es de solo inserción y un disparador lo impone; se
-# desactiva a propósito y solo aquí. Esto es un guion de datos de prueba, no una
-# ruta de la aplicación: ningún código del sistema puede borrar una declaración.
+# Declaraciones, cierres, faltas y claves son de solo inserción y un disparador
+# lo impone. Se desactivan a propósito y solo aquí, **dentro de la misma
+# transacción**: si algo falla, el ROLLBACK los deja activos. Esto es un guion de
+# datos de prueba, no una ruta de la aplicación: ningún código del sistema puede
+# borrar nada de eso.
 limpiar_usuarios() { # <condición SQL sobre users>
   local cond="$1"
   local ids="SELECT id FROM users WHERE $cond"
   local hashes="SELECT ci_hash FROM users WHERE $cond AND ci_hash IS NOT NULL"
   local suyas="SELECT id FROM denuncias WHERE denunciante_id IN ($ids)"
+  local sobre_ellas="SELECT id FROM denuncias WHERE ci_hash_persona_buscada IN ($hashes)"
 
-  psqlq -c "ALTER TABLE declaraciones_juradas DISABLE TRIGGER trg_declaraciones_solo_insercion" >/dev/null
+  psqlq > /dev/null <<SQL
+BEGIN;
+ALTER TABLE declaraciones_juradas DISABLE TRIGGER trg_declaraciones_solo_insercion;
+ALTER TABLE cierres DISABLE TRIGGER trg_cierres_solo_insercion;
+ALTER TABLE faltas DISABLE TRIGGER trg_faltas_solo_insercion;
+ALTER TABLE claves_dispositivo DISABLE TRIGGER trg_claves_dispositivo_solo_insercion;
 
-  psqlq -c "DELETE FROM solicitudes_constancia
-              WHERE solicitante_id IN ($ids) OR denuncia_id IN ($suyas)" >/dev/null
+DELETE FROM solicitudes_constancia
+ WHERE solicitante_id IN ($ids) OR denuncia_id IN ($suyas) OR denuncia_id IN ($sobre_ellas);
+DELETE FROM cierres
+ WHERE ci_hash_denunciante IN ($hashes) OR ci_hash_persona_buscada IN ($hashes)
+    OR denuncia_id IN ($suyas);
+DELETE FROM faltas
+ WHERE usuario_id IN ($ids) OR denuncia_id IN ($suyas) OR denuncia_id IN ($sobre_ellas);
+DELETE FROM declaraciones_juradas
+ WHERE usuario_id IN ($ids) OR denuncia_id IN ($suyas) OR denuncia_id IN ($sobre_ellas);
+DELETE FROM claves_dispositivo WHERE usuario_id IN ($ids);
+DELETE FROM documentos_bloqueados WHERE usuario_id IN ($ids) OR ci_hash IN ($hashes);
 
-  psqlq -c "DELETE FROM desactivaciones
-              WHERE ci_hash_denunciante IN ($hashes)
-                 OR ci_hash_persona_buscada IN ($hashes)
-                 OR denuncia_id IN ($suyas)" >/dev/null
+-- Las denuncias donde la persona es la buscada no cuelgan de ella por llave
+-- foránea, así que no se van en cascada al borrar el usuario.
+DELETE FROM denuncias WHERE ci_hash_persona_buscada IN ($hashes);
 
-  # Por `usuario_id` además de por denuncia: una corroboración firmada en la
-  # denuncia de otra persona no aparece por el segundo camino.
-  psqlq -c "DELETE FROM declaraciones_juradas
-              WHERE usuario_id IN ($ids) OR denuncia_id IN ($suyas)" >/dev/null
+-- Y al final el usuario. Arrastra en cascada sus denuncias, dispositivos y
+-- tokens de sesión; las denuncias, sus emisiones, fotos y usos de canal.
+DELETE FROM users WHERE $cond;
 
-  psqlq -c "DELETE FROM documentos_bloqueados
-              WHERE usuario_id IN ($ids) OR ci_hash IN ($hashes)" >/dev/null
-
-  # Las denuncias donde la persona es la buscada no cuelgan de ella por llave
-  # foránea, así que no se van en cascada al borrar el usuario.
-  psqlq -c "DELETE FROM denuncias WHERE ci_hash_persona_buscada IN ($hashes)" >/dev/null
-
-  # Y al final el usuario. Arrastra en cascada sus denuncias, dispositivos,
-  # tokens de sesión y eventos de reputación.
-  psqlq -c "DELETE FROM users WHERE $cond" >/dev/null
-
-  psqlq -c "ALTER TABLE declaraciones_juradas ENABLE TRIGGER trg_declaraciones_solo_insercion" >/dev/null
+ALTER TABLE declaraciones_juradas ENABLE TRIGGER trg_declaraciones_solo_insercion;
+ALTER TABLE cierres ENABLE TRIGGER trg_cierres_solo_insercion;
+ALTER TABLE faltas ENABLE TRIGGER trg_faltas_solo_insercion;
+ALTER TABLE claves_dispositivo ENABLE TRIGGER trg_claves_dispositivo_solo_insercion;
+COMMIT;
+SQL
 }
 
 echo "→ Limpiando datos de demostraciones anteriores…"
@@ -143,11 +156,9 @@ DEN=$(curl -s -X POST "$API/denuncias" -H "Authorization: Bearer $TOK_ANA" \
     \"fotografia_base64\":\"$(printf 'foto-de-demostracion' | base64)\"}" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 
-VERSION=$(curl -s "$API/declaraciones/texto-legal" -H "Authorization: Bearer $TOK_ANA" \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["version_id"])')
-curl -s -o /dev/null -X POST "$API/declaraciones/denuncias/$DEN/firmar" \
-  -H "Authorization: Bearer $TOK_ANA" -H 'Content-Type: application/json' \
-  -d "{\"version_texto_legal_id\":\"$VERSION\",\"vinculo_declarado\":\"MADRE\",\"nombre_escrito\":\"Ana Quispe Vargas\"}"
+# Desde la H6.3 la declaración lleva la firma Ed25519 del teléfono: el guion
+# firma igual que la app.
+node "$RAIZ/tools/firmar-como-telefono.mjs" "$API" "$TOK_ANA" "$DEN" MADRE "Ana Quispe Vargas" > /dev/null
 
 # Se le fija al simulador la misma coordenada que la denuncia.
 #
@@ -176,9 +187,15 @@ cat <<FIN
   luis@demo.bo   Luis Mamani Choque   CI 2000002   (persona reportada)
   caro@demo.bo   Caro Vaca Ortiz      CI 3000003   (vecina, libre)
 
-  Ya existe una denuncia de Ana contra Luis, firmada y difundiéndose.
-  · Entra como luis@demo.bo para ver "Alertas sobre mí" y retirarla.
-  · Entra como caro@demo.bo para crear una denuncia desde cero.
+  Ya existe una denuncia de Ana contra Luis, firmada desde «su teléfono» y
+  difundiéndose.
+  · caro@demo.bo: la ve en el mapa y prueba «Vi a esta persona».
+  · luis@demo.bo: «Alertas sobre mí» → «Esta denuncia es falsa». Después, en
+    ana@demo.bo, «Mi situación» muestra la falta.
+  · ana@demo.bo: «La encontramos» en su denuncia, o una denuncia nueva firmada
+    con el desbloqueo del teléfono.
+  · luis@demo.bo (o ana@demo.bo, solo la suya): pedir la constancia y
+    verificarla con  node tools/verificar-constancia.mjs constancia.json
 
   Todo ocurre en $LAT_DEMO, $LON_DEMO.
   Para recibir la alerta hay que estar dentro del radio (2 km) y con otra
