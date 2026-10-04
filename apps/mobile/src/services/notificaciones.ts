@@ -129,8 +129,13 @@ const projectId = (): string | undefined => {
  *
  * Es idempotente del lado del servidor: reenviar el mismo token actualiza el
  * registro en lugar de duplicarlo, así que puede llamarse en cada arranque.
+ *
+ * Con `pedirPermiso` en `false`, si el permiso no está concedido no se pide:
+ * así se llama al volver al primer plano (ver `useAlertas`).
  */
-export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegistro> {
+export async function registrarDispositivoParaAlertas(
+  pedirPermiso: boolean,
+): Promise<ResultadoRegistro> {
   if (!Device.isDevice) {
     return {
       registrado: false,
@@ -158,7 +163,7 @@ export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegist
 
   const { status: existente } = await Notifications.getPermissionsAsync();
   let status = existente;
-  if (status !== 'granted') {
+  if (status !== 'granted' && pedirPermiso) {
     status = (await Notifications.requestPermissionsAsync()).status;
   }
   if (status !== 'granted') {

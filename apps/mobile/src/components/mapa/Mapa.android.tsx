@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { requireOptionalNativeModule } from 'expo';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import MapaLeaflet from './MapaLeaflet';
-import { MapaNativo } from './MapaNativo';
+import { MapaNativo, type PropsMapaNativo } from './MapaNativo';
 import { traeMapaDeGoogle } from './configuracion-del-apk';
-import type { PropsMapa } from './tipos';
+import type { PropsMapa, RegionMapa } from './tipos';
 
 /**
  * Mapa en Android: Google Maps si este APK trae clave, y Leaflet si no.
@@ -33,6 +34,77 @@ const configuracionDelApk = (): unknown =>
 const conGoogle =
   Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
   traeMapaDeGoogle(configuracionDelApk());
+
+/**
+ * Google Maps, montado solo mientras su pantalla tiene el foco.
+ *
+ * Esquiva un fallo de react-native-maps en Android (issue #6015, abierto y sin
+ * versión que lo corrija al 2026-10-04; afecta a la 1.27.2 de aquí y a la
+ * 1.29.11). Al cambiar de pestaña, Android desconecta el mapa, lo vuelve a
+ * conectar y lo desconecta otra vez en unos 40 ms. La biblioteca guarda los
+ * marcadores en la primera desconexión para reponerlos al volver, y la segunda
+ * pisa lo guardado con una lista vacía: al regresar, el mapa salía sin ninguna
+ * denuncia. Pasa igual al volver del detalle de una denuncia.
+ *
+ * Desmontado, ese vaivén no tiene nada que perder, y al volver se crea un mapa
+ * nuevo con todos sus marcadores. Para que no salte de vuelta a la ubicación de
+ * la persona, aparece donde había quedado la cámara.
+ */
+const MapaGoogle: React.FC<PropsMapa> = (props) => {
+  const enfocada = useIsFocused();
+  // Dónde quedó la cámara. Sobrevive de un montaje al siguiente porque lo que
+  // se desmonta al perder el foco es el hijo, no este componente.
+  const camara = useRef<RegionMapa | null>(null);
+
+  // Si la pantalla pide otro encuadre, ese manda sobre donde quedó la cámara.
+  const { latitude, longitude, latitudeDelta, longitudeDelta } = props.region;
+  useEffect(() => {
+    camara.current = null;
+  }, [latitude, longitude, latitudeDelta, longitudeDelta]);
+
+  if (!enfocada) return <View style={[estilos.contenedor, estilos.fondo, props.style]} />;
+  return (
+    <MapaGoogleMontado
+      {...props}
+      desde={camara.current}
+      alMoverse={(r) => {
+        camara.current = r;
+      }}
+    />
+  );
+};
+
+/**
+ * Un montaje del mapa de Google.
+ *
+ * El encuadre se fija al montar y solo cambia si la pantalla pide otro. Pasarle
+ * la cámara en cada render lo haría saltar al último punto en que se detuvo
+ * cuando la pantalla se redibuja mientras alguien lo arrastra.
+ */
+const MapaGoogleMontado: React.FC<PropsMapaNativo & { desde: RegionMapa | null }> = ({
+  desde,
+  region,
+  ...resto
+}) => {
+  const [encuadre, setEncuadre] = useState<RegionMapa>(desde ?? region);
+  const pedida = useRef(region);
+
+  useEffect(() => {
+    const anterior = pedida.current;
+    if (
+      anterior.latitude === region.latitude &&
+      anterior.longitude === region.longitude &&
+      anterior.latitudeDelta === region.latitudeDelta &&
+      anterior.longitudeDelta === region.longitudeDelta
+    ) {
+      return;
+    }
+    pedida.current = region;
+    setEncuadre(region);
+  }, [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta]);
+
+  return <MapaNativo {...resto} region={encuadre} />;
+};
 
 /**
  * Cuánto se espera a que la página del mapa avise que arrancó. La primera vez,
@@ -112,10 +184,13 @@ const MapaDeRespaldo: React.FC<PropsMapa> = ({ style, ...resto }) => {
   );
 };
 
-export const Mapa: React.FC<PropsMapa> = conGoogle ? MapaNativo : MapaDeRespaldo;
+export const Mapa: React.FC<PropsMapa> = conGoogle ? MapaGoogle : MapaDeRespaldo;
 
 const estilos = StyleSheet.create({
   contenedor: { flex: 1 },
+  // Un tono de mapa y no blanco: al volver a la pestaña, mientras el mapa nuevo
+  // carga, no hay un destello.
+  fondo: { backgroundColor: '#EDEAE4' },
   aviso: {
     position: 'absolute',
     top: 12,

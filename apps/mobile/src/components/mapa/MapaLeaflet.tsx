@@ -106,6 +106,7 @@ interface Props {
   zona?: ZonaMapa | null;
   ubicacionUsuario?: PuntoMapa | null;
   alTocar?: (punto: PuntoMapa) => void;
+  alAbrirMarcador?: (id: string) => void;
   /** Avisa al lado nativo que el mapa se creó: la página corre. */
   alListo?: () => void;
   /** Avisa al lado nativo por qué no se pudo crear el mapa. */
@@ -121,8 +122,10 @@ const zoomPara = (longitudeDelta: number): number =>
  * Contenido del globo de un marcador, armado con nodos y no con HTML: el
  * detalle es el nombre que escribió quien denunció, y como HTML podría inyectar
  * código en la página.
+ *
+ * Con `alAbrir`, tocar el globo lo invoca, igual que el recuadro del mapa nativo.
  */
-const globo = (m: MarcadorMapa): HTMLElement => {
+const globo = (m: MarcadorMapa, alAbrir?: () => void): HTMLElement => {
   const caja = document.createElement('div');
   const titulo = document.createElement('strong');
   titulo.textContent = m.titulo;
@@ -130,6 +133,10 @@ const globo = (m: MarcadorMapa): HTMLElement => {
   if (m.detalle) {
     caja.appendChild(document.createElement('br'));
     caja.appendChild(document.createTextNode(m.detalle));
+  }
+  if (alAbrir) {
+    caja.style.cursor = 'pointer';
+    caja.addEventListener('click', alAbrir);
   }
   return caja;
 };
@@ -140,6 +147,7 @@ export default function MapaLeaflet({
   zona,
   ubicacionUsuario,
   alTocar,
+  alAbrirMarcador,
   alListo,
   alFallar,
 }: Props) {
@@ -153,6 +161,9 @@ export default function MapaLeaflet({
   // aquí para no volver a registrarlo cada vez que llegan props nuevas.
   const alTocarActual = useRef(alTocar);
   alTocarActual.current = alTocar;
+  // Lo mismo para los globos, que se arman solo cuando cambian los marcadores.
+  const alAbrirActual = useRef(alAbrirMarcador);
+  alAbrirActual.current = alAbrirMarcador;
 
   useEffect(() => {
     if (!contenedor.current) return;
@@ -236,7 +247,9 @@ export default function MapaLeaflet({
         // Tocar un marcador abre su globo; no cuenta como tocar el mapa.
         bubblingMouseEvents: false,
       })
-        .bindPopup(globo(m))
+        .bindPopup(
+          globo(m, alAbrirActual.current ? () => alAbrirActual.current?.(m.id) : undefined),
+        )
         .addTo(capa);
     }
   }, [marcadores]);

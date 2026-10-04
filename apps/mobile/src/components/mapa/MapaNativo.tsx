@@ -1,6 +1,11 @@
 import React from 'react';
 import MapView, { Circle, MapPressEvent, Marker } from 'react-native-maps';
-import type { PropsMapa } from './tipos';
+import type { PropsMapa, RegionMapa } from './tipos';
+
+export interface PropsMapaNativo extends PropsMapa {
+  /** Dónde quedó la cámara cada vez que se detiene. Lo usa `Mapa.android.tsx`. */
+  alMoverse?: (region: RegionMapa) => void;
+}
 
 /**
  * Mapa con el SDK nativo de cada plataforma, a través de react-native-maps:
@@ -9,12 +14,14 @@ import type { PropsMapa } from './tipos';
  * En iOS funciona sin clave de API y en Expo Go. En Android necesita la clave de
  * Google Maps dentro del APK; quien decide si se puede usar es `Mapa.android.tsx`.
  */
-export const MapaNativo: React.FC<PropsMapa> = ({
+export const MapaNativo: React.FC<PropsMapaNativo> = ({
   region,
   marcadores = [],
   zona,
   ubicacionUsuario,
   alTocar,
+  alAbrirMarcador,
+  alMoverse,
   style,
 }) => (
   <MapView
@@ -24,6 +31,7 @@ export const MapaNativo: React.FC<PropsMapa> = ({
     // Solo Android: al tocar un marcador, Google pone abajo a la derecha una
     // barra que abre su aplicación. Quedaría debajo del botón «Reportar».
     toolbarEnabled={false}
+    onRegionChangeComplete={alMoverse ? (r) => alMoverse(r) : undefined}
     onPress={
       alTocar
         ? (e: MapPressEvent) => {
@@ -40,6 +48,9 @@ export const MapaNativo: React.FC<PropsMapa> = ({
         title={m.titulo}
         description={m.detalle}
         pinColor={m.color}
+        // El recuadro entero: en Android, Google lo dibuja como una imagen y
+        // no deja tocar partes sueltas.
+        onCalloutPress={alAbrirMarcador ? () => alAbrirMarcador(m.id) : undefined}
       />
     ))}
     {zona && (
