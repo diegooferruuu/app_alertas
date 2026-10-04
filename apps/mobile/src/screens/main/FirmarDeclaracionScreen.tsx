@@ -110,12 +110,15 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
         [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
       );
     } catch (err) {
-      // No llegó a enviarse: o no se desbloqueó el teléfono, o no tiene bloqueo.
+      // No llegó a enviarse: no se desbloqueó el teléfono, no tiene bloqueo, o
+      // el build instalado es anterior a la firma del dispositivo.
       if (err instanceof FirmaNoAutorizada) {
-        Alert.alert(
-          err.motivo === 'sin_bloqueo' ? 'Tu teléfono no tiene bloqueo' : 'No se firmó',
-          err.message,
-        );
+        const titulos = {
+          cancelada: 'No se firmó',
+          sin_bloqueo: 'Tu teléfono no tiene bloqueo',
+          sin_modulo: 'Falta actualizar la aplicación',
+        } as const;
+        Alert.alert(titulos[err.motivo], err.message);
         return;
       }
       const rechazo = rechazoDe(err, { titulo: 'No se pudo firmar', mensaje: 'Intenta de nuevo.' });

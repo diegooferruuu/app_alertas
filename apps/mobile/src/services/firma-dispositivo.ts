@@ -1,5 +1,3 @@
-import * as Crypto from 'expo-crypto';
-import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { ed25519 } from '@noble/curves/ed25519';
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/curves/abstract/utils';
@@ -9,11 +7,49 @@ import { DatosFirmados, mensajeAFirmar } from '../utils/mensaje-de-firma';
 /** Por qué no se firmó, con el texto para decírselo a la persona. */
 export class FirmaNoAutorizada extends Error {
   constructor(
-    public readonly motivo: 'cancelada' | 'sin_bloqueo',
+    public readonly motivo: 'cancelada' | 'sin_bloqueo' | 'sin_modulo',
     mensaje: string,
   ) {
     super(mensaje);
   }
+}
+
+type ModuloAutenticacion = typeof import('expo-local-authentication');
+type ModuloCripto = typeof import('expo-crypto');
+
+/**
+ * Carga los módulos nativos de la firma al usarlos, no al importar este archivo.
+ *
+ * `expo-local-authentication` y `expo-crypto` buscan su parte nativa apenas se
+ * importan, y lanzan si el build instalado no la trae. Esta pantalla se importa
+ * desde `App.tsx`: importados arriba, en un teléfono con un build anterior la
+ * app entera no abriría. Así, lo único que falla es firmar, con un mensaje que
+ * dice qué hacer. Es el mismo criterio que `cargarNotificaciones`.
+ *
+ * Se comprueban las funciones y no solo que `require` no lance: cuando la
+ * evaluación de un módulo revienta a medias, puede devolver un objeto
+ * incompleto en vez de lanzar.
+ */
+function modulosNativos(): { autenticacion: ModuloAutenticacion; cripto: ModuloCripto } {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const autenticacion: ModuloAutenticacion = require('expo-local-authentication');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const cripto: ModuloCripto = require('expo-crypto');
+    if (
+      typeof autenticacion?.authenticateAsync === 'function' &&
+      typeof autenticacion?.getEnrolledLevelAsync === 'function' &&
+      typeof cripto?.getRandomBytes === 'function'
+    ) {
+      return { autenticacion, cripto };
+    }
+  } catch {
+    // Cae al aviso de abajo.
+  }
+  throw new FirmaNoAutorizada(
+    'sin_modulo',
+    'Esta versión de la aplicación todavía no puede firmar. Instala la actualización y vuelve a intentarlo.',
+  );
 }
 
 /**
@@ -27,15 +63,15 @@ export class FirmaNoAutorizada extends Error {
  * el sistema operativo, pero su uso lo condiciona este paso. La constancia lo
  * declara entre sus límites.
  */
-async function confirmarQueEsLaPersona(): Promise<void> {
-  const nivel = await LocalAuthentication.getEnrolledLevelAsync();
-  if (nivel === LocalAuthentication.SecurityLevel.NONE) {
+async function confirmarQueEsLaPersona(autenticacion: ModuloAutenticacion): Promise<void> {
+  const nivel = await autenticacion.getEnrolledLevelAsync();
+  if (nivel === autenticacion.SecurityLevel.NONE) {
     throw new FirmaNoAutorizada(
       'sin_bloqueo',
       'Para firmar, tu teléfono necesita un bloqueo de pantalla: código, patrón, huella o rostro. Actívalo en los ajustes y vuelve a intentarlo.',
     );
   }
-  const resultado = await LocalAuthentication.authenticateAsync({
+  const resultado = await autenticacion.authenticateAsync({
     promptMessage: 'Confirma que eres tú para firmar la declaración',
     cancelLabel: 'Cancelar',
     // Con `false`, el sistema acepta también el código del teléfono, no solo
@@ -58,12 +94,15 @@ async function confirmarQueEsLaPersona(): Promise<void> {
  * si otra persona inicia sesión en el mismo teléfono, firma con su propia
  * clave.
  */
-async function claveDelTelefono(userId: string): Promise<{ semilla: Uint8Array; publica: string }> {
+async function claveDelTelefono(
+  userId: string,
+  cripto: ModuloCripto,
+): Promise<{ semilla: Uint8Array; publica: string }> {
   const nombre = `clave-firma.${userId}`;
   let semillaHex = await SecureStore.getItemAsync(nombre);
   if (!semillaHex) {
     // La aleatoriedad la da el sistema (expo-crypto): la clave depende de ella.
-    semillaHex = bytesToHex(Crypto.getRandomBytes(32));
+    semillaHex = bytesToHex(cripto.getRandomBytes(32));
     await SecureStore.setItemAsync(nombre, semillaHex, {
       keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     });
@@ -84,8 +123,9 @@ export async function firmarConElTelefono(
   userId: string,
   datos: DatosFirmados,
 ): Promise<{ clave_dispositivo_id: string; firma_dispositivo: string }> {
-  await confirmarQueEsLaPersona();
-  const { semilla, publica } = await claveDelTelefono(userId);
+  const { autenticacion, cripto } = modulosNativos();
+  await confirmarQueEsLaPersona(autenticacion);
+  const { semilla, publica } = await claveDelTelefono(userId, cripto);
   const { id } = await declaracionService.registrarClave(publica);
   const firma = ed25519.sign(utf8ToBytes(mensajeAFirmar(datos)), semilla);
   return { clave_dispositivo_id: id, firma_dispositivo: bytesToHex(firma) };
