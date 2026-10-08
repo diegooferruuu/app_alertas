@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { ed25519 } from '@noble/curves/ed25519';
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/curves/abstract/utils';
-import { mensajeAFirmar } from './mensaje-de-firma';
+import { mensajeAFirmar, mensajeDeProlongacion } from './mensaje-de-firma';
 
 describe('mensajeAFirmar', () => {
   it('arma exactamente el mismo mensaje que el servidor', () => {
@@ -23,6 +23,23 @@ describe('mensajeAFirmar', () => {
         'MADRE',
         'María Fernanda Villarroel Quispe',
       ].join('\n'),
+    );
+  });
+});
+
+describe('mensajeDeProlongacion', () => {
+  it('arma exactamente el mismo mensaje que el servidor', () => {
+    // El mismo vector que `firma-dispositivo.spec.ts` del backend.
+    expect(
+      mensajeDeProlongacion({
+        denuncia_id: '3f2a7c1e-9b4d-4e8a-a1f0-5c6d7e8f9a0b',
+        numero: 2,
+        hash_texto_legal: 'b'.repeat(64),
+      }),
+    ).toBe(
+      ['prolongacion-alerta/v1', '3f2a7c1e-9b4d-4e8a-a1f0-5c6d7e8f9a0b', '2', 'b'.repeat(64)].join(
+        '\n',
+      ),
     );
   });
 });

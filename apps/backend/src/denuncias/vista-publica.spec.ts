@@ -17,7 +17,7 @@ const denunciaDePrueba = (): Denuncia =>
     estado: EstadoDenuncia.ACTIVA,
     radio_actual_m: 2000,
     expira_en: new Date(),
-    numero_caso_felcc: null,
+    prolongaciones: 0,
     created_at: new Date(),
     updated_at: new Date(),
   }) as Denuncia;

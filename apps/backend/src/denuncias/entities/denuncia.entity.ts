@@ -57,7 +57,8 @@ import {
 // simultáneas sobre la misma persona, cerradas ambas como falsas, suspenderían
 // una cuenta por la palabra de una sola persona. Vive en la base y no solo en
 // el código para que dos peticiones a la vez no lo esquiven. «Abierta» incluye
-// CADUCADA, porque una caducada todavía puede revivir con el caso de la FELCC.
+// CADUCADA, porque su autor todavía puede prolongarla; si la persona apareció,
+// la cierra con «La encontramos» y queda libre para denunciar otra vez.
 @Index('uq_denuncias_abierta_por_persona', ['denunciante_id', 'ci_hash_persona_buscada'], {
   unique: true,
   where: `"estado" IN ('ACTIVA', 'CADUCADA')`,
@@ -69,7 +70,7 @@ import {
 // `migration:generate` no proponga recrearlas en cada ejecución.
 @Check(
   'chk_denuncias_nivel_confianza',
-  `((nivel_confianza)::text = ANY ((ARRAY['REGISTRADA'::character varying, 'PROVISIONAL'::character varying, 'CORROBORADA'::character varying])::text[]))`,
+  `((nivel_confianza)::text = ANY (ARRAY[('REGISTRADA'::character varying)::text, ('PROVISIONAL'::character varying)::text]))`,
 )
 @Check(
   'chk_denuncias_estado',
@@ -81,6 +82,12 @@ import {
 @Check(
   'chk_denuncias_difusion_coherente',
   `(((((nivel_confianza)::text = 'REGISTRADA'::text) AND (radio_actual_m IS NULL) AND (expira_en IS NULL)) OR (((nivel_confianza)::text <> 'REGISTRADA'::text) AND (radio_actual_m IS NOT NULL) AND (expira_en IS NOT NULL))))`,
+)
+// Las prolongaciones no son negativas, y una sin firmar no tiene alerta que
+// prolongar. El tope vive en la configuración: cambiarlo no exige migrar.
+@Check(
+  'chk_denuncias_prolongaciones',
+  `((prolongaciones >= 0) AND (((nivel_confianza)::text <> 'REGISTRADA'::text) OR (prolongaciones = 0)))`,
 )
 // Una denuncia que su autor dio por terminada sabe cuándo, y solo ella lo
 // tiene: la fecha no puede quedar suelta en otro estado ni faltar en este.
@@ -308,9 +315,13 @@ export class Denuncia {
   @Column({ type: 'timestamptz', nullable: true })
   expira_en!: Date | null;
 
-  /** Número de caso de la FELCC. La única vía de corroboración. */
-  @Column({ type: 'varchar', length: 60, nullable: true })
-  numero_caso_felcc!: string | null;
+  /**
+   * Cuántas veces la prolongó quien la presentó. Cada una está firmada en
+   * `prolongaciones`; este contador es lo que se consulta para el tope y lo que
+   * ve la aplicación.
+   */
+  @Column({ type: 'smallint', default: 0 })
+  prolongaciones!: number;
 
   /**
    * Cuándo la dio por terminada quien la presentó: «La encontramos». Nulo en

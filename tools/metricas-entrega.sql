@@ -76,3 +76,15 @@ SELECT count(*) AS casos,
                   FROM emisiones_alerta em
                  WHERE em.denuncia_id = d.id AND em.motivo = 'firma') f ON true
  WHERE d.estado = 'CERRADA' AND f.difundida_en IS NOT NULL;
+
+\echo '7. Prolongaciones: cuántas alertas siguieron a la vista después de su primer plazo'
+-- Ninguna prolongación notifica: mide cuánto tiempo más quiso quien denunció
+-- que la alerta siguiera en el mapa, no cuánta gente la vio. Solo las firmadas,
+-- que son las únicas que se difunden.
+SELECT d.prolongaciones,
+       count(*) AS alertas,
+       round(100.0 * count(*) / sum(count(*)) OVER (), 1) AS porcentaje
+  FROM denuncias d
+ WHERE d.nivel_confianza <> 'REGISTRADA'
+ GROUP BY d.prolongaciones
+ ORDER BY d.prolongaciones;

@@ -67,9 +67,9 @@ export class CierresService {
    * poder llegar a la denuncia concreta para cerrarla. No se devuelve nada del
    * denunciante (invariante I8): solo lo que se declaró sobre la persona.
    *
-   * Incluye las CADUCADAS a propósito: no se difunden, pero pueden revivir con
-   * el caso de la FELCC, y ocultarlas dejaría a la persona sin forma de apagar
-   * algo que puede volver a encenderse. Incluye las INVALIDADAS, ya cerradas,
+   * Incluye las CADUCADAS a propósito: no se difunden, pero su autor puede
+   * prolongarlas, y ocultarlas dejaría a la persona sin forma de apagar algo
+   * que puede volver a encenderse. Incluye las INVALIDADAS, ya cerradas,
    * porque la constancia está disponible de forma indefinida (§6.1) y esta
    * lista es el único sitio desde donde la persona llega a ella. Y las CERRADAS
    * por su autor, que todavía admiten la respuesta de la persona (ver `cerrar`).
@@ -192,9 +192,9 @@ export class CierresService {
       }
 
       // 1. INVALIDADA es el mismo estado para los dos tipos de cierre: el tipo
-      //    solo queda en `cierres`. Es terminal —ni la caducidad ni el caso de la
-      //    FELCC la reviven— y no se borra nada: la declaración que la respalda
-      //    es de solo inserción y debe seguir siendo verificable.
+      //    solo queda en `cierres`. Es terminal —ni la caducidad ni una
+      //    prolongación la reviven— y no se borra nada: la declaración que la
+      //    respalda es de solo inserción y debe seguir siendo verificable.
       if (!terminadaPorSuAutor) {
         await denuncias.update(denunciaId, { estado: EstadoDenuncia.INVALIDADA });
       }
@@ -220,8 +220,9 @@ export class CierresService {
         bloquea_nueva_denuncia: bloquea,
       });
 
-      // 4. Solo «Es falsa» sanciona: una falta para quien denunció y, si es la
-      //    segunda persona distinta que lo declara, la suspensión.
+      // 4. Solo «Es falsa» sanciona: una falta para quien denunció, unos días
+      //    sin denunciar y, si es la segunda persona distinta que lo declara, la
+      //    suspensión definitiva.
       if (dto.tipo === TipoCierre.CON_SANCION) {
         await this.sancionesService.aplicarCierreConSancion(manager, {
           denuncianteId: denuncia.denunciante_id,
@@ -241,7 +242,7 @@ export class CierresService {
 
     const consecuencia =
       dto.tipo === TipoCierre.CON_SANCION
-        ? 'Quien la presentó recibió una falta y no podrá volver a denunciarte.'
+        ? 'Quien la presentó recibió una falta, no podrá volver a denunciarte y queda unos días sin poder denunciar a nadie.'
         : 'Quien la presentó no recibe ninguna sanción.';
     const constancia = firmada ? CONSTANCIA : SIN_FIRMA;
     return {

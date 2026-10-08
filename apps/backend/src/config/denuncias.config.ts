@@ -11,19 +11,28 @@ import { registerAs } from '@nestjs/config';
  * mayúsculas; los valores por defecto son los documentados aquí.
  */
 export interface DenunciasConfig {
-  /** Radio de difusión de una denuncia recién firmada. Reducido a propósito. */
+  /**
+   * Radio de difusión de una denuncia firmada. Corto a propósito: ninguna
+   * autoridad respalda la alerta, solo la palabra atribuida de quien la firmó.
+   */
   radioProvisionalM: number;
-  /** Radio una vez corroborada, cuando hay respaldo del caso. */
-  radioCorroboradoM: number;
   /** Radio para el vínculo TERCERO_NO_FAMILIAR: entra, pero con menos alcance. */
   radioTerceroNoFamiliarM: number;
 
-  /** Horas que vive la alerta provisional antes de caducar sin corroboración. */
+  /** Horas que vive la alerta antes de caducar, y las que suma cada prolongación. */
   caducidadProvisionalH: number;
-  /** Horas que vive la alerta una vez corroborada. */
-  caducidadCorroboradaH: number;
-  /** Caducidad más corta para el vínculo TERCERO_NO_FAMILIAR. */
+  /** Lo mismo, más corto, para el vínculo TERCERO_NO_FAMILIAR. */
   caducidadTerceroNoFamiliarH: number;
+
+  /**
+   * Veces que quien presentó una denuncia puede prolongar su alerta.
+   *
+   * Prolongar la mantiene a la vista —mapa, lista, avistamientos— sin volver a
+   * notificar a nadie: lo que vale de la notificación son las primeras horas.
+   * El tope acota la alerta a unos pocos días; después, el caso es de los
+   * canales oficiales.
+   */
+  maxProlongaciones: number;
 
   /**
    * Personas distintas que deben declarar falsas denuncias de una cuenta para
@@ -33,11 +42,21 @@ export interface DenunciasConfig {
   cierresConSancionParaSuspension: number;
 
   /**
-   * Alertas provisionales que una cuenta puede tener difundiéndose a la vez.
+   * Días que una falta deja a la cuenta sin registrar, firmar ni prolongar
+   * denuncias, contados desde la última falta.
+   *
+   * Corto a propósito: la falta depende solo de la palabra de la persona
+   * reportada, que nadie verifica, así que el castigo de una acusación injusta
+   * tiene que salir barato. Lo que disuade es que la falta queda para siempre y
+   * que la segunda, de otra persona, suspende la cuenta.
+   */
+  diasSuspensionTemporal: number;
+
+  /**
+   * Alertas que una cuenta puede tener difundiéndose a la vez.
    *
    * Es un límite de uso, no una sanción: frena a quien quisiera lanzar muchas
-   * alertas sin respaldo sobre personas distintas. Las respaldadas por la FELCC
-   * no cuentan.
+   * alertas sobre personas distintas.
    */
   limiteAlertasProvisionales: number;
 
@@ -106,20 +125,20 @@ export const denunciasConfig = registerAs(
   DENUNCIAS_CONFIG,
   (): DenunciasConfig => ({
     radioProvisionalM: entero(process.env.RADIO_PROVISIONAL_M, 2_000),
-    radioCorroboradoM: entero(process.env.RADIO_CORROBORADO_M, 10_000),
     radioTerceroNoFamiliarM: entero(process.env.RADIO_TERCERO_NO_FAMILIAR_M, 1_000),
 
     caducidadProvisionalH: entero(process.env.CADUCIDAD_PROVISIONAL_H, 24),
-    caducidadCorroboradaH: entero(process.env.CADUCIDAD_CORROBORADA_H, 168),
     caducidadTerceroNoFamiliarH: entero(
       process.env.CADUCIDAD_TERCERO_NO_FAMILIAR_H,
       12,
     ),
+    maxProlongaciones: entero(process.env.MAX_PROLONGACIONES, 3),
 
     cierresConSancionParaSuspension: entero(
       process.env.CIERRES_CON_SANCION_PARA_SUSPENSION,
       2,
     ),
+    diasSuspensionTemporal: entero(process.env.DIAS_SUSPENSION_TEMPORAL, 7),
     limiteAlertasProvisionales: entero(process.env.LIMITE_ALERTAS_PROVISIONALES, 2),
 
     intervaloCaducidadMin: entero(process.env.INTERVALO_CADUCIDAD_MIN, 5),

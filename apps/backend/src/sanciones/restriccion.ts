@@ -6,8 +6,8 @@ import type { CodigoRestriccion } from './domain/situacion';
  *
  * Nunca un error genérico: quien recibe un «no» tiene que poder entender por
  * qué, y la app muestra el mensaje tal cual. El código permite además que la
- * app reaccione distinto según el caso —ofrecer registrar el caso de la FELCC,
- * por ejemplo— sin depender de la redacción del mensaje.
+ * app reaccione distinto según el caso —llevar a «Mi situación» cuando la
+ * cuenta está suspendida, por ejemplo— sin depender de la redacción del mensaje.
  *
  * 403 cuando es una restricción de la cuenta; 409 cuando choca con el estado de
  * otra cosa —una denuncia ya abierta, un límite de uso—.

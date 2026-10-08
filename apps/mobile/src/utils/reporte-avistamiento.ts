@@ -58,7 +58,6 @@ export const enlaceDeMapa = (lat: number, lng: number): string =>
 
 export interface DatosDelReporte {
   nombre: string | null;
-  numeroCasoFelcc: string | null;
   punto: { lat: number; lng: number };
   /** La calle más cercana, si el teléfono la pudo averiguar. */
   calle: string | null;
@@ -70,16 +69,16 @@ export interface DatosDelReporte {
  * El texto que se lee en la llamada o se manda por WhatsApp.
  *
  * Sin el CI de la persona buscada: el sistema solo guarda su hash, así que
- * quien recibe la alerta no lo tiene. Con el nombre y el número de caso, la
- * autoridad identifica el caso. Si no hay número de caso, el reporte lo dice:
- * puede que la autoridad no tenga ningún registro abierto.
+ * quien recibe la alerta no lo tiene. Tampoco el número de caso de la FELCC,
+ * que no es público: la Policía lo da a quien denuncia y no aparece en sus
+ * propias pancartas. Con el nombre, la zona y el momento, la autoridad busca
+ * el caso como con cualquier aviso ciudadano.
  */
 export function armarReporte(d: DatosDelReporte): string {
   const mapa = enlaceDeMapa(d.punto.lat, d.punto.lng);
   return [
     'Reporte de avistamiento — persona reportada como desaparecida',
     `Nombre: ${d.nombre?.trim() || 'sin nombre registrado'}`,
-    `Número de caso FELCC: ${d.numeroCasoFelcc?.trim() || 'sin número de caso registrado'}`,
     `Zona: ${d.calle?.trim() ? `${d.calle.trim()} — ${mapa}` : mapa}`,
     `Momento: ${momentoDe(d.franja, d.ahora)}`,
   ].join('\n');

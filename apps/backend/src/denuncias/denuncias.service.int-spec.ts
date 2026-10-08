@@ -409,19 +409,37 @@ describe('DenunciasService (integración)', () => {
       expect(rechazo.getResponse()).toMatchObject({ codigo: 'CUENTA_SUSPENDIDA' });
     });
 
-    it('una falta no quita la facultad de denunciar (I9)', async () => {
-      // Lo que restringe es la difusión: firmar le exigirá el caso de la FELCC.
-      const autor = await crearDenunciante();
-      const anterior = await service.create(autor.id, {
+    /** Una falta atada a una denuncia anterior, ya invalidada, de hace `dias` días. */
+    const darleUnaFalta = async (autorId: string, dias: number) => {
+      const anterior = await service.create(autorId, {
         ...datosDeDenuncia,
         ci_persona_buscada: '1111111',
       });
       await denuncias.update(anterior.id, { estado: EstadoDenuncia.INVALIDADA });
       await denuncias.manager.insert(Falta, {
-        usuario_id: autor.id,
+        usuario_id: autorId,
         tipo: 'CIERRE_CON_SANCION',
         denuncia_id: anterior.id,
+        creada_en: new Date(Date.now() - dias * 24 * 3_600_000),
       });
+    };
+
+    it('con una falta reciente no denuncia por unos días, y el rechazo dice hasta cuándo', async () => {
+      const autor = await crearDenunciante();
+      await darleUnaFalta(autor.id, 2);
+
+      const rechazo = await rechazoDe(service.create(autor.id, datosDeDenuncia));
+
+      expect(rechazo).toBeInstanceOf(ForbiddenException);
+      expect(rechazo.getResponse()).toMatchObject({
+        codigo: 'CUENTA_SUSPENDIDA_TEMPORALMENTE',
+        message: expect.stringMatching(/hasta el .+ no puedes registrar denuncias/),
+      });
+    });
+
+    it('pasados los días de la falta vuelve a denunciar: una falta sola nunca suspende para siempre (I9)', async () => {
+      const autor = await crearDenunciante();
+      await darleUnaFalta(autor.id, 8);
 
       const nueva = await service.create(autor.id, datosDeDenuncia);
 
@@ -442,7 +460,7 @@ describe('DenunciasService (integración)', () => {
     });
 
     it('una caducada sigue abierta: tampoco admite otra encima', async () => {
-      // El camino para volver a difundirla es el caso de la FELCC, no duplicarla.
+      // El camino para volver a difundirla es prolongarla, no duplicarla.
       const autor = await crearDenunciante();
       const { id } = await service.create(autor.id, datosDeDenuncia);
       await denuncias.update(id, { estado: EstadoDenuncia.CADUCADA });

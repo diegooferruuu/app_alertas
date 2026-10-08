@@ -7,63 +7,76 @@ import {
   Image,
   ActivityIndicator,
   TouchableOpacity,
-  TextInput,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { detalleDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
+import { useAuth } from '../../hooks/useAuth';
 import denunciaService, {
   Denuncia,
   DENUNCIA_META,
+  MAX_PROLONGACIONES,
   situacionDe,
   primeraFotografia,
   declaracionService,
 } from '../../services/denuncia.service';
-import sancionesService, { SituacionSanciones } from '../../services/sanciones.service';
+import sancionesService, { SituacionSanciones, fechaCorta } from '../../services/sanciones.service';
 import { rechazoDe } from '../../services/restricciones';
+import {
+  FirmaNoAutorizada,
+  firmarProlongacionConElTelefono,
+} from '../../services/firma-dispositivo';
 
 /**
- * Por qué esta cuenta no puede firmar todavía, o `null` si puede.
+ * Por qué esta cuenta no puede hacer algo ahora —firmar, prolongar—, o `null`
+ * si puede.
  *
- * Es una comodidad, no un control: el servidor vuelve a comprobarlo al firmar.
- * Existe para no hacer leer el texto legal y escribir el nombre a quien se va
- * a rechazar al final.
+ * Es una comodidad, no un control: el servidor vuelve a comprobarlo. Existe para
+ * no hacer leer el texto legal y escribir el nombre a quien se va a rechazar al
+ * final.
  */
-const impedimentoParaFirmar = (
+const impedimentoPara = (
   situacion: SituacionSanciones | null,
-  conCasoFelcc: boolean,
-  requiereCaso: boolean,
+  queNoPuede: string,
 ): string | null => {
   if (situacion?.estado === 'SUSPENDIDA') {
-    return 'Tu cuenta está suspendida: no puedes firmar declaraciones.';
+    return `Tu cuenta está suspendida: no puedes ${queNoPuede}.`;
   }
-  if (requiereCaso && !conCasoFelcc) {
-    return 'Por tu historial, tus denuncias solo se difunden con el número de caso de la FELCC. Regístralo abajo para poder firmar.';
+  if (situacion?.suspendida_hasta) {
+    return `Una persona declaró falsa una denuncia tuya: hasta el ${fechaCorta(
+      situacion.suspendida_hasta,
+    )} no puedes ${queNoPuede}.`;
   }
   return null;
 };
+
+/** Por qué no se firmó una prolongación que no llegó a enviarse. */
+const TITULOS_SIN_FIRMA = {
+  cancelada: 'No se prolongó',
+  sin_bloqueo: 'Tu teléfono no tiene bloqueo',
+  sin_modulo: 'Falta actualizar la aplicación',
+} as const;
 
 const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
   const { id } = route.params;
+  const { user } = useAuth();
   const [denuncia, setDenuncia] = useState<Denuncia | null>(null);
   const [loading, setLoading] = useState(true);
   const [situacion, setSituacion] = useState<SituacionSanciones | null>(null);
 
-  const [numeroCaso, setNumeroCaso] = useState('');
-  const [mostrarCampoCaso, setMostrarCampoCaso] = useState(false);
-  const [guardandoCaso, setGuardandoCaso] = useState(false);
   const [cerrandoCaso, setCerrandoCaso] = useState(false);
+  const [prolongando, setProlongando] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const data = await denunciaService.getOne(id);
       setDenuncia(data);
-      // Solo hace falta para quien todavía tiene que firmar.
-      if (data.es_mia && data.nivel_confianza === 'REGISTRADA') {
+      // Solo hace falta a quien la presentó: para firmarla o prolongarla.
+      if (data.es_mia) {
         sancionesService
           .miSituacion()
           .then(setSituacion)
@@ -100,7 +113,6 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
 
   const meta = DENUNCIA_META;
   const isOwner = denuncia.es_mia;
-  const conCasoFelcc = Boolean(denuncia.numero_caso_felcc);
 
   // Sigue abierta mientras nadie la cerró: ni la persona reportada
   // (INVALIDADA) ni quien la presentó (CERRADA, «La encontramos»).
@@ -110,26 +122,19 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
   // la cadena probatoria. Y una cerrada ya no se firma ni se edita.
   const editable = denuncia.nivel_confianza === 'REGISTRADA' && denuncia.estado === 'ACTIVA';
 
-  // Quien tiene una falta no puede difundir sin el caso, así que a esa cuenta
-  // se le pide antes de firmar. Lo dice su situación o, si no se pudo
-  // consultar, el propio servidor al rechazar la firma (`requiereCaso`).
-  const requiereCasoParaFirmar =
-    editable && (situacion?.estado === 'CON_FALTA' || Boolean(route.params?.requiereCaso));
-
-  // El caso de la FELCC es la única vía de corroboración, y se ofrece para eso:
-  // sobre una denuncia ya difundida, o sobre una vencida, a la que devuelve a
-  // difusión. No se pide para denunciar: se puede denunciar antes de haber ido
-  // a la FELCC, y pedir el número tan pronto empujaría a inventarlo. Una
-  // INVALIDADA o CERRADA ya no lo admite.
-  const admiteCaso =
-    isOwner && !conCasoFelcc && abierta && (!editable || requiereCasoParaFirmar);
-
   // Quien recibió la alerta puede avisar a la Policía si ve a la persona,
   // también en una vencida, a la que se llega desde la notificación. Sin
   // importar sus sanciones: el reporte no usa la credibilidad del sistema.
   const admiteAvistamiento = !isOwner && denuncia.nivel_confianza !== 'REGISTRADA' && abierta;
 
   const seDifundio = denuncia.nivel_confianza !== 'REGISTRADA';
+
+  // Vencida aunque el servidor todavía no la haya marcado: lo que cuenta es
+  // el plazo.
+  const vencida =
+    denuncia.estado === 'CADUCADA' ||
+    (denuncia.expira_en !== null && new Date(denuncia.expira_en).getTime() <= Date.now());
+  const restantes = Math.max(0, MAX_PROLONGACIONES - denuncia.prolongaciones);
 
   const darPorEncontrada = async () => {
     setCerrandoCaso(true);
@@ -178,97 +183,125 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
     </TouchableOpacity>
   );
 
-  const registrarCaso = async () => {
-    setGuardandoCaso(true);
+  /**
+   * Prolonga la alerta: el teléfono firma que la persona sigue sin aparecer,
+   * con el texto legal vigente, y el servidor la mantiene a la vista otro plazo
+   * sin notificar a nadie.
+   */
+  const prolongar = async () => {
+    setProlongando(true);
     try {
-      const { nivel_confianza } = await declaracionService.registrarCasoFelcc(
-        denuncia.id,
-        numeroCaso.trim(),
-      );
-      setMostrarCampoCaso(false);
-      setNumeroCaso('');
+      const texto = await declaracionService.textoLegal();
+      const firma = await firmarProlongacionConElTelefono(user!.id, {
+        denuncia_id: denuncia.id,
+        numero: denuncia.prolongaciones + 1,
+        hash_texto_legal: texto.hash_texto,
+      });
+      const resultado = await declaracionService.prolongar(denuncia.id, {
+        version_texto_legal_id: texto.version_id,
+        ...firma,
+      });
       await load();
       Alert.alert(
-        'Caso registrado',
-        nivel_confianza === 'REGISTRADA'
-          ? 'Al firmar, la alerta saldrá respaldada por el caso de la FELCC, con mayor alcance.'
-          : 'La alerta quedó respaldada por el caso de la FELCC y amplió su alcance.',
+        'Alerta prolongada',
+        `Seguirá a la vista en el mapa y en la lista hasta el ${fechaCorta(
+          resultado.expira_en,
+        )}. No se notificó a nadie.\n\n${
+          resultado.prolongaciones_restantes === 0
+            ? 'Era la última prolongación.'
+            : resultado.prolongaciones_restantes === 1
+              ? 'Te queda 1 prolongación.'
+              : `Te quedan ${resultado.prolongaciones_restantes} prolongaciones.`
+        }`,
       );
     } catch (err) {
+      // No llegó a enviarse: no se desbloqueó el teléfono, no tiene bloqueo, o
+      // el build instalado es anterior a la firma del dispositivo.
+      if (err instanceof FirmaNoAutorizada) {
+        Alert.alert(TITULOS_SIN_FIRMA[err.motivo], err.message);
+        return;
+      }
       const rechazo = rechazoDe(err, {
-        titulo: 'No se pudo registrar',
-        mensaje: 'Revisa el número e intenta de nuevo.',
+        titulo: 'No se pudo prolongar',
+        mensaje: 'Inténtalo de nuevo.',
       });
       Alert.alert(rechazo.titulo, rechazo.mensaje);
     } finally {
-      setGuardandoCaso(false);
+      setProlongando(false);
     }
   };
 
-  const impedimento = editable
-    ? impedimentoParaFirmar(situacion, conCasoFelcc, requiereCasoParaFirmar)
-    : null;
+  const confirmarProlongar = () => {
+    Alert.alert(
+      vencida ? '¿Volver a mostrar la alerta?' : '¿Prolongar la alerta?',
+      'Seguirá a la vista en el mapa y en la lista por otro plazo, contado desde ahora. No se enviará ninguna notificación.\n\nAl prolongarla declaras, bajo el mismo juramento, que la persona sigue sin aparecer. Te pediremos desbloquear el teléfono.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Prolongar', onPress: prolongar },
+      ],
+    );
+  };
+
+  const impedimentoFirmar = editable ? impedimentoPara(situacion, 'firmar declaraciones') : null;
+  const impedimentoProlongar = impedimentoPara(situacion, 'prolongar alertas');
   const fotografia = primeraFotografia(denuncia);
   const date = new Date(denuncia.created_at).toLocaleString();
 
-  const ayudaCaso = editable
-    ? 'Cuando hayas hecho la denuncia en la FELCC, registra aquí su número de caso para poder firmar.'
-    : denuncia.estado === 'CADUCADA'
-      ? 'La alerta venció. Si ya hiciste la denuncia en la FELCC, registra su número de caso y vuelve a difundirse con mayor alcance.'
-      : 'Si ya hiciste la denuncia en la FELCC, registra su número de caso: la alerta amplía su alcance y su plazo.';
-
-  const bloqueCaso = admiteCaso && (
-    <View style={styles.casoBloque}>
-      {mostrarCampoCaso ? (
-        <>
-          <Text style={styles.casoEtiqueta}>Número de caso de la FELCC</Text>
-          <TextInput
-            style={styles.casoCampo}
-            value={numeroCaso}
-            onChangeText={setNumeroCaso}
-            placeholder="Ej. 1234/2026"
-            placeholderTextColor="#9a9a9a"
-            autoCapitalize="characters"
-            autoCorrect={false}
-          />
-          <Text style={styles.casoNota}>El número queda registrado a tu nombre.</Text>
-          <View style={styles.casoAcciones}>
-            <TouchableOpacity
-              style={styles.casoCancelar}
-              onPress={() => {
-                setMostrarCampoCaso(false);
-                setNumeroCaso('');
-              }}
-            >
-              <Text style={styles.casoCancelarText}>Cancelar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.casoGuardar,
-                numeroCaso.trim().length < 3 && styles.casoGuardarOff,
-              ]}
-              disabled={numeroCaso.trim().length < 3 || guardandoCaso}
-              onPress={registrarCaso}
-            >
-              {guardandoCaso ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.casoGuardarText}>Registrar</Text>
-              )}
-            </TouchableOpacity>
+  const bloqueProlongar = isOwner && seDifundio && abierta && (
+    <View style={styles.prolongar}>
+      <View style={styles.prolongarFila}>
+        <Ionicons name="hourglass-outline" size={16} color="#555" />
+        <Text style={styles.prolongarTexto}>
+          {denuncia.expira_en
+            ? `${vencida ? 'Venció' : 'Vence'} el ${fechaCorta(denuncia.expira_en)}. `
+            : ''}
+          {restantes === 0
+            ? 'Ya usaste todas las prolongaciones.'
+            : restantes === 1
+              ? 'Te queda 1 prolongación.'
+              : `Te quedan ${restantes} prolongaciones.`}
+        </Text>
+      </View>
+      {restantes > 0 &&
+        (impedimentoProlongar ? (
+          <View style={styles.aviso}>
+            <Ionicons name="alert-circle-outline" size={16} color="#8F5600" />
+            <Text style={styles.avisoText}>{impedimentoProlongar}</Text>
           </View>
-        </>
-      ) : (
-        <>
-          <Text style={styles.casoAyuda}>{ayudaCaso}</Text>
-          <TouchableOpacity style={styles.editButton} onPress={() => setMostrarCampoCaso(true)}>
-            <Ionicons name="shield-outline" size={18} color="#007AFF" />
-            <Text style={styles.editText}>
-              {editable ? 'Registrar caso FELCC' : 'Corroborar con la FELCC'}
-            </Text>
+        ) : (
+          <TouchableOpacity
+            style={styles.prolongarButton}
+            onPress={confirmarProlongar}
+            disabled={prolongando}
+          >
+            {prolongando ? (
+              <ActivityIndicator size="small" color="#1F4FD8" />
+            ) : (
+              <>
+                <Ionicons name="time-outline" size={18} color="#1F4FD8" />
+                <Text style={styles.prolongarButtonText}>
+                  {vencida ? 'Volver a mostrar la alerta' : 'Prolongar la alerta'}
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
-        </>
-      )}
+        ))}
+      <Text style={styles.firmarAyuda}>
+        Prolongarla la mantiene en el mapa sin volver a notificar a nadie: la notificación ya
+        salió al firmar.
+      </Text>
+    </View>
+  );
+
+  // La alerta no reemplaza la denuncia formal: se recuerda donde quien la
+  // presentó vuelve a mirar su caso, sin pedir ningún número que lo pruebe.
+  const recordatorioFelcc = isOwner && seDifundio && abierta && (
+    <View style={styles.recordatorio}>
+      <Ionicons name="information-circle-outline" size={16} color="#1F4FD8" />
+      <Text style={styles.recordatorioText}>
+        Esta alerta no reemplaza la denuncia en la FELCC. Si todavía no la hiciste, hazla
+        también.
+      </Text>
     </View>
   );
 
@@ -321,28 +354,20 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
             {situacionDe(denuncia).label} · {situacionDe(denuncia).desc}
           </Text>
         </View>
-        {denuncia.numero_caso_felcc && (
-          <View style={styles.metaRow}>
-            <Ionicons name="shield-checkmark-outline" size={16} color="#0E7247" />
-            <Text style={styles.metaText}>
-              Caso FELCC {denuncia.numero_caso_felcc}
-            </Text>
-          </View>
-        )}
 
         {isOwner && (
           <View style={styles.ownerActions}>
             {editable ? (
               <>
-                {impedimento && (
+                {impedimentoFirmar && (
                   <View style={styles.aviso}>
                     <Ionicons name="alert-circle-outline" size={16} color="#8F5600" />
-                    <Text style={styles.avisoText}>{impedimento}</Text>
+                    <Text style={styles.avisoText}>{impedimentoFirmar}</Text>
                   </View>
                 )}
                 <TouchableOpacity
-                  style={[styles.firmarButton, impedimento ? styles.firmarButtonOff : null]}
-                  disabled={Boolean(impedimento)}
+                  style={[styles.firmarButton, impedimentoFirmar ? styles.firmarButtonOff : null]}
+                  disabled={Boolean(impedimentoFirmar)}
                   onPress={() =>
                     navigation.navigate('TextoLegal', { denunciaId: denuncia.id })
                   }
@@ -354,7 +379,6 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                   Por ahora esta denuncia no se difunde. Al firmar la declaración
                   jurada empezará a alertarse a la zona.
                 </Text>
-                {bloqueCaso}
                 <TouchableOpacity
                   style={styles.editButton}
                   onPress={() => navigation.navigate('EditDenuncia', { denuncia })}
@@ -375,7 +399,8 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                     apareció.
                   </Text>
                 </View>
-                {bloqueCaso}
+                {bloqueProlongar}
+                {recordatorioFelcc}
                 {botonEncontrada}
               </>
             ) : (
@@ -404,7 +429,6 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                   alerta: {
                     id: denuncia.id,
                     nombre_persona_buscada: denuncia.nombre_persona_buscada,
-                    numero_caso_felcc: denuncia.numero_caso_felcc,
                   },
                 })
               }
@@ -517,39 +541,29 @@ const styles = StyleSheet.create({
     borderColor: '#007AFF',
   },
   editText: { color: '#007AFF', fontWeight: '600' },
-  casoBloque: { gap: 10 },
-  casoAyuda: { fontSize: 13, color: '#555', lineHeight: 19 },
-  casoEtiqueta: { fontSize: 14, fontWeight: '600', color: '#333' },
-  casoCampo: {
-    borderWidth: 1.5,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#1a1a1a',
-    backgroundColor: '#fafafa',
-  },
-  casoNota: { fontSize: 12, color: '#888' },
-  casoAcciones: { flexDirection: 'row', gap: 10 },
-  casoCancelar: {
-    flex: 1,
+  prolongar: { gap: 10 },
+  prolongarFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  prolongarTexto: { flex: 1, fontSize: 13, color: '#444', lineHeight: 19 },
+  prolongarButton: {
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingVertical: 13,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ccc',
-    alignItems: 'center',
+    borderColor: '#1F4FD8',
   },
-  casoCancelarText: { color: '#666', fontWeight: '600' },
-  casoGuardar: {
-    flex: 1,
-    paddingVertical: 13,
+  prolongarButtonText: { color: '#1F4FD8', fontWeight: '700' },
+  recordatorio: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    backgroundColor: '#EAF0FD',
     borderRadius: 10,
-    backgroundColor: '#0E7247',
-    alignItems: 'center',
+    padding: 14,
   },
-  casoGuardarOff: { backgroundColor: '#c3c9d6' },
-  casoGuardarText: { color: '#fff', fontWeight: '700' },
+  recordatorioText: { flex: 1, fontSize: 13, color: '#1B3A8C', lineHeight: 19 },
 });
 
 export { DenunciaDetailScreen };

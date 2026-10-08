@@ -4,18 +4,15 @@ import { apiClient } from './api';
  * Los tres estados del régimen de faltas.
  *
  *  - NORMAL: sin faltas.
- *  - CON_FALTA: una persona declaró falsa una denuncia de esta cuenta. Sus
- *    denuncias solo se difunden con el número de caso de la FELCC.
+ *  - CON_FALTA: una persona declaró falsa una denuncia de esta cuenta. Durante
+ *    los 7 días siguientes no puede registrar, firmar ni prolongar denuncias;
+ *    después, la falta solo cuenta para la suspensión.
  *  - SUSPENDIDA: dos personas distintas lo declararon. No puede denunciar, ni
  *    firmar, ni recibir alertas.
  */
 export type EstadoSancion = 'NORMAL' | 'CON_FALTA' | 'SUSPENDIDA';
 
-export type FuncionRestringida =
-  | 'DIFUNDIR_SIN_CASO_FELCC'
-  | 'DENUNCIAR'
-  | 'FIRMAR'
-  | 'RECIBIR_ALERTAS';
+export type FuncionRestringida = 'DENUNCIAR' | 'FIRMAR' | 'PROLONGAR' | 'RECIBIR_ALERTAS';
 
 /**
  * Lo que el servidor cuenta de la situación propia.
@@ -26,8 +23,19 @@ export type FuncionRestringida =
 export interface SituacionSanciones {
   estado: EstadoSancion;
   faltas: { tipo: 'CIERRE_CON_SANCION'; creada_en: string }[];
+  /** Hasta cuándo dura la suspensión de unos días de la última falta, si sigue. */
+  suspendida_hasta: string | null;
   funciones_restringidas: FuncionRestringida[];
 }
+
+/** «11 de octubre, 14:30»: lo justo para saber hasta cuándo. */
+export const fechaCorta = (iso: string): string =>
+  new Date(iso).toLocaleString('es-BO', {
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
 export interface PresentacionSancion {
   titulo: string;
@@ -59,8 +67,9 @@ export function presentacionDe(situacion: SituacionSanciones): PresentacionSanci
       return {
         titulo:
           situacion.faltas.length === 1 ? 'Tienes una falta' : `Tienes ${situacion.faltas.length} faltas`,
-        detalle:
-          'Tus denuncias solo se difunden si registras el número de caso de la FELCC. Puedes seguir denunciando y recibiendo alertas.',
+        detalle: situacion.suspendida_hasta
+          ? `Una persona declaró falsa una denuncia tuya. Hasta el ${fechaCorta(situacion.suspendida_hasta)} no puedes registrar, firmar ni prolongar denuncias. Sigues recibiendo alertas y puedes reportar avistamientos.`
+          : 'Una persona declaró falsa una denuncia tuya. Ya puedes volver a denunciar, pero si otra persona declara falsa otra de tus denuncias, tu cuenta quedará suspendida.',
         color: '#8F5600',
         fondo: '#F9EEDA',
         icono: 'alert-circle-outline',
@@ -83,7 +92,7 @@ export function presentacionDe(situacion: SituacionSanciones): PresentacionSanci
 export const FUNCIONES: { funcion: FuncionRestringida; etiqueta: string }[] = [
   { funcion: 'DENUNCIAR', etiqueta: 'Registrar denuncias' },
   { funcion: 'FIRMAR', etiqueta: 'Firmar declaraciones juradas' },
-  { funcion: 'DIFUNDIR_SIN_CASO_FELCC', etiqueta: 'Difundir sin el caso de la FELCC' },
+  { funcion: 'PROLONGAR', etiqueta: 'Prolongar alertas' },
   { funcion: 'RECIBIR_ALERTAS', etiqueta: 'Recibir alertas de tu zona' },
 ];
 

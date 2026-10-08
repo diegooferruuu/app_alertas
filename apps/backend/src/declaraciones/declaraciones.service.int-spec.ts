@@ -6,12 +6,18 @@ import { VersionTextoLegal } from './entities/version-texto-legal.entity';
 import {
   TEXTO_LEGAL_V1,
   TEXTO_LEGAL_V2,
+  TEXTO_LEGAL_V3,
   VERSION_INICIAL,
   VERSION_REGIMEN_FALTAS,
+  VERSION_SIN_FELCC,
 } from './texto-legal';
 
-/** Las que siembran las migraciones. Ninguna prueba puede borrarlas. */
-const SEMBRADAS = [VERSION_INICIAL, VERSION_REGIMEN_FALTAS];
+/**
+ * Las que siembran las migraciones. Ninguna prueba puede borrarlas: si falta
+ * una aquí, la limpieza de abajo la borra de la base de pruebas y las demás
+ * suites se quedan sin texto vigente.
+ */
+const SEMBRADAS = [VERSION_INICIAL, VERSION_REGIMEN_FALTAS, VERSION_SIN_FELCC];
 
 describe('Texto legal versionado (integración)', () => {
   let ctx: ContextoDePruebas;
@@ -42,21 +48,39 @@ describe('Texto legal versionado (integración)', () => {
     await versiones.delete({ version: Not(In(SEMBRADAS)) });
   });
 
-  it('la migración deja vigente el texto del régimen de faltas', async () => {
+  it('la migración deja vigente el texto sin la FELCC', async () => {
     const vigente = await service.textoLegalVigente();
 
-    expect(vigente.version).toBe(VERSION_REGIMEN_FALTAS);
-    expect(vigente.texto).toBe(TEXTO_LEGAL_V2);
-    // Lo que se firma no puede prometer consecuencias que el sistema ya no aplica.
+    expect(vigente.version).toBe(VERSION_SIN_FELCC);
+    expect(vigente.texto).toBe(TEXTO_LEGAL_V3);
+    // Lo que se firma no puede prometer consecuencias que el sistema ya no
+    // aplica: ni puntaje, ni un número de caso que dé más alcance.
     expect(vigente.texto).not.toMatch(/reputaci[oó]n/i);
+    expect(vigente.texto).not.toMatch(/n[uú]mero de caso/i);
+    // Y sí describe lo que lo reemplazó.
+    expect(vigente.texto).toMatch(/siete días/);
+    expect(vigente.texto).toMatch(/prolongar la alerta/);
   });
 
-  it('la v1 se conserva intacta y ya no vigente: hay declaraciones firmadas contra ella', async () => {
-    const v1 = await versiones.findOneByOrFail({ version: VERSION_INICIAL });
+  it('el texto vigente nombra el vínculo una vez, con el marcador que la app reemplaza por el elegido', async () => {
+    // La app pregunta el vínculo antes de mostrar el texto y lo escribe en este
+    // lugar. El hash, en cambio, se calcula con el marcador: igual para todos.
+    const vigente = await service.textoLegalVigente();
 
-    expect(v1.vigente).toBe(false);
-    expect(v1.texto).toBe(TEXTO_LEGAL_V1);
-    expect(service.textoNoAlterado(v1)).toBe(true);
+    expect(vigente.texto.split('{{VINCULO}}')).toHaveLength(2);
+  });
+
+  it('las versiones anteriores se conservan intactas y ya no vigentes: hay declaraciones firmadas contra ellas', async () => {
+    for (const [version, texto] of [
+      [VERSION_INICIAL, TEXTO_LEGAL_V1],
+      [VERSION_REGIMEN_FALTAS, TEXTO_LEGAL_V2],
+    ]) {
+      const anterior = await versiones.findOneByOrFail({ version });
+
+      expect(anterior.vigente).toBe(false);
+      expect(anterior.texto).toBe(texto);
+      expect(service.textoNoAlterado(anterior)).toBe(true);
+    }
   });
 
   it('el hash corresponde al texto, para poder verificarlo años después', async () => {
@@ -114,6 +138,6 @@ describe('Texto legal versionado (integración)', () => {
 
     expect(recuperada.texto).toBe('Texto anterior');
     // Y la vigente sigue siendo la que corresponde.
-    expect((await service.textoLegalVigente()).version).toBe(VERSION_REGIMEN_FALTAS);
+    expect((await service.textoLegalVigente()).version).toBe(VERSION_SIN_FELCC);
   });
 });

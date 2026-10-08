@@ -10,13 +10,18 @@ import { EmisionAlerta } from './entities/emision-alerta.entity';
  * envío que nunca debe ocurrir. Recibe la transacción de quien detiene la
  * alerta: una detención a medias dejaría la alerta saliendo justo cuando se
  * pidió que parara.
+ *
+ * Con `soloDifusion` deja en pie el aviso directo a la persona reportada: no es
+ * una difusión por zona, y enterarse de que la denuncia sigue a la vista le
+ * sirve para retirarla.
  */
 export async function revocarEmisionesPendientes(
   manager: EntityManager,
   denunciaId: string,
   razon: string,
+  { soloDifusion = false }: { soloDifusion?: boolean } = {},
 ): Promise<void> {
-  await manager
+  const consulta = manager
     .getRepository(EmisionAlerta)
     .createQueryBuilder()
     .update(EmisionAlerta)
@@ -27,6 +32,9 @@ export async function revocarEmisionesPendientes(
       ultimo_error: `revocada: ${razon}`,
     })
     .where('denuncia_id = :id', { id: denunciaId })
-    .andWhere("estado IN ('pendiente', 'procesando')")
-    .execute();
+    .andWhere("estado IN ('pendiente', 'procesando')");
+
+  if (soloDifusion) consulta.andWhere("motivo <> 'coincidencia_documento'");
+
+  await consulta.execute();
 }

@@ -29,7 +29,6 @@ import {
 interface AlertaVista {
   id: string;
   nombre_persona_buscada: string | null;
-  numero_caso_felcc: string | null;
 }
 
 /**
@@ -82,7 +81,6 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
     punto && franja
       ? armarReporte({
           nombre: alerta.nombre_persona_buscada,
-          numeroCasoFelcc: alerta.numero_caso_felcc,
           punto,
           calle,
           franja,

@@ -10,10 +10,17 @@ import {
   NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { declaracionService, TextoLegal } from '../../services/denuncia.service';
+import { SelectorCerrado } from '../../components/SelectorCerrado';
+import { declaracionService, TextoLegal, Vinculo } from '../../services/denuncia.service';
+import { conMayuscula, partesDelTexto } from '../../utils/texto-legal';
 
 /**
- * Primer paso de la declaración jurada: leer el texto legal.
+ * Primer paso de la declaración jurada: decir qué se es de la persona y leer el
+ * texto legal.
+ *
+ * El vínculo se elige **antes** de leer, porque el texto lo nombra: «Declaro
+ * bajo juramento ser madre de la persona…». Leer un marcador en su lugar era
+ * leer una declaración incompleta, y firmar después algo que no se vio entero.
  *
  * El botón de continuar permanece deshabilitado hasta que la persona llega al
  * final del texto. No es un obstáculo decorativo: todo el diseño del sistema se
@@ -26,6 +33,8 @@ const TextoLegalScreen: React.FC<{ route: any; navigation: any }> = ({
 }) => {
   const { denunciaId } = route.params;
   const [textoLegal, setTextoLegal] = useState<TextoLegal | null>(null);
+  const [vinculos, setVinculos] = useState<Vinculo[]>([]);
+  const [vinculo, setVinculo] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [leidoHastaElFinal, setLeidoHastaElFinal] = useState(false);
@@ -35,7 +44,14 @@ const TextoLegalScreen: React.FC<{ route: any; navigation: any }> = ({
   useEffect(() => {
     (async () => {
       try {
-        setTextoLegal(await declaracionService.textoLegal());
+        // Los vínculos los sirve el servidor, con la forma en que van dentro
+        // de la frase: la app no mantiene su propia lista.
+        const [texto, lista] = await Promise.all([
+          declaracionService.textoLegal(),
+          declaracionService.vinculos(),
+        ]);
+        setTextoLegal(texto);
+        setVinculos(lista);
       } catch (err: any) {
         setError(
           err?.response?.data?.message ||
@@ -89,15 +105,28 @@ const TextoLegalScreen: React.FC<{ route: any; navigation: any }> = ({
     );
   }
 
+  // La etiqueta tal como va dentro de la frase («madre», «hijo o hija»).
+  const etiqueta = vinculos.find((v) => v.valor === vinculo)?.etiqueta ?? null;
+  const partes = partesDelTexto(textoLegal.texto);
+  const puedeContinuar = Boolean(etiqueta) && leidoHastaElFinal;
+
   return (
     <View style={styles.contenedor}>
       <View style={styles.encabezado}>
         <Text style={styles.titulo}>Declaración jurada</Text>
         <Text style={styles.subtitulo}>
-          Lee el texto completo antes de continuar. Al firmarlo, tu identidad
-          queda asociada de forma permanente a esta denuncia.
+          Indica qué eres de la persona desaparecida y lee el texto completo. Al
+          firmarlo, tu identidad queda asociada de forma permanente a esta denuncia.
         </Text>
       </View>
+
+      <SelectorCerrado
+        etiqueta="¿Qué eres de la persona desaparecida?"
+        opciones={vinculos.map((v) => ({ valor: v.valor, etiqueta: conMayuscula(v.etiqueta) }))}
+        valor={vinculo}
+        onChange={setVinculo}
+        ayuda="Si no eres familiar, la alerta llega a una zona más chica y dura menos."
+      />
 
       <ScrollView
         style={styles.marcoTexto}
@@ -107,27 +136,48 @@ const TextoLegalScreen: React.FC<{ route: any; navigation: any }> = ({
         onContentSizeChange={alMedirContenido}
         onLayout={(e) => setAlturaVisible(e.nativeEvent.layout.height)}
       >
-        <Text style={styles.texto}>{textoLegal.texto}</Text>
+        {/* El vínculo va resaltado: es lo que la persona declara, con sus
+            palabras. Mientras no lo elija, queda un espacio en blanco visible. */}
+        <Text style={styles.texto}>
+          {partes.map((parte, i) => (
+            <React.Fragment key={i}>
+              {parte}
+              {i < partes.length - 1 && (
+                <Text style={etiqueta ? styles.vinculo : styles.vinculoPendiente}>
+                  {etiqueta ?? '__________'}
+                </Text>
+              )}
+            </React.Fragment>
+          ))}
+        </Text>
         <Text style={styles.version}>Versión {textoLegal.version}</Text>
       </ScrollView>
 
-      {!leidoHastaElFinal && (
+      {!puedeContinuar && (
         <View style={styles.aviso}>
-          <Ionicons name="arrow-down-circle-outline" size={16} color="#8F5600" />
+          <Ionicons
+            name={etiqueta ? 'arrow-down-circle-outline' : 'help-circle-outline'}
+            size={16}
+            color="#8F5600"
+          />
           <Text style={styles.avisoTexto}>
-            Desplázate hasta el final para poder continuar
+            {etiqueta
+              ? 'Desplázate hasta el final para poder continuar'
+              : 'Elige qué eres de la persona para poder continuar'}
           </Text>
         </View>
       )}
 
       <TouchableOpacity
-        style={[styles.boton, !leidoHastaElFinal && styles.botonDeshabilitado]}
-        disabled={!leidoHastaElFinal}
+        style={[styles.boton, !puedeContinuar && styles.botonDeshabilitado]}
+        disabled={!puedeContinuar}
         onPress={() =>
           navigation.navigate('FirmarDeclaracion', {
             denunciaId,
             versionId: textoLegal.version_id,
             hashTextoLegal: textoLegal.hash_texto,
+            vinculo,
+            etiquetaVinculo: etiqueta,
           })
         }
       >
@@ -159,6 +209,8 @@ const styles = StyleSheet.create({
   },
   contenidoTexto: { padding: 16 },
   texto: { fontSize: 14, color: '#222', lineHeight: 22 },
+  vinculo: { fontWeight: '700', color: '#1B44BB' },
+  vinculoPendiente: { color: '#8F5600', fontWeight: '700' },
   version: { fontSize: 12, color: '#999', marginTop: 20, textAlign: 'right' },
   aviso: {
     flexDirection: 'row',

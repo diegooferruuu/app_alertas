@@ -28,7 +28,7 @@ const ESCALERA: { estado: EstadoSancion; titulo: string; detalle: string }[] = [
     estado: 'CON_FALTA',
     titulo: 'Con falta',
     detalle:
-      'Una persona declaró falsa una denuncia tuya. Solo se difunden las que llevan el número de caso de la FELCC.',
+      'Una persona declaró falsa una denuncia tuya. Durante 7 días no puedes registrar, firmar ni prolongar denuncias, y tus otras alertas dejan de difundirse. Después vuelves a poder hacerlo.',
   },
   {
     estado: 'SUSPENDIDA',
@@ -172,7 +172,10 @@ const MiSituacionScreen: React.FC = () => {
               </View>
             ))}
           </View>
-          <Text style={styles.nota}>Las faltas no vencen.</Text>
+          <Text style={styles.nota}>
+            Las faltas no vencen: los 7 días sin denunciar sí terminan, pero la falta sigue
+            contando para la suspensión.
+          </Text>
         </>
       )}
 
@@ -203,8 +206,8 @@ const MiSituacionScreen: React.FC = () => {
       </View>
 
       <Text style={styles.pie}>
-        «Estoy bien» nunca deja una falta, y que una alerta venza sin respaldo tampoco. Estas
-        reglas las aplica el sistema por sí solo: nadie las decide a mano.
+        «Estoy bien» nunca deja una falta, y que una alerta venza tampoco. Estas reglas las
+        aplica el sistema por sí solo: nadie las decide a mano.
       </Text>
     </ScrollView>
   );

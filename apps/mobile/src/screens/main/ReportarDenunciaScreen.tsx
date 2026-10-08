@@ -186,8 +186,8 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         titulo: 'Error al reportar',
         mensaje: err?.message || 'Intenta de nuevo.',
       });
-      // La denuncia que ya existe es el camino: volver a difundirla pasa por
-      // registrar en ella el caso de la FELCC, no por crear otra.
+      // La denuncia que ya existe es el camino: volver a mostrarla pasa por
+      // prolongarla desde su detalle, no por crear otra.
       Alert.alert(
         rechazo.titulo,
         rechazo.mensaje,

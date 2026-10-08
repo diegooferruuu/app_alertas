@@ -1,7 +1,11 @@
 import { apiClient } from './api';
 
-/** Cuánto respaldo tiene el caso. Determina si se difunde, con qué alcance. */
-export type NivelConfianza = 'REGISTRADA' | 'PROVISIONAL' | 'CORROBORADA';
+/**
+ * Cuánto respaldo tiene el caso: si ya se firmó la declaración y se difunde.
+ * Hubo un tercero, CORROBORADA, con el caso de la FELCC; se quitó porque ese
+ * número no es público y el sistema no podía comprobarlo.
+ */
+export type NivelConfianza = 'REGISTRADA' | 'PROVISIONAL';
 
 /** Si la denuncia sigue viva, y por qué dejó de estarlo. */
 export type EstadoDenuncia = 'ACTIVA' | 'CADUCADA' | 'INVALIDADA' | 'CERRADA';
@@ -52,7 +56,8 @@ export interface Denuncia {
   estado: EstadoDenuncia;
   radio_actual_m: number | null;
   expira_en: string | null;
-  numero_caso_felcc: string | null;
+  /** Cuántas veces la prolongó quien la presentó. */
+  prolongaciones: number;
   /** Cuándo la dio por terminada quien la presentó: «La encontramos». */
   cerrada_en: string | null;
   created_at: string;
@@ -112,7 +117,7 @@ export const ESTADO_META: Record<
   CADUCADA: {
     label: 'Alerta vencida',
     // Lo leen también quienes no la presentaron: no se le habla al autor.
-    desc: 'Venció su plazo sin el caso de la FELCC. Sigue registrada y puede volver a difundirse con él.',
+    desc: 'Venció su plazo. Sigue registrada, y quien la presentó puede prolongarla unas veces más.',
     color: '#8E8E93',
   },
   INVALIDADA: {
@@ -141,13 +146,8 @@ export const NIVEL_META: Record<
   },
   PROVISIONAL: {
     label: 'Difundida',
-    desc: 'Se está alertando a la zona cercana.',
+    desc: 'Se alertó a la zona cercana, y sigue a la vista en el mapa hasta que venza.',
     color: '#FF9500',
-  },
-  CORROBORADA: {
-    label: 'Corroborada',
-    desc: 'Respaldada por el caso de la FELCC. Se alerta a una zona más amplia.',
-    color: '#34C759',
   },
 };
 
@@ -276,15 +276,30 @@ export interface FirmarPayload {
   firma_dispositivo: string;
 }
 
-/**
- * Con qué nivel quedó la denuncia. CORROBORADA si el caso de la FELCC ya
- * estaba registrado al firmar: sale con el alcance ampliado, en una sola
- * emisión.
- */
 export interface ResultadoFirma {
   firmada: true;
   nivel_confianza: NivelConfianza;
 }
+
+export interface ProlongarPayload {
+  /** La versión del texto legal que se mostró al prolongar. */
+  version_texto_legal_id: string;
+  /** La firma del teléfono sobre la prolongación. Ver `firma-dispositivo.ts`. */
+  clave_dispositivo_id: string;
+  firma_dispositivo: string;
+}
+
+export interface ResultadoProlongacion {
+  expira_en: string;
+  prolongaciones: number;
+  prolongaciones_restantes: number;
+}
+
+/**
+ * Veces que se puede prolongar una alerta. Lo impone el servidor, que rechaza
+ * la que pase el tope; aquí solo sirve para decir cuántas quedan.
+ */
+export const MAX_PROLONGACIONES = 3;
 
 class DeclaracionService {
   async textoLegal(): Promise<TextoLegal> {
@@ -328,21 +343,17 @@ class DeclaracionService {
   }
 
   /**
-   * La única vía de corroboración: el número de caso de la denuncia formal ante
-   * la FELCC. La corroboración por la firma de otra persona se retiró.
-   *
-   * Después de firmar amplía el alcance de inmediato, y revive una alerta
-   * vencida. Antes de firmar solo guarda el número (sigue REGISTRADA) y la firma
-   * la difunde ya corroborada; la app lo ofrece ahí únicamente a quien tiene una
-   * falta, que sin el caso no puede difundir.
+   * Mantiene la alerta a la vista otro plazo, contado desde ahora, sin
+   * notificar a nadie. También devuelve al mapa una alerta vencida. Firmado con
+   * el teléfono: es afirmar de nuevo que la persona sigue sin aparecer.
    */
-  async registrarCasoFelcc(
+  async prolongar(
     denunciaId: string,
-    numeroCaso: string,
-  ): Promise<{ nivel_confianza: NivelConfianza }> {
-    const response = await apiClient.post<{ nivel_confianza: NivelConfianza }>(
-      `/declaraciones/denuncias/${denunciaId}/caso-felcc`,
-      { numero_caso: numeroCaso },
+    payload: ProlongarPayload,
+  ): Promise<ResultadoProlongacion> {
+    const response = await apiClient.post<ResultadoProlongacion>(
+      `/declaraciones/denuncias/${denunciaId}/prolongar`,
+      payload,
     );
     return response.data;
   }

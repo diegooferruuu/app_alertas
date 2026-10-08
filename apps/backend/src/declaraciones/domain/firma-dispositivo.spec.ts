@@ -1,4 +1,4 @@
-import { firmaValida, mensajeAFirmar } from './firma-dispositivo';
+import { firmaValida, mensajeAFirmar, mensajeDeProlongacion } from './firma-dispositivo';
 import { telefonoDePrueba } from '../../../test/setup/telefono-de-prueba';
 
 /**
@@ -31,6 +31,32 @@ describe('mensajeAFirmar', () => {
     for (const campo of Object.keys(DATOS) as Array<keyof typeof DATOS>) {
       expect(mensajeAFirmar({ ...DATOS, [campo]: `${DATOS[campo]}x` })).not.toBe(MENSAJE_ESPERADO);
     }
+  });
+});
+
+describe('mensajeDeProlongacion', () => {
+  it('arma el mensaje en el formato publicado, idéntico al del teléfono', () => {
+    expect(
+      mensajeDeProlongacion({
+        denuncia_id: '3f2a7c1e-9b4d-4e8a-a1f0-5c6d7e8f9a0b',
+        numero: '2',
+        hash_texto_legal: 'b'.repeat(64),
+      }),
+    ).toBe(
+      ['prolongacion-alerta/v1', '3f2a7c1e-9b4d-4e8a-a1f0-5c6d7e8f9a0b', '2', 'b'.repeat(64)].join(
+        '\n',
+      ),
+    );
+  });
+
+  it('nunca coincide con el de una declaración: una firma no vale por la otra', () => {
+    expect(
+      mensajeDeProlongacion({
+        denuncia_id: DATOS.denuncia_id,
+        numero: '1',
+        hash_texto_legal: DATOS.hash_texto_legal,
+      }).split('\n')[0],
+    ).not.toBe(MENSAJE_ESPERADO.split('\n')[0]);
   });
 });
 

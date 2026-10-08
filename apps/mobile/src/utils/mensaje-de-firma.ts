@@ -36,3 +36,23 @@ export const mensajeAFirmar = (d: DatosFirmados): string =>
     d.vinculo_declarado,
     d.texto_firmado,
   ].join('\n');
+
+/**
+ * Lo que firma el teléfono al prolongar una alerta: que la persona sigue sin
+ * aparecer. Idéntico a `mensajeDeProlongacion` del servidor.
+ *
+ * El número de prolongación va dentro: sin él, la firma de la primera serviría
+ * también para las siguientes.
+ */
+export const ENCABEZADO_PROLONGACION = 'prolongacion-alerta/v1';
+
+export interface DatosProlongacion {
+  denuncia_id: string;
+  /** La que se pide: la primera es 1. */
+  numero: number;
+  /** El `hash_texto` del texto legal vigente. */
+  hash_texto_legal: string;
+}
+
+export const mensajeDeProlongacion = (d: DatosProlongacion): string =>
+  [ENCABEZADO_PROLONGACION, d.denuncia_id, String(d.numero), d.hash_texto_legal].join('\n');

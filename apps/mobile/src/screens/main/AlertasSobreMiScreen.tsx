@@ -172,8 +172,8 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
             Presentada el {new Date(item.created_at).toLocaleDateString()}
           </Text>
 
-          {/* Una caducada puede revivir si se registra tarde el caso de la
-              FELCC, así que también se puede cerrar: por eso el botón no
+          {/* Una caducada puede volver a mostrarse si quien la presentó la
+              prolonga, así que también se puede cerrar: por eso el botón no
               depende de que se esté difundiendo ahora mismo. Una ya cerrada no
               reaparece aquí como accionable —INVALIDADA es terminal— pero sigue
               en la lista porque su constancia no caduca. */}

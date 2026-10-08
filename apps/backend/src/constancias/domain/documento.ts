@@ -51,7 +51,7 @@ export const PROCEDIMIENTO_VERIFICACION = [
   'Aplica SHA-256 al resultado y compara con `hash_registro`. Si difiere, el registro fue alterado.',
   'Une los campos de `orden_campos_contenido` con el mismo separador, aplica SHA-256 y compara con `hash_contenido_denuncia`. Si difiere, la denuncia fue modificada después de declararse.',
   'Todos los valores de `denuncia` vienen ya en su forma canónica de texto: las coordenadas con 7 decimales, las fechas en ISO-8601 y los campos de valor múltiple unidos por coma en orden alfabético. Únelos tal como llegan, sin reformatearlos.',
-  'Aplica SHA-256 al `texto` del texto legal correspondiente y compara con `hash_texto_legal`. Si difiere, el texto mostrado no es el que se declara.',
+  'Aplica SHA-256 al `texto` del texto legal correspondiente y compara con `hash_texto_legal`. Si difiere, el texto mostrado no es el que se declara. El texto trae el marcador `{{VINCULO}}`, igual para todos: la aplicación lo muestra con el vínculo declarado escrito en ese lugar, y el hash se calcula sobre el texto con el marcador.',
   'Si existe `firma_criptografica`, arma el mensaje firmado: `firma.encabezado` seguido de los campos de `firma.orden_campos`, uno por línea, separados por U+000A y sin salto final. Verifica sobre sus bytes UTF-8 la firma Ed25519 con `clave_publica`; la clave (32 bytes) y la firma (64 bytes) vienen en hexadecimal. Si es válida, la declaración la hizo el teléfono dueño de esa clave: ni el operador del sistema pudo fabricarla.',
 ];
 

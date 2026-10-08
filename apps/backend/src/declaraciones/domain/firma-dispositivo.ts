@@ -33,6 +33,26 @@ export const mensajeAFirmar = (datos: DatosFirmados): string =>
     '\n',
   );
 
+/**
+ * Lo que firma el teléfono al prolongar una alerta: que la persona sigue sin
+ * aparecer, bajo el texto legal que lo dice.
+ *
+ * El número de prolongación entra en el mensaje: sin él, la firma de la primera
+ * serviría también para la segunda y la tercera, y bastaría con reenviarla.
+ * Mismo formato que el de la declaración, con su propio encabezado, para que
+ * una firma de un tipo nunca valga como del otro.
+ */
+export const ENCABEZADO_PROLONGACION = 'prolongacion-alerta/v1';
+
+export const ORDEN_CAMPOS_PROLONGACION = ['denuncia_id', 'numero', 'hash_texto_legal'] as const;
+
+export type DatosProlongacion = Record<(typeof ORDEN_CAMPOS_PROLONGACION)[number], string>;
+
+export const mensajeDeProlongacion = (datos: DatosProlongacion): string =>
+  [ENCABEZADO_PROLONGACION, ...ORDEN_CAMPOS_PROLONGACION.map((campo) => datos[campo])].join(
+    '\n',
+  );
+
 /** 32 bytes de clave pública, 64 de firma: Ed25519, en hexadecimal minúscula. */
 export const CLAVE_PUBLICA_HEX = /^[0-9a-f]{64}$/;
 export const FIRMA_HEX = /^[0-9a-f]{128}$/;

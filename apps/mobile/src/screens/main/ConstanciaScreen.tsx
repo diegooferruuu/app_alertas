@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { resumenDescriptivo } from './catalogo-denuncia';
 import constanciaService, { Constancia } from '../../services/constancia.service';
+import { declaracionService } from '../../services/denuncia.service';
 
 const ETIQUETA_TIPO: Record<string, string> = {
   original: 'Presentó la denuncia',
@@ -31,6 +32,16 @@ const ETIQUETA_TIPO: Record<string, string> = {
 const ConstanciaScreen: React.FC<{ route: any }> = ({ route }) => {
   const constancia: Constancia = route.params.constancia;
   const [exportando, setExportando] = useState(false);
+  // El documento trae el vínculo como valor (`MADRE`); en pantalla va como lo
+  // nombró la declaración («madre»). Sin respuesta del servidor, el valor.
+  const [etiquetas, setEtiquetas] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    declaracionService
+      .vinculos()
+      .then((lista) => setEtiquetas(Object.fromEntries(lista.map((v) => [v.valor, v.etiqueta]))))
+      .catch(() => {});
+  }, []);
   const sinFirmaCripto = constancia.firmantes.some(
     (f) => !f.con_firma_criptografica,
   );
@@ -91,7 +102,8 @@ const ConstanciaScreen: React.FC<{ route: any }> = ({ route }) => {
         <View key={i} style={styles.bloque}>
           <Text style={styles.nombre}>{f.nombre}</Text>
           <Text style={styles.rol}>
-            {ETIQUETA_TIPO[f.tipo] ?? f.tipo} · declaró ser {f.vinculo_declarado}
+            {ETIQUETA_TIPO[f.tipo] ?? f.tipo} · declaró ser{' '}
+            {etiquetas[f.vinculo_declarado] ?? f.vinculo_declarado}
           </Text>
 
           <Text style={styles.etiqueta}>Documento (SHA-256)</Text>

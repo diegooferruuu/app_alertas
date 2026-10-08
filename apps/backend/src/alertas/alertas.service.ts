@@ -215,8 +215,8 @@ export class AlertasService {
         `u.last_location_at > now() - make_interval(hours => :antiguedad)`,
       )
       .andWhere('u.id != :autor', { autor: denuncia.denunciante_id })
-      // Una cuenta suspendida no recibe alertas; una con falta sí, porque la
-      // falta solo restringe difundir sin caso de la FELCC.
+      // Una cuenta suspendida no recibe alertas; una con falta sí, aun durante
+      // sus días sin denunciar: se le quita lo que difunde, no lo que ayuda.
       .andWhere(`u.estado_cuenta <> 'SUSPENDIDA'`)
       .setParameters({
         lat: denuncia.latitude,
@@ -311,17 +311,30 @@ export class AlertasService {
       // reportada tiene derecho a enterarse antes de que nada se difunda, no
       // después. Solo se descarta si la denuncia ya dejó de estar activa.
       const esAvisoDirecto = emision.motivo === 'coincidencia_documento';
-      const yaNoCorresponde = esAvisoDirecto
+      const porEstado = esAvisoDirecto
         ? denuncia.estado !== EstadoDenuncia.ACTIVA
         : denuncia.estado !== EstadoDenuncia.ACTIVA ||
           denuncia.nivel_confianza === NivelConfianza.REGISTRADA;
 
-      if (yaNoCorresponde) {
+      // La difusión mira además el plazo, no solo el estado. El planificador
+      // marca las vencidas cada cinco minutos, y la primera vez a los cinco de
+      // arrancar; este worker corre al primer minuto. Al volver de una caída de
+      // más de un día encontraría la alerta ACTIVA con el plazo cumplido y
+      // avisaría de algo que ya no está en el mapa. Es el mismo filtro por
+      // `expira_en` que llevan el mapa y la lista.
+      const vencida =
+        !esAvisoDirecto &&
+        denuncia.expira_en !== null &&
+        denuncia.expira_en.getTime() <= Date.now();
+
+      if (porEstado || vencida) {
         await this.emisionesRepository.update(emisionId, {
           estado: 'completada',
           destinatarios: 0,
           emitida_en: new Date(),
-          ultimo_error: `descartada: la denuncia está ${denuncia.estado}/${denuncia.nivel_confianza}`,
+          ultimo_error: porEstado
+            ? `descartada: la denuncia está ${denuncia.estado}/${denuncia.nivel_confianza}`
+            : 'descartada: la alerta venció antes de emitirse',
         });
         return true;
       }

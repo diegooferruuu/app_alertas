@@ -9,6 +9,8 @@ import {
   FuncionRestringida,
   debeSuspenderse,
   estadoSancion,
+  fechaLegible,
+  finDeSuspensionTemporal,
   funcionesRestringidas,
 } from './domain/situacion';
 import { restriccion } from './restriccion';
@@ -26,6 +28,8 @@ export interface SituacionSanciones {
   estado: EstadoSancion;
   /** Sin la denuncia que la originó ni datos de otras personas. */
   faltas: { tipo: TipoFalta; creada_en: Date }[];
+  /** Hasta cuándo dura la suspensión temporal de la última falta, si sigue. */
+  suspendida_hasta: Date | null;
   funciones_restringidas: FuncionRestringida[];
 }
 
@@ -55,24 +59,61 @@ export class SancionesService {
       order: { creada_en: 'ASC' },
     });
     const estado = estadoSancion(estaSuspendida(usuario.estado_cuenta), faltas.length);
+    const suspendidaHasta =
+      estado === EstadoSancion.CON_FALTA
+        ? finDeSuspensionTemporal(
+            faltas[faltas.length - 1].creada_en,
+            this.config.diasSuspensionTemporal,
+          )
+        : null;
     return {
       estado,
       faltas: faltas.map((f) => ({ tipo: f.tipo, creada_en: f.creada_en })),
-      funciones_restringidas: funcionesRestringidas(estado),
+      suspendida_hasta: suspendidaHasta,
+      funciones_restringidas: funcionesRestringidas(estado, suspendidaHasta),
     };
   }
 
-  /** Cuántas faltas tiene una cuenta. Dentro de una transacción, si la hay. */
-  async faltasDe(userId: string, manager?: EntityManager): Promise<number> {
+  /**
+   * Hasta cuándo dura la suspensión temporal de una cuenta, o `null` si no la
+   * tiene. Dentro de una transacción, si la hay.
+   */
+  async suspensionTemporalDe(userId: string, manager?: EntityManager): Promise<Date | null> {
     const repositorio = manager ? manager.getRepository(Falta) : this.faltas;
-    return repositorio.countBy({ usuario_id: userId });
+    const ultima = await repositorio.findOne({
+      where: { usuario_id: userId },
+      select: { creada_en: true },
+      order: { creada_en: 'DESC' },
+    });
+    return finDeSuspensionTemporal(ultima?.creada_en ?? null, this.config.diasSuspensionTemporal);
+  }
+
+  /**
+   * Rechaza, con su código y la fecha en que termina, lo que una cuenta no
+   * puede hacer mientras dura la suspensión temporal de una falta.
+   *
+   * `queNoPuede` completa la frase: «registrar denuncias», «firmar
+   * declaraciones», «prolongar alertas».
+   */
+  async verificarSinSuspensionTemporal(
+    userId: string,
+    queNoPuede: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const hasta = await this.suspensionTemporalDe(userId, manager);
+    if (hasta) {
+      throw restriccion(
+        'CUENTA_SUSPENDIDA_TEMPORALMENTE',
+        `Una persona declaró falsa una denuncia tuya: hasta el ${fechaLegible(hasta)} no puedes ${queNoPuede}.`,
+      );
+    }
   }
 
   /**
    * Rechaza, con su código, una denuncia que la cuenta no puede registrar.
    *
    * El orden importa para el mensaje que se devuelve, no para la seguridad:
-   * cualquiera de las tres basta para rechazar.
+   * cualquiera de las cuatro basta para rechazar.
    */
   async verificarPuedeDenunciar(usuario: User, ciHashPersonaBuscada: string): Promise<void> {
     if (estaSuspendida(usuario.estado_cuenta)) {
@@ -81,6 +122,7 @@ export class SancionesService {
         'Tu cuenta está suspendida: no puedes registrar denuncias.',
       );
     }
+    await this.verificarSinSuspensionTemporal(usuario.id, 'registrar denuncias');
 
     // El mensaje no dice por qué está bloqueada. Puede venir de un «Es falsa» o
     // de un «Estoy bien» con bloqueo, y no distinguirlos es lo que impide que el
@@ -116,13 +158,18 @@ export class SancionesService {
   denunciaAbierta() {
     return restriccion(
       'DENUNCIA_ABIERTA_SOBRE_PERSONA',
-      'Ya tienes una denuncia sobre esta persona. Para volver a difundirla, registra el número de caso de la FELCC.',
+      'Ya tienes una denuncia sobre esta persona. Búscala en «Mis denuncias»: desde ahí puedes prolongar su alerta o marcar que la encontraron.',
       409,
     );
   }
 
   /**
    * Lo que produce un cierre «Esta denuncia es falsa», dentro de su transacción.
+   *
+   * Siempre: una falta, y las alertas de esa cuenta dejan de difundirse ya. Con
+   * la primera falta la cuenta queda unos días sin denunciar —eso se deriva de
+   * la fecha de la falta, no se guarda—; si es la segunda persona distinta que
+   * lo declara, la suspensión es definitiva.
    *
    * La falta es idempotente por su unicidad: si el cierre se reintentara, no se
    * duplica. La suspensión se evalúa con el cierre recién insertado ya visible;
@@ -153,25 +200,28 @@ export class SancionesService {
       .getRawOne<{ personas: string }>()
       .then((fila) => fila ?? { personas: '0' });
 
-    if (!debeSuspenderse(Number(personas), this.config.cierresConSancionParaSuspension)) {
-      return { suspendida: false };
+    const definitiva = debeSuspenderse(
+      Number(personas),
+      this.config.cierresConSancionParaSuspension,
+    );
+
+    if (definitiva) {
+      await manager
+        .getRepository(User)
+        .update(datos.denuncianteId, { estado_cuenta: EstadoCuenta.SUSPENDIDA });
     }
 
-    await manager
-      .getRepository(User)
-      .update(datos.denuncianteId, { estado_cuenta: EstadoCuenta.SUSPENDIDA });
-
-    // Sus alertas sin caso de la FELCC dejan de difundirse en el mismo acto: dos
-    // personas distintas declararon falsas sus denuncias, y seguir alertando
-    // con las demás contradiría eso. Las que tienen caso siguen, porque las
-    // respalda la Policía y no la palabra de esta cuenta. Pasan a CADUCADA:
-    // muere la alerta, no el caso, y el caso de la FELCC todavía la devuelve.
+    // Sus otras alertas dejan de difundirse en el mismo acto, sea la suspensión
+    // de unos días o la definitiva: una persona acaba de declarar falsa una
+    // denuncia de esta cuenta, y seguir alertando con las demás mientras dura
+    // la sanción la contradiría. Pasan a CADUCADA: muere la alerta, no el caso.
+    // Pasada la suspensión temporal, su autor puede prolongarlas si todavía le
+    // quedan prolongaciones.
     const [detenidas]: [Array<{ id: string }>, number] = await manager.query(
       `UPDATE denuncias SET estado = $2
         WHERE denunciante_id = $1
           AND estado = $3
           AND nivel_confianza <> $4
-          AND (numero_caso_felcc IS NULL OR btrim(numero_caso_felcc) = '')
         RETURNING id`,
       [
         datos.denuncianteId,
@@ -180,8 +230,16 @@ export class SancionesService {
         NivelConfianza.REGISTRADA,
       ],
     );
+    const motivo = definitiva
+      ? 'la cuenta de quien denunció fue suspendida'
+      : 'una persona declaró falsa otra denuncia de esta cuenta';
     for (const { id } of detenidas) {
-      await revocarEmisionesPendientes(manager, id, 'la cuenta de quien denunció fue suspendida');
+      await revocarEmisionesPendientes(manager, id, motivo);
+    }
+
+    if (!definitiva) {
+      this.logger.log(`Falta registrada, suspensión temporal; alertas detenidas: ${detenidas.length}`);
+      return { suspendida: false };
     }
 
     // Bloquea el documento para que la suspensión no se esquive registrándose de

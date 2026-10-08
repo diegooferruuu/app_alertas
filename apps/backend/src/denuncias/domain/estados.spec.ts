@@ -19,22 +19,16 @@ describe('Máquina de estados de una denuncia', () => {
       ).toBe(true);
     });
 
-    it('sube de PROVISIONAL a CORROBORADA con respaldo', () => {
-      expect(
-        puedeTransicionarNivel(NivelConfianza.PROVISIONAL, NivelConfianza.CORROBORADA),
-      ).toBe(true);
+    it('solo hay dos niveles: firmar es la única subida', () => {
+      // Hubo un tercero, CORROBORADA, con el caso de la FELCC; se quitó porque
+      // el sistema no podía comprobar ese número.
+      expect(Object.values(NivelConfianza)).toEqual([
+        NivelConfianza.REGISTRADA,
+        NivelConfianza.PROVISIONAL,
+      ]);
     });
 
-    it('no salta de REGISTRADA directo a CORROBORADA, sin pasar por la firma', () => {
-      expect(
-        puedeTransicionarNivel(NivelConfianza.REGISTRADA, NivelConfianza.CORROBORADA),
-      ).toBe(false);
-    });
-
-    it('nunca baja: una corroboración quedó sellada y no se puede retirar', () => {
-      expect(
-        puedeTransicionarNivel(NivelConfianza.CORROBORADA, NivelConfianza.PROVISIONAL),
-      ).toBe(false);
+    it('nunca baja: una declaración firmada no se retira', () => {
       expect(
         puedeTransicionarNivel(NivelConfianza.PROVISIONAL, NivelConfianza.REGISTRADA),
       ).toBe(false);
@@ -60,7 +54,7 @@ describe('Máquina de estados de una denuncia', () => {
       ).toBe(true);
     });
 
-    it('una caducada puede reactivarse: caduca la alerta, no el caso', () => {
+    it('una caducada puede reactivarse al prolongarla: caduca la alerta, no el caso', () => {
       expect(
         puedeTransicionarEstado(EstadoDenuncia.CADUCADA, EstadoDenuncia.ACTIVA),
       ).toBe(true);
@@ -88,11 +82,8 @@ describe('Máquina de estados de una denuncia', () => {
       );
     });
 
-    it('se difunde desde PROVISIONAL, y también CORROBORADA', () => {
+    it('se difunde una vez firmada', () => {
       expect(esDifundible(NivelConfianza.PROVISIONAL, EstadoDenuncia.ACTIVA)).toBe(
-        true,
-      );
-      expect(esDifundible(NivelConfianza.CORROBORADA, EstadoDenuncia.ACTIVA)).toBe(
         true,
       );
     });

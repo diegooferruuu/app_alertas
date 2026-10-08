@@ -51,7 +51,6 @@ describe('momentoDe', () => {
 describe('armarReporte', () => {
   const base = {
     nombre: 'Luis Mamani',
-    numeroCasoFelcc: 'FELCC-2026-0451',
     punto: { lat: -17.381879, lng: -66.151987 },
     calle: 'Av. Heroínas',
     franja: 'MENOS_DE_30_MIN' as const,
@@ -63,7 +62,6 @@ describe('armarReporte', () => {
       [
         'Reporte de avistamiento — persona reportada como desaparecida',
         'Nombre: Luis Mamani',
-        'Número de caso FELCC: FELCC-2026-0451',
         'Zona: Av. Heroínas — https://maps.google.com/?q=-17.38188,-66.15199',
         'Momento: entre las 14:10 y las 14:40 del 01/10/2026',
       ].join('\n'),
@@ -74,14 +72,8 @@ describe('armarReporte', () => {
     expect(armarReporte(base)).not.toMatch(/\bCI\b|carnet/i);
   });
 
-  it('dice que no hay número de caso, en vez de omitir la línea', () => {
-    // Que la autoridad sepa que quizás no tiene ningún registro abierto.
-    expect(armarReporte({ ...base, numeroCasoFelcc: null })).toContain(
-      'Número de caso FELCC: sin número de caso registrado',
-    );
-    expect(armarReporte({ ...base, numeroCasoFelcc: '  ' })).toContain(
-      'sin número de caso registrado',
-    );
+  it('no lleva el número de caso de la FELCC: no es público', () => {
+    expect(armarReporte(base)).not.toMatch(/FELCC|n[uú]mero de caso/i);
   });
 
   it('sin calle, la zona es solo el enlace del mapa', () => {

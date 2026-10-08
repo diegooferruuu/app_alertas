@@ -7,17 +7,17 @@
  */
 export type CodigoRestriccion =
   | 'CUENTA_SUSPENDIDA'
+  | 'CUENTA_SUSPENDIDA_TEMPORALMENTE'
   | 'DENUNCIA_SOBRE_PERSONA_BLOQUEADA'
   | 'DENUNCIA_ABIERTA_SOBRE_PERSONA'
-  | 'DIFUSION_REQUIERE_CASO_FELCC'
   | 'LIMITE_ALERTAS_PROVISIONALES';
 
 const TITULOS: Record<CodigoRestriccion, string> = {
   CUENTA_SUSPENDIDA: 'Cuenta suspendida',
+  CUENTA_SUSPENDIDA_TEMPORALMENTE: 'No puedes denunciar por unos días',
   DENUNCIA_SOBRE_PERSONA_BLOQUEADA: 'No puedes denunciar a esta persona',
   DENUNCIA_ABIERTA_SOBRE_PERSONA: 'Ya denunciaste a esta persona',
-  DIFUSION_REQUIERE_CASO_FELCC: 'Hace falta el caso de la FELCC',
-  LIMITE_ALERTAS_PROVISIONALES: 'Límite de alertas sin respaldo',
+  LIMITE_ALERTAS_PROVISIONALES: 'Límite de alertas a la vez',
 };
 
 export interface Rechazo {

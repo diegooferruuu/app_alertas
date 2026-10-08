@@ -15,8 +15,8 @@ import { Denuncia } from '../../denuncias/entities/denuncia.entity';
 /**
  * Distingue la declaración que difunde el caso de las que lo corroboraban.
  *
- * Ya no se firman corroboraciones: el único respaldo que se admite es el caso
- * de la FELCC, que no es una declaración. El valor se conserva porque las
+ * Ya no se firman corroboraciones: la de otros usuarios se quitó primero, y
+ * después el respaldo por el caso de la FELCC. El valor se conserva porque las
  * declaraciones son de solo inserción y las firmadas antes deben poder leerse.
  */
 export type TipoDeclaracion = 'original' | 'corroboracion';

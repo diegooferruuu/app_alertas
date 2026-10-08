@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@n
 import { DeclaracionesService } from './declaraciones.service';
 import { FirmasService } from './firmas.service';
 import { FirmarDeclaracionDto } from './dto/firmar-declaracion.dto';
-import { RegistrarCasoFelccDto } from './dto/registrar-caso-felcc.dto';
+import { ProlongarAlertaDto } from './dto/prolongar-alerta.dto';
 import { RegistrarClaveDto } from './dto/registrar-clave.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -76,19 +76,15 @@ export class DeclaracionesController {
   }
 
   /**
-   * La única vía de corroboración: el respaldo de una denuncia formal ante la
-   * Policía. Se puede registrar antes o después de firmar.
+   * Mantiene la alerta a la vista otro plazo, sin notificar a nadie. Firmado
+   * con el teléfono: es afirmar de nuevo que la persona sigue sin aparecer.
    */
-  @Post('denuncias/:denunciaId/caso-felcc')
-  async registrarCasoFelcc(
+  @Post('denuncias/:denunciaId/prolongar')
+  async prolongar(
     @CurrentUser() user: any,
-    @Param('denunciaId') denunciaId: string,
-    @Body() dto: RegistrarCasoFelccDto,
+    @Param('denunciaId', ParseUUIDPipe) denunciaId: string,
+    @Body() dto: ProlongarAlertaDto,
   ) {
-    return this.firmasService.registrarCasoFelcc(
-      user.userId,
-      denunciaId,
-      dto.numero_caso,
-    );
+    return this.firmasService.prolongar(user.userId, denunciaId, dto);
   }
 }

@@ -2,7 +2,12 @@ import * as SecureStore from 'expo-secure-store';
 import { ed25519 } from '@noble/curves/ed25519';
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/curves/abstract/utils';
 import { declaracionService } from './denuncia.service';
-import { DatosFirmados, mensajeAFirmar } from '../utils/mensaje-de-firma';
+import {
+  DatosFirmados,
+  DatosProlongacion,
+  mensajeAFirmar,
+  mensajeDeProlongacion,
+} from '../utils/mensaje-de-firma';
 
 /** Por qué no se firmó, con el texto para decírselo a la persona. */
 export class FirmaNoAutorizada extends Error {
@@ -63,7 +68,10 @@ function modulosNativos(): { autenticacion: ModuloAutenticacion; cripto: ModuloC
  * el sistema operativo, pero su uso lo condiciona este paso. La constancia lo
  * declara entre sus límites.
  */
-async function confirmarQueEsLaPersona(autenticacion: ModuloAutenticacion): Promise<void> {
+async function confirmarQueEsLaPersona(
+  autenticacion: ModuloAutenticacion,
+  paraQue: string,
+): Promise<void> {
   const nivel = await autenticacion.getEnrolledLevelAsync();
   if (nivel === autenticacion.SecurityLevel.NONE) {
     throw new FirmaNoAutorizada(
@@ -72,7 +80,7 @@ async function confirmarQueEsLaPersona(autenticacion: ModuloAutenticacion): Prom
     );
   }
   const resultado = await autenticacion.authenticateAsync({
-    promptMessage: 'Confirma que eres tú para firmar la declaración',
+    promptMessage: `Confirma que eres tú para ${paraQue}`,
     cancelLabel: 'Cancelar',
     // Con `false`, el sistema acepta también el código del teléfono, no solo
     // la biometría: lo que la persona use para desbloquearlo.
@@ -111,22 +119,36 @@ async function claveDelTelefono(
   return { semilla, publica: bytesToHex(ed25519.getPublicKey(semilla)) };
 }
 
+export interface FirmaDelTelefono {
+  clave_dispositivo_id: string;
+  firma_dispositivo: string;
+}
+
 /**
- * Firma lo declarado con la clave del teléfono, después de que la persona lo
+ * Firma un mensaje con la clave del teléfono, después de que la persona lo
  * desbloquee.
  *
  * Registra la clave antes de cada firma: el registro es idempotente, y así el
  * teléfono nunca firma con un identificador que el servidor ya no reconoce. La
  * privada no sale de aquí; al servidor llegan la pública y la firma.
  */
-export async function firmarConElTelefono(
+async function firmarMensaje(
   userId: string,
-  datos: DatosFirmados,
-): Promise<{ clave_dispositivo_id: string; firma_dispositivo: string }> {
+  mensaje: string,
+  paraQue: string,
+): Promise<FirmaDelTelefono> {
   const { autenticacion, cripto } = modulosNativos();
-  await confirmarQueEsLaPersona(autenticacion);
+  await confirmarQueEsLaPersona(autenticacion, paraQue);
   const { semilla, publica } = await claveDelTelefono(userId, cripto);
   const { id } = await declaracionService.registrarClave(publica);
-  const firma = ed25519.sign(utf8ToBytes(mensajeAFirmar(datos)), semilla);
+  const firma = ed25519.sign(utf8ToBytes(mensaje), semilla);
   return { clave_dispositivo_id: id, firma_dispositivo: bytesToHex(firma) };
 }
+
+/** Firma lo declarado en la declaración jurada. */
+export const firmarConElTelefono = (userId: string, datos: DatosFirmados) =>
+  firmarMensaje(userId, mensajeAFirmar(datos), 'firmar la declaración');
+
+/** Firma que la persona sigue sin aparecer, para prolongar su alerta. */
+export const firmarProlongacionConElTelefono = (userId: string, datos: DatosProlongacion) =>
+  firmarMensaje(userId, mensajeDeProlongacion(datos), 'prolongar la alerta');

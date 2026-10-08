@@ -333,7 +333,7 @@ describe('Cierre de una alerta por la persona reportada (integración)', () => {
   });
 
   describe('estados', () => {
-    it('permite cerrar una denuncia CADUCADA: podría revivir con el caso de la FELCC', async () => {
+    it('permite cerrar una denuncia CADUCADA: su autor podría prolongarla', async () => {
       const autor = await crearUsuario('autor@t.bo', '111');
       const reportada = await crearUsuario('reportada@t.bo', '222');
       const denuncia = await crearDenunciaDifundida(autor.id, '222');
@@ -578,7 +578,7 @@ describe('Cierre de una alerta por la persona reportada (integración)', () => {
    * persona reportada declare falsa una denuncia.
    */
   describe('faltas y suspensión', () => {
-    it('un «Es falsa» da una falta a quien denunció y no lo suspende (I9)', async () => {
+    it('un «Es falsa» da una falta y siete días sin denunciar, no la suspensión definitiva (I9)', async () => {
       const autor = await crearUsuario('autor@t.bo', '111');
       const reportada = await crearUsuario('reportada@t.bo', '222');
       const denuncia = await crearDenunciaDifundida(autor.id, '222');
@@ -594,7 +594,10 @@ describe('Cierre de una alerta por la persona reportada (integración)', () => {
 
       const situacion = await sanciones.situacionDe(autor.id);
       expect(situacion.estado).toBe(EstadoSancion.CON_FALTA);
-      expect(situacion.funciones_restringidas).toEqual(['DIFUNDIR_SIN_CASO_FELCC']);
+      // Sigue recibiendo alertas: se le quita lo que difunde, no lo que ayuda.
+      expect(situacion.funciones_restringidas).toEqual(['DENUNCIAR', 'FIRMAR', 'PROLONGAR']);
+      const dias = (situacion.suspendida_hasta!.getTime() - registradas[0].creada_en.getTime()) / 86_400_000;
+      expect(dias).toBeCloseTo(7);
     });
 
     it('«Estoy bien» no da ninguna falta', async () => {
@@ -628,32 +631,40 @@ describe('Cierre de una alerta por la persona reportada (integración)', () => {
       );
     });
 
-    it('al suspender, sus alertas sin caso de la FELCC dejan de difundirse y las que lo tienen siguen', async () => {
+    it('con la primera falta, sus otras alertas dejan de difundirse en el mismo acto', async () => {
+      const autor = await crearUsuario('autor@t.bo', '111');
+      const reportada = await crearUsuario('reportada@t.bo', '222');
+      const falsa = await crearDenunciaDifundida(autor.id, '222');
+      const otra = await crearDenunciaDifundida(autor.id, '444');
+      await emisiones.insert({ denuncia_id: otra.id, radio_m: 2000, motivo: 'firma' });
+
+      await servicio.cerrar(reportada.id, falsa.id, ES_FALSA);
+
+      // Muere la alerta, no el caso: pasados los siete días, su autor puede
+      // prolongarla si le quedan prolongaciones.
+      expect(await estadoDe(otra.id)).toBe(EstadoDenuncia.CADUCADA);
+      const [emision] = await emisiones.find({ where: { denuncia_id: otra.id } });
+      expect(emision.estado).toBe('completada');
+      expect(emision.ultimo_error).toMatch(/declaró falsa otra denuncia/);
+      expect(await estadoCuentaDe(autor.id)).toBe(EstadoCuenta.ACTIVA);
+    });
+
+    it('con la suspensión definitiva se detienen también las que había vuelto a difundir', async () => {
       const autor = await crearUsuario('autor@t.bo', '111');
       const a = await crearUsuario('a@t.bo', '222');
       const b = await crearUsuario('b@t.bo', '333');
       const d1 = await crearDenunciaDifundida(autor.id, '222');
       const d2 = await crearDenunciaDifundida(autor.id, '333');
-      const sinCaso = await crearDenunciaDifundida(autor.id, '444');
-      const conCaso = await crearDenunciaDifundida(autor.id, '555');
-      await denuncias.update(conCaso.id, {
-        nivel_confianza: NivelConfianza.CORROBORADA,
-        numero_caso_felcc: 'FELCC-2026-0451',
-      });
-      await emisiones.insert({ denuncia_id: sinCaso.id, radio_m: 2000, motivo: 'firma' });
-
-      // Una sola falta no detiene nada (I9).
       await servicio.cerrar(a.id, d1.id, ES_FALSA);
-      expect(await estadoDe(sinCaso.id)).toBe(EstadoDenuncia.ACTIVA);
+      // Como si, pasada la suspensión temporal, hubiera difundido otra.
+      const nueva = await crearDenunciaDifundida(autor.id, '555');
+      await emisiones.insert({ denuncia_id: nueva.id, radio_m: 2000, motivo: 'firma' });
 
       await servicio.cerrar(b.id, d2.id, ES_FALSA);
 
       expect(await estadoCuentaDe(autor.id)).toBe(EstadoCuenta.SUSPENDIDA);
-      expect(await estadoDe(sinCaso.id)).toBe(EstadoDenuncia.CADUCADA);
-      // La respalda la Policía, no la palabra de esta cuenta.
-      expect(await estadoDe(conCaso.id)).toBe(EstadoDenuncia.ACTIVA);
-      const [emision] = await emisiones.find({ where: { denuncia_id: sinCaso.id } });
-      expect(emision.estado).toBe('completada');
+      expect(await estadoDe(nueva.id)).toBe(EstadoDenuncia.CADUCADA);
+      const [emision] = await emisiones.find({ where: { denuncia_id: nueva.id } });
       expect(emision.ultimo_error).toMatch(/suspendida/);
     });
 

@@ -390,6 +390,25 @@ describe('Emisión de alertas (integración)', () => {
       expect(await entregas.count()).toBe(0);
     });
 
+    it('descarta la emisión de una alerta vencida aunque el planificador no la haya marcado', async () => {
+      // Al volver de una caída de más de un día el worker corre antes que el
+      // planificador y encuentra la alerta ACTIVA con el plazo cumplido. Lo que
+      // manda es el plazo, como en el mapa y en la lista.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+
+      await denuncias.update(denuncia.id, { expira_en: new Date(Date.now() - 1000) });
+      await alertas.procesarPendientes();
+
+      const [emision] = await emisiones.find();
+      expect(emision.estado).toBe('completada');
+      expect(emision.destinatarios).toBe(0);
+      expect(emision.ultimo_error).toBe('descartada: la alerta venció antes de emitirse');
+      expect(await entregas.count()).toBe(0);
+    });
+
     it('no vuelve a procesar una emisión ya completada', async () => {
       const autor = await crearUsuario('autor@test.com');
       await crearVecino('vecino@test.com');
