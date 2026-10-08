@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
-import { declaracionService, Vinculo } from '../../services/denuncia.service';
+import { declaracionService } from '../../services/denuncia.service';
+import { rechazoDe } from '../../services/restricciones';
+import { FirmaNoAutorizada, firmarConElTelefono } from '../../services/firma-dispositivo';
 
 /**
  * Normaliza igual que el servidor, para que el botón se habilite exactamente
@@ -33,14 +35,13 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
   navigation,
 }) => {
-  const { denunciaId, versionId, modo = 'firmar' } = route.params;
-  const esCorroboracion = modo === 'corroborar';
+  // Todo viene de la pantalla anterior, donde se eligió el vínculo y se leyó el
+  // texto con él. `hashTextoLegal` y `vinculo` entran en lo que firma el
+  // teléfono; `etiquetaVinculo` es cómo se nombró en el texto.
+  const { denunciaId, versionId, hashTextoLegal, vinculo, etiquetaVinculo } = route.params;
   const { user } = useAuth();
 
-  const [vinculos, setVinculos] = useState<Vinculo[]>([]);
-  const [vinculo, setVinculo] = useState<string | null>(null);
   const [nombreEscrito, setNombreEscrito] = useState('');
-  const [cargando, setCargando] = useState(true);
   const [enviando, setEnviando] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
@@ -60,18 +61,6 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
   };
 
-  useEffect(() => {
-    (async () => {
-      try {
-        setVinculos(await declaracionService.vinculos());
-      } catch {
-        Alert.alert('Error', 'No se pudieron cargar los vínculos.');
-      } finally {
-        setCargando(false);
-      }
-    })();
-  }, []);
-
   const nombreRegistrado = user?.full_name ?? '';
   const nombreCoincide =
     normalizar(nombreEscrito).length > 0 &&
@@ -81,31 +70,60 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   const firmar = async () => {
     setEnviando(true);
     try {
-      const payload = {
+      // El teléfono firma lo declarado: el contenido sellado que le entrega el
+      // servidor, el texto legal que se leyó, el vínculo y el nombre escrito.
+      // Antes pide el desbloqueo del teléfono; sin él no hay firma.
+      const { hash_contenido_denuncia } = await declaracionService.contenidoAFirmar(denunciaId);
+      const firma = await firmarConElTelefono(user!.id, {
+        denuncia_id: denunciaId,
+        hash_contenido_denuncia,
+        hash_texto_legal: hashTextoLegal,
+        vinculo_declarado: vinculo!,
+        texto_firmado: nombreEscrito,
+      });
+
+      await declaracionService.firmar(denunciaId, {
         version_texto_legal_id: versionId,
         vinculo_declarado: vinculo!,
         nombre_escrito: nombreEscrito,
-      };
-
-      if (esCorroboracion) {
-        await declaracionService.corroborar(denunciaId, payload);
-        Alert.alert(
-          'Declaración firmada',
-          'Corroboraste esta denuncia. La alerta pasa a difundirse en una zona más amplia y por más tiempo.',
-          [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
-        );
-      } else {
-        await declaracionService.firmar(denunciaId, payload);
-        Alert.alert(
-          'Declaración firmada',
-          'Tu denuncia empezó a difundirse en la zona. La alerta caducará sola si nadie la corrobora.',
-          [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
-        );
-      }
-    } catch (err: any) {
+        ...firma,
+      });
+      // El recordatorio de la FELCC va aquí, en el momento en que la persona
+      // siente que «ya denunció»: la alerta no reemplaza la denuncia formal, y
+      // la app no pide ningún número que lo pruebe.
       Alert.alert(
-        'No se pudo firmar',
-        err?.response?.data?.message || 'Intenta de nuevo.',
+        'Declaración firmada',
+        'Tu denuncia empezó a difundirse en la zona. La alerta vence sola al cumplirse su plazo, y puedes prolongarla desde su detalle.\n\nHaz también la denuncia en la FELCC: esta alerta no la reemplaza.',
+        [{ text: 'Entendido', onPress: () => navigation.navigate('MainTabs') }],
+      );
+    } catch (err) {
+      // No llegó a enviarse: no se desbloqueó el teléfono, no tiene bloqueo, o
+      // el build instalado es anterior a la firma del dispositivo.
+      if (err instanceof FirmaNoAutorizada) {
+        const titulos = {
+          cancelada: 'No se firmó',
+          sin_bloqueo: 'Tu teléfono no tiene bloqueo',
+          sin_modulo: 'Falta actualizar la aplicación',
+        } as const;
+        Alert.alert(titulos[err.motivo], err.message);
+        return;
+      }
+      const rechazo = rechazoDe(err, { titulo: 'No se pudo firmar', mensaje: 'Intenta de nuevo.' });
+      // Una suspensión no se arregla reintentando: se ofrece ver por qué y
+      // hasta cuándo, en vez de dejar a la persona frente a un botón que va a
+      // fallar igual.
+      const suspendida =
+        rechazo.codigo === 'CUENTA_SUSPENDIDA_TEMPORALMENTE' ||
+        rechazo.codigo === 'CUENTA_SUSPENDIDA';
+      Alert.alert(
+        rechazo.titulo,
+        rechazo.mensaje,
+        suspendida
+          ? [
+              { text: 'Entendido', style: 'cancel' },
+              { text: 'Ver mi situación', onPress: () => navigation.navigate('MiSituacion') },
+            ]
+          : undefined,
       );
     } finally {
       setEnviando(false);
@@ -113,31 +131,15 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   };
 
   const confirmar = () => {
-    const etiqueta =
-      vinculos.find((v) => v.valor === vinculo)?.etiqueta ?? 'la persona';
     Alert.alert(
-      esCorroboracion ? '¿Corroborar esta denuncia?' : '¿Firmar la declaración?',
-      esCorroboracion
-        ? `Declaras bajo juramento ser ${etiqueta} de la persona buscada.\n\nCorroborar compromete igual que denunciar: tu identidad queda asociada de forma permanente a esta denuncia, y la alerta ampliará su alcance.`
-        : `Declaras bajo juramento ser ${etiqueta} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.`,
+      '¿Firmar la declaración?',
+      `Declaras bajo juramento ser ${etiquetaVinculo} de la persona que reportas.\n\nTu identidad quedará asociada de forma permanente a esta denuncia y la alerta empezará a difundirse.\n\nPara firmar te pediremos desbloquear el teléfono.`,
       [
         { text: 'Cancelar', style: 'cancel' },
-        {
-          text: esCorroboracion ? 'Corroborar' : 'Firmar',
-          style: 'destructive',
-          onPress: firmar,
-        },
+        { text: 'Firmar', style: 'destructive', onPress: firmar },
       ],
     );
   };
-
-  if (cargando) {
-    return (
-      <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
-  }
 
   return (
     <ScrollView
@@ -160,31 +162,19 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
       automaticallyAdjustKeyboardInsets
       contentInsetAdjustmentBehavior="automatic"
     >
-      <Text style={styles.titulo}>
-        {esCorroboracion ? 'Corroborar la denuncia' : 'Firmar la declaración'}
-      </Text>
+      <Text style={styles.titulo}>Firmar la declaración</Text>
 
-      <Text style={styles.etiqueta}>¿Qué eres de la persona desaparecida?</Text>
-      <View style={styles.opciones}>
-        {vinculos.map((v) => {
-          const elegido = vinculo === v.valor;
-          return (
-            <TouchableOpacity
-              key={v.valor}
-              style={[styles.opcion, elegido && styles.opcionElegida]}
-              onPress={() => setVinculo(v.valor)}
-            >
-              <Ionicons
-                name={elegido ? 'radio-button-on' : 'radio-button-off'}
-                size={20}
-                color={elegido ? '#007AFF' : '#bbb'}
-              />
-              <Text style={[styles.opcionTexto, elegido && styles.opcionTextoElegido]}>
-                {v.etiqueta}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+      {/* El vínculo se eligió antes de leer el texto, que lo nombra. Cambiarlo
+          es volver a leerlo: el texto con otro vínculo es otra declaración. */}
+      <View style={styles.resumen}>
+        <Text style={styles.resumenTexto}>
+          Declaras bajo juramento ser{' '}
+          <Text style={styles.resumenVinculo}>{etiquetaVinculo}</Text> de la persona
+          que reportas.
+        </Text>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.cambiar}>Cambiar</Text>
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.etiqueta}>Escribe tu nombre completo</Text>
@@ -248,9 +238,7 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
         {enviando ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.botonTexto}>
-            {esCorroboracion ? 'Corroborar bajo juramento' : 'Firmar declaración jurada'}
-          </Text>
+          <Text style={styles.botonTexto}>Firmar declaración jurada</Text>
         )}
       </TouchableOpacity>
 
@@ -265,24 +253,22 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
 
 const styles = StyleSheet.create({
   contenedor: { padding: 20, backgroundColor: '#fff', flexGrow: 1 },
-  centro: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   titulo: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a', marginBottom: 20 },
   etiqueta: { fontSize: 15, fontWeight: '600', color: '#333', marginTop: 16, marginBottom: 6 },
   ayuda: { fontSize: 13, color: '#777', marginBottom: 10, lineHeight: 18 },
-  opciones: { gap: 4 },
-  opcion: {
+  resumen: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
     borderRadius: 10,
+    backgroundColor: '#F0F6FF',
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: '#D6E2FB',
   },
-  opcionElegida: { borderColor: '#007AFF', backgroundColor: '#F0F6FF' },
-  opcionTexto: { fontSize: 15, color: '#444' },
-  opcionTextoElegido: { color: '#1B44BB', fontWeight: '600' },
+  resumenTexto: { flex: 1, fontSize: 15, color: '#333', lineHeight: 21 },
+  resumenVinculo: { fontWeight: '700', color: '#1B44BB' },
+  cambiar: { color: '#007AFF', fontWeight: '600', fontSize: 14 },
   campoFila: { justifyContent: 'center' },
   campo: {
     borderWidth: 1.5,

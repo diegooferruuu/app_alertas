@@ -30,7 +30,16 @@ export interface CamposDelRegistro {
   firmada_en: string;
   device_id: string | null;
   hash_anterior: string | null;
+  /** Solo en las firmadas por el teléfono (H6.3). Ver `serializarRegistro`. */
+  clave_publica_id?: string | null;
+  firma_criptografica?: string | null;
 }
+
+/**
+ * Los campos que se agregan al final cuando la declaración lleva la firma del
+ * teléfono. La constancia los publica para que el verificador los sume.
+ */
+export const CAMPOS_REGISTRO_CON_FIRMA = ['clave_publica_id', 'firma_criptografica'] as const;
 
 /**
  * Separador de campos: el carácter de control «unit separator» (0x1F).
@@ -52,6 +61,17 @@ const SEPARADOR = '\x1F';
 export const contieneSeparador = (valor: string): boolean =>
   valor.includes(SEPARADOR);
 
+/**
+ * La firma del teléfono entra en el hash del registro, al final y **solo
+ * cuando existe**.
+ *
+ * Que entre es lo que hace detectable quitarla o cambiarla después: sin eso,
+ * quien opera la base podría borrar la firma de una declaración auténtica y la
+ * cadena seguiría cuadrando. Que entre solo cuando existe deja intacta la
+ * serialización de los registros anteriores, y con ella su hash: no hace
+ * falta una versión nueva de la fórmula. No hay ambigüedad entre las dos
+ * formas: ningún campo puede contener el separador.
+ */
 export const serializarRegistro = (campos: CamposDelRegistro): string =>
   [
     campos.denuncia_id,
@@ -66,6 +86,9 @@ export const serializarRegistro = (campos: CamposDelRegistro): string =>
     campos.firmada_en,
     campos.device_id ?? '',
     campos.hash_anterior ?? '',
+    ...(campos.firma_criptografica
+      ? [campos.clave_publica_id ?? '', campos.firma_criptografica]
+      : []),
   ].join(SEPARADOR);
 
 export const calcularHashRegistro = (campos: CamposDelRegistro): string =>

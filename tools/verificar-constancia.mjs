@@ -89,7 +89,12 @@ if (declaraciones.length === 0) {
 for (const [i, d] of declaraciones.entries()) {
   console.log(`\nDeclaración ${i + 1} de ${declaraciones.length} (${d.tipo})`);
 
-  const hashCalculado = sha256(unir(d, ordenRegistro));
+  // Con firma del teléfono, la clave y la firma también entran en el hash,
+  // al final: el documento dice cuáles son.
+  const orden = d.firma_criptografica
+    ? [...ordenRegistro, ...(doc.verificacion.campos_registro_con_firma ?? [])]
+    : ordenRegistro;
+  const hashCalculado = sha256(unir(d, orden));
   if (hashCalculado === d.hash_registro) {
     ok('El registro corresponde a su hash: no fue alterado.');
   } else {
@@ -111,14 +116,27 @@ for (const [i, d] of declaraciones.entries()) {
     fallos++;
   }
 
-  if (d.firma_criptografica && d.clave_publica) {
+  const firma = doc.verificacion.firma;
+  if (d.firma_criptografica && d.clave_publica && firma) {
     try {
-      const clave = createPublicKey(d.clave_publica);
+      // El mensaje que firmó el teléfono: el encabezado y los campos
+      // declarados, uno por línea. La clave llega como 32 bytes en hex.
+      const mensaje = [firma.encabezado, ...firma.orden_campos.map((campo) => d[campo] ?? '')].join(
+        '\n',
+      );
+      const clave = createPublicKey({
+        key: {
+          kty: 'OKP',
+          crv: 'Ed25519',
+          x: Buffer.from(d.clave_publica, 'hex').toString('base64url'),
+        },
+        format: 'jwk',
+      });
       const valida = verificarFirma(
         null,
-        Buffer.from(d.hash_registro, 'utf8'),
+        Buffer.from(mensaje, 'utf8'),
         clave,
-        Buffer.from(d.firma_criptografica, 'base64'),
+        Buffer.from(d.firma_criptografica, 'hex'),
       );
       if (valida) {
         ok('Firma del dispositivo válida: ni el operador del sistema pudo fabricarla.');

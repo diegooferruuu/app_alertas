@@ -7,12 +7,14 @@ import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { UsersModule } from '../users/users.module';
 import { AlertasModule } from '../alertas/alertas.module';
+import { SancionesModule } from '../sanciones/sanciones.module';
 import { User } from '../users/entities/user.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Denuncia, FotografiaDenuncia, User]),
     UsersModule,
-    AlertasModule,],
+    AlertasModule,
+    SancionesModule,],
   controllers: [DenunciasController],
   providers: [DenunciasService, CaducidadScheduler],
   exports: [DenunciasService],

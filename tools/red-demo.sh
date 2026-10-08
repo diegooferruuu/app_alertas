@@ -61,7 +61,12 @@ cat <<FIN
 Siguiente paso — el valor se incrusta al construir el bundle, así que Metro
 tiene que arrancar de nuevo tirando su caché:
 
-  cd apps/mobile && npx expo start --go --clear
+  cd apps/mobile && npx expo start --dev-client --clear
+
+  · Android (build de desarrollo): se conecta desde la propia app.
+  · iPhone (Expo Go): en la terminal de Metro presiona «s» para mostrar el
+    código QR de Expo Go y escanéalo. Si no carga, abre otra terminal con
+      cd apps/mobile && npx expo start --go --port 8082
 
 Y para que los teléfonos lleguen:
   · Los dos en la MISMA red que esta Mac.

@@ -6,6 +6,6 @@ export type { MarcadorMapa, PropsMapa, PuntoMapa, RegionMapa, ZonaMapa } from '.
 /**
  * Declaración de tipo para que TypeScript resuelva el import.
  * En ejecución, Metro elige `Mapa.ios.tsx` (Apple Maps) o `Mapa.android.tsx`
- * (Leaflet). La web no tiene mapa.
+ * (Google Maps, o Leaflet si el APK no trae clave). La web no tiene mapa.
  */
 export declare const Mapa: React.FC<PropsMapa>;

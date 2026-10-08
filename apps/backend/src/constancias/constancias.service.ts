@@ -17,7 +17,12 @@ import {
   PROCEDIMIENTO_VERIFICACION,
   LIMITES_VERIFICACION,
 } from './domain/documento';
-import { ordenDeContenido } from '../declaraciones/domain/cadena';
+import { CAMPOS_REGISTRO_CON_FIRMA, ordenDeContenido } from '../declaraciones/domain/cadena';
+import {
+  ENCABEZADO_MENSAJE_FIRMA,
+  ORDEN_CAMPOS_MENSAJE_FIRMA,
+} from '../declaraciones/domain/firma-dispositivo';
+import { ClaveDispositivo } from '../declaraciones/entities/clave-dispositivo.entity';
 import { contenidoSellable } from '../denuncias/domain/contenido-sellado';
 
 /** Una firma, con la identidad de quien la puso. */
@@ -41,7 +46,8 @@ export interface FirmanteDeLaConstancia {
    *
    * Cuando es `false`, la integridad del registro se apoya solo en la cadena de
    * hashes, que construye el propio servidor: decirlo es parte de ser honesto
-   * sobre lo que la constancia prueba. La firma llega en H6.3.
+   * sobre lo que la constancia prueba. Desde la H6.3 toda declaración nueva la
+   * lleva; las anteriores, no.
    */
   con_firma_criptografica: boolean;
 }
@@ -67,7 +73,10 @@ export interface DeclaracionVerificable {
   device_id: string | null;
   hash_anterior: string | null;
   hash_registro: string;
+  /** Firma Ed25519 del teléfono, en hexadecimal. Nula en las anteriores a la H6.3. */
   firma_criptografica: string | null;
+  clave_publica_id: string | null;
+  /** Los 32 bytes de la clave pública que firmó, en hexadecimal. */
   clave_publica: string | null;
 }
 
@@ -106,8 +115,18 @@ export interface Constancia {
     algoritmo: 'SHA-256';
     separador: 'U+001F';
     orden_campos_registro: readonly string[];
+    /** Se agregan al final de `orden_campos_registro` si la declaración tiene firma. */
+    campos_registro_con_firma: readonly string[];
     version_formula_contenido: number;
     orden_campos_contenido: readonly string[];
+    /** Cómo se arma el mensaje que firmó el teléfono, y con qué se verifica. */
+    firma: {
+      algoritmo: 'Ed25519';
+      codificacion: 'hex';
+      separador: 'U+000A';
+      encabezado: string;
+      orden_campos: readonly string[];
+    };
     procedimiento: string[];
     limites: string[];
   };
@@ -135,9 +154,9 @@ export class ConstanciasService {
    *
    * Dos vías de autorización, con alcances distintos:
    *
-   *  - **La persona reportada** ve a todos los firmantes. Corroborar compromete
-   *    igual que denunciar, así que quien respaldó el caso también queda
-   *    atribuido frente a ella.
+   *  - **La persona reportada** ve a todos los firmantes. Hoy firma solo quien
+   *    denuncia; en denuncias anteriores también firmaba quien corroboraba, y
+   *    eso compromete igual que denunciar, así que también queda atribuido.
    *  - **Quien firmó** accede solo a su propia declaración: tiene derecho a la
    *    copia de lo que declaró, no a la identidad de los demás.
    *
@@ -192,6 +211,7 @@ export class ConstanciasService {
 
     const firmantes = await this.identificarFirmantes(entregadas);
     const textosLegales = await this.textosLegalesDe(entregadas);
+    const claves = await this.clavesDe(entregadas);
 
     await this.solicitudesRepository.insert({
       denuncia_id: denunciaId,
@@ -235,15 +255,24 @@ export class ConstanciasService {
         hash_anterior: d.hash_anterior,
         hash_registro: d.hash_registro,
         firma_criptografica: d.firma_criptografica,
-        // La clave pública del dispositivo llega con H6.3; sin ella la firma no
-        // se puede verificar aunque exista.
-        clave_publica: null as string | null,
+        clave_publica_id: d.clave_publica_id,
+        // La clave misma y no solo su identificador: sin ella la firma no se
+        // podría verificar sin preguntarle al sistema.
+        clave_publica: d.clave_publica_id ? (claves.get(d.clave_publica_id) ?? null) : null,
       })),
       textos_legales: textosLegales,
       verificacion: {
         algoritmo: 'SHA-256',
         separador: 'U+001F',
         orden_campos_registro: ORDEN_CAMPOS_REGISTRO,
+        campos_registro_con_firma: CAMPOS_REGISTRO_CON_FIRMA,
+        firma: {
+          algoritmo: 'Ed25519',
+          codificacion: 'hex',
+          separador: 'U+000A',
+          encabezado: ENCABEZADO_MENSAJE_FIRMA,
+          orden_campos: ORDEN_CAMPOS_MENSAJE_FIRMA,
+        },
         // El orden depende de con qué fórmula se selló esta denuncia. Publicarlo
         // es lo que permite que un mismo verificador, sin saber nada de las
         // versiones, compruebe tanto una constancia vieja como una nueva.
@@ -264,6 +293,16 @@ export class ConstanciasService {
    * Sin el texto entero, `hash_texto_legal` no se puede recalcular y habría que
    * pedirle el original al sistema — justo lo que la constancia evita.
    */
+  /** Las claves públicas que firmaron, por identificador. */
+  private async clavesDe(declaraciones: DeclaracionJurada[]): Promise<Map<string, string>> {
+    const ids = [
+      ...new Set(declaraciones.map((d) => d.clave_publica_id).filter((id): id is string => !!id)),
+    ];
+    if (ids.length === 0) return new Map();
+    const claves = await this.dataSource.getRepository(ClaveDispositivo).findByIds(ids);
+    return new Map(claves.map((c) => [c.id, c.clave_publica]));
+  }
+
   private async textosLegalesDe(declaraciones: DeclaracionJurada[]) {
     const ids = [...new Set(declaraciones.map((d) => d.version_texto_legal_id))];
     const versiones = await this.dataSource

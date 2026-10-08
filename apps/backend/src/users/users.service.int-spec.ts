@@ -4,7 +4,6 @@ import { crearContexto, ContextoDePruebas } from '../../test/setup/contexto';
 import { UsersService } from './users.service';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
-import { ReputationEvent } from './entities/reputation-event.entity';
 
 describe('UsersService · nombre y registro de documento (integración)', () => {
   let ctx: ContextoDePruebas;
@@ -13,7 +12,7 @@ describe('UsersService · nombre y registro de documento (integración)', () => 
 
   beforeAll(async () => {
     ctx = await crearContexto({
-      imports: [TypeOrmModule.forFeature([User, RefreshToken, ReputationEvent])],
+      imports: [TypeOrmModule.forFeature([User, RefreshToken])],
       providers: [UsersService],
     });
     service = ctx.module.get(UsersService);

@@ -1,7 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as path from 'path';
+import { Worker } from 'worker_threads';
 import { ComparadorDeRostros } from './comparador-de-rostros';
 import { ResultadoComparacion } from '../domain/comparacion-facial';
+import type {
+  PeticionComparacion,
+  Pixeles,
+  RespuestaComparacion,
+} from './protocolo-del-hilo';
 
 /**
  * Comparación de rostros con face-api sobre TensorFlow.js.
@@ -12,11 +18,12 @@ import { ResultadoComparacion } from '../domain/comparacion-facial';
  * nada. Aquí el cliente solo aporta las dos imágenes; quien decide es el
  * servidor.
  *
- * Usa la compilación WASM de face-api con `sharp` para decodificar, en vez del
- * camino habitual (`@tensorflow/tfjs-node` más `@canvas/image`), que exige
- * binarios nativos. Los modelos vienen dentro del propio paquete npm: no se
- * descarga nada en tiempo de ejecución y el servidor funciona sin salida a
- * internet.
+ * **La inferencia corre en un hilo aparte** (`hilo-de-inferencia.ts`). En el
+ * hilo principal congelaba el servidor unos 200 ms por imagen —medido con
+ * `tools/medir-bloqueo.cjs`—, y en ese tiempo no salía ninguna alerta ni
+ * respondía ninguna otra petición. Aquí solo se decodifican las imágenes, que
+ * no bloquea porque `sharp` trabaja en el pool de hilos de libuv, y se espera la
+ * respuesta.
  *
  * **No decide nada.** Mide la distancia entre dos rostros y la devuelve; el
  * umbral que la convierte en un sí o un no vive en el dominio.
@@ -32,19 +39,48 @@ import { ResultadoComparacion } from '../domain/comparacion-facial';
  */
 const LADO_MAXIMO = 1280;
 
+/**
+ * Espera máxima de una comparación, carga de modelos incluida (medida: menos de
+ * un segundo). Pasado esto el hilo se da por colgado: se termina y la siguiente
+ * comparación arranca uno nuevo.
+ */
+const TIEMPO_LIMITE_MS = 60_000;
+
+/**
+ * El hilo es su propio archivo, junto a este. Compilado es `.js`; en las
+ * pruebas, que corren el TypeScript directamente, es `.ts`, y el hilo necesita
+ * ts-node para leerlo.
+ */
+const EXTENSION = path.extname(__filename);
+const ARCHIVO_DEL_HILO = path.join(__dirname, `hilo-de-inferencia${EXTENSION}`);
+const ARGUMENTOS_DEL_HILO =
+  EXTENSION === '.ts' ? ['--require', 'ts-node/register/transpile-only'] : [];
+
+interface Pendiente {
+  resolver: (respuesta: RespuestaComparacion) => void;
+  rechazar: (error: Error) => void;
+  temporizador: NodeJS.Timeout;
+}
+
 @Injectable()
-export class ComparadorFaceApi extends ComparadorDeRostros {
+export class ComparadorFaceApi extends ComparadorDeRostros implements OnModuleDestroy {
   private readonly logger = new Logger(ComparadorFaceApi.name);
 
-  /** Carga de modelos en curso o ya terminada. Se hace una sola vez. */
-  private preparacion: Promise<TiempoDeEjecucion> | null = null;
+  /**
+   * Se arranca con la primera comparación, no al levantar el servidor: la
+   * mayoría de las peticiones no comparan rostros, y cargar TensorFlow cuesta
+   * memoria. Una vez arriba se queda, con los modelos cargados.
+   */
+  private hilo: Worker | null = null;
+  private readonly pendientes = new Map<number, Pendiente>();
+  private siguienteId = 1;
 
   /**
    * Cola de una sola posición.
    *
    * TensorFlow.js mantiene estado global por backend; dos inferencias
-   * simultáneas en el mismo proceso pueden pisarse. Registrar un documento es
-   * una operación rara —una vez por cuenta— así que serializar no cuesta nada y
+   * intercaladas en el mismo hilo pueden pisarse. Registrar un documento es una
+   * operación rara —una vez por cuenta— así que serializar no cuesta nada y
    * evita una clase de fallo difícil de reproducir.
    */
   private turno: Promise<void> = Promise.resolve();
@@ -54,33 +90,38 @@ export class ComparadorFaceApi extends ComparadorDeRostros {
     selfie: Buffer,
   ): Promise<ResultadoComparacion> {
     return this.enTurno(async (): Promise<ResultadoComparacion> => {
-      const runtime = await this.preparar();
+      const [pixelesDocumento, pixelesSelfie] = await Promise.all([
+        this.pixelesDe(documento),
+        this.pixelesDe(selfie),
+      ]);
 
-      const rostroDocumento = await this.descriptorDe(runtime, documento);
-      if (!rostroDocumento) {
-        return { estado: 'sin_rostro_en_documento' };
+      const respuesta = await this.enviarAlHilo(pixelesDocumento, pixelesSelfie);
+      if ('error' in respuesta) {
+        throw new Error(`La comparación facial falló: ${respuesta.error}`);
       }
 
-      const rostroSelfie = await this.descriptorDe(runtime, selfie);
-      if (!rostroSelfie) {
-        return { estado: 'sin_rostro_en_selfie' };
+      if (respuesta.cargaMs !== undefined) {
+        this.logger.log(
+          `Modelos de comparación facial cargados en ${respuesta.cargaMs}ms, en su propio hilo`,
+        );
       }
-
-      // `faceapi` no trae tipos en esta compilación, así que la distancia entra
-      // como `any`: se fija a número aquí para que el resto del sistema no herede
-      // la imprecisión.
-      const distancia: number = Number(
-        runtime.faceapi.euclideanDistance(rostroDocumento, rostroSelfie),
-      );
-
-      // Se registra la distancia, nunca los descriptores: un descriptor
-      // identifica a una persona igual que su fotografía.
-      this.logger.debug(`Distancia entre rostros: ${distancia.toFixed(4)}`);
+      if (respuesta.resultado.estado === 'comparado') {
+        // Se registra la distancia, nunca los descriptores: esos ni siquiera
+        // salen del hilo.
+        this.logger.debug(
+          `Distancia entre rostros: ${respuesta.resultado.distancia.toFixed(4)}`,
+        );
+      }
 
       // Se devuelve la medición y nada más. Quién decide qué significa esa
       // distancia es el núcleo; ver `ResultadoComparacion`.
-      return { estado: 'comparado', distancia };
+      return respuesta.resultado;
     });
+  }
+
+  /** Al apagar el servidor: que el hilo no quede vivo ni con trabajo a medias. */
+  async onModuleDestroy(): Promise<void> {
+    this.descartarHilo(new Error('el servidor se está apagando'));
   }
 
   private enTurno<T>(tarea: () => Promise<T>): Promise<T> {
@@ -98,112 +139,99 @@ export class ComparadorFaceApi extends ComparadorDeRostros {
   }
 
   /**
-   * Carga el backend y los tres modelos, una sola vez por proceso.
+   * RGB crudo, con el lado mayor acotado.
    *
-   * La importación es dinámica para que arrancar el servidor no pague el costo
-   * de cargar TensorFlow: la mayoría de las peticiones no comparan rostros.
+   * Se acota antes de nada: un teléfono actual manda fotos de 4000 px, y en
+   * crudo esa imagen sola son 36 MB. El detector trabaja a 512 px, así que por
+   * encima del tope no se gana nada.
    */
-  private async preparar(): Promise<TiempoDeEjecucion> {
-    if (!this.preparacion) {
-      this.preparacion = this.cargar().catch((error) => {
-        // Si falla, se olvida: el siguiente intento vuelve a probar en vez de
-        // quedar con una promesa rechazada cacheada para siempre.
-        this.preparacion = null;
-        throw error;
-      });
-    }
-    return this.preparacion;
-  }
-
-  private async cargar(): Promise<TiempoDeEjecucion> {
-    const comienzo = Date.now();
-
-    const tf = await import('@tensorflow/tfjs');
-    const wasm = await import('@tensorflow/tfjs-backend-wasm');
-    // La compilación `node-wasm` es la única que no exige binarios nativos.
-    const faceapi = require('@vladmandic/face-api/dist/face-api.node-wasm.js');
+  private async pixelesDe(imagen: Buffer): Promise<Pixeles> {
     const sharp = (await import('sharp')).default;
-
-    // Los binarios WASM salen de node_modules, no de una CDN: el servidor tiene
-    // que poder arrancar sin internet.
-    wasm.setWasmPaths(
-      path.join(
-        path.dirname(require.resolve('@tensorflow/tfjs-backend-wasm/package.json')),
-        'dist/',
-      ),
-    );
-    await tf.setBackend('wasm');
-    await tf.ready();
-
-    const raizModelos = path.join(
-      path.dirname(require.resolve('@vladmandic/face-api/package.json')),
-      'model',
-    );
-    await faceapi.nets.ssdMobilenetv1.loadFromDisk(raizModelos);
-    await faceapi.nets.faceLandmark68Net.loadFromDisk(raizModelos);
-    await faceapi.nets.faceRecognitionNet.loadFromDisk(raizModelos);
-
-    this.logger.log(
-      `Modelos de comparación facial cargados en ${Date.now() - comienzo}ms (backend ${tf.getBackend()})`,
-    );
-
-    return {
-      tf,
-      faceapi,
-      sharp,
-      // `maxResults: 1` se queda con el rostro más prominente. En la foto de un
-      // carnet es el retrato impreso; en una selfie, quien se la tomó.
-      opciones: new faceapi.SsdMobilenetv1Options({
-        minConfidence: 0.5,
-        maxResults: 1,
-      }),
-    };
-  }
-
-  /**
-   * Descriptor de 128 dimensiones del rostro más prominente, o `null` si no hay
-   * ninguno.
-   *
-   * El tensor se libera siempre: cada imagen ocupa ancho × alto × 3 bytes fuera
-   * del recolector de basura de JavaScript, y olvidarse de uno por registro
-   * termina agotando la memoria del proceso.
-   */
-  private async descriptorDe(
-    { tf, faceapi, sharp, opciones }: TiempoDeEjecucion,
-    imagen: Buffer,
-  ): Promise<Float32Array | null> {
     const { data, info } = await sharp(imagen)
-      // Se acota el lado mayor antes de nada. Un teléfono actual manda fotos de
-      // 4000 px de ancho, y el tensor en crudo ocupa ancho × alto × 3 bytes: esa
-      // imagen sola son 36 MB fuera del recolector de basura, por cada una de
-      // las dos y por cada registro simultáneo. El detector trabaja a 512 px
-      // internamente, así que por encima de este tope no se gana nada.
       .resize({ width: LADO_MAXIMO, height: LADO_MAXIMO, fit: 'inside', withoutEnlargement: true })
       .removeAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    const tensor = tf.tensor3d(
-      new Uint8Array(data),
-      [info.height, info.width, 3],
-      'int32',
-    );
-
-    try {
-      const caras = await faceapi
-        .detectAllFaces(tensor, opciones)
-        .withFaceLandmarks()
-        .withFaceDescriptors();
-      return caras.length > 0 ? caras[0].descriptor : null;
-    } finally {
-      tf.dispose(tensor);
-    }
+    // Copia a memoria propia: esa es la que se *transfiere* al hilo, sin otra
+    // copia. La de `sharp` puede ser memoria externa, que no se puede transferir.
+    const datos = new Uint8Array(data.length);
+    datos.set(data);
+    return { datos: datos.buffer, ancho: info.width, alto: info.height };
   }
-}
 
-interface TiempoDeEjecucion {
-  tf: typeof import('@tensorflow/tfjs');
-  faceapi: any;
-  sharp: typeof import('sharp');
-  opciones: any;
+  private enviarAlHilo(documento: Pixeles, selfie: Pixeles): Promise<RespuestaComparacion> {
+    const hilo = this.hiloListo();
+    const id = this.siguienteId++;
+
+    return new Promise<RespuestaComparacion>((resolver, rechazar) => {
+      const temporizador = setTimeout(() => {
+        // Un hilo que no responde puede estar colgado a mitad de una
+        // inferencia. No se le puede interrumpir: se termina y el siguiente
+        // registro arranca uno nuevo.
+        this.descartarHilo(
+          new Error(`el hilo de inferencia no respondió en ${TIEMPO_LIMITE_MS / 1000} s`),
+        );
+      }, TIEMPO_LIMITE_MS);
+
+      this.pendientes.set(id, { resolver, rechazar, temporizador });
+
+      const peticion: PeticionComparacion = { id, documento, selfie };
+      try {
+        hilo.postMessage(peticion, [documento.datos, selfie.datos]);
+      } catch (error) {
+        // Si ni siquiera salió, el hilo sigue sano: se retira solo esta petición,
+        // sin dejar vivo un temporizador que después lo terminaría.
+        clearTimeout(temporizador);
+        this.pendientes.delete(id);
+        rechazar(error as Error);
+      }
+    });
+  }
+
+  private hiloListo(): Worker {
+    if (this.hilo) return this.hilo;
+
+    const hilo = new Worker(ARCHIVO_DEL_HILO, { execArgv: ARGUMENTOS_DEL_HILO });
+    // Ocioso, el hilo no debe mantener vivo el proceso. Mientras hay una
+    // comparación en curso, lo mantiene su temporizador.
+    hilo.unref();
+
+    hilo.on('message', (respuesta: RespuestaComparacion) => {
+      const pendiente = this.pendientes.get(respuesta.id);
+      if (!pendiente) return;
+      this.pendientes.delete(respuesta.id);
+      clearTimeout(pendiente.temporizador);
+      pendiente.resolver(respuesta);
+    });
+
+    // Si el hilo muere —falta de memoria, un fallo dentro de WASM—, quien
+    // esperaba recibe un error en vez de quedarse esperando, y el siguiente
+    // registro arranca un hilo nuevo.
+    hilo.on('error', (error) => {
+      this.logger.error(`El hilo de inferencia falló: ${error.message}`);
+      this.descartarHilo(error);
+    });
+    hilo.on('exit', (codigo) => {
+      if (this.hilo === hilo) {
+        this.descartarHilo(new Error(`el hilo de inferencia terminó (código ${codigo})`));
+      }
+    });
+
+    this.hilo = hilo;
+    return hilo;
+  }
+
+  private descartarHilo(motivo: Error): void {
+    const hilo = this.hilo;
+    this.hilo = null;
+
+    for (const [id, pendiente] of this.pendientes) {
+      clearTimeout(pendiente.temporizador);
+      pendiente.rechazar(motivo);
+      this.pendientes.delete(id);
+    }
+
+    if (hilo) void hilo.terminate();
+  }
 }

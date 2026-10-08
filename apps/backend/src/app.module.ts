@@ -8,10 +8,13 @@ import { VerificationModule } from './verification/verification.module';
 import { DenunciasModule } from './denuncias/denuncias.module';
 import { DeclaracionesModule } from './declaraciones/declaraciones.module';
 import { AlertasModule } from './alertas/alertas.module';
-import { DesactivacionesModule } from './desactivaciones/desactivaciones.module';
+import { CierresModule } from './cierres/cierres.module';
+import { SancionesModule } from './sanciones/sanciones.module';
 import { ConstanciasModule } from './constancias/constancias.module';
+import { AvistamientosModule } from './avistamientos/avistamientos.module';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
+import { autoridadConfig } from './config/autoridad.config';
 import { validarEntorno } from './config/validar-entorno';
 
 @Module({
@@ -19,7 +22,7 @@ import { validarEntorno } from './config/validar-entorno';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../../.env',
-      load: [denunciasConfig],
+      load: [denunciasConfig, autoridadConfig],
       validate: validarEntorno,
     }),
     TypeOrmModule.forRootAsync({
@@ -55,8 +58,10 @@ import { validarEntorno } from './config/validar-entorno';
     DenunciasModule,
     DeclaracionesModule,
     AlertasModule,
-    DesactivacionesModule,
+    CierresModule,
+    SancionesModule,
     ConstanciasModule,
+    AvistamientosModule,
   ],
 })
 export class AppModule {}

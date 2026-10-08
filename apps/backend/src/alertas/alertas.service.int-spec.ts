@@ -180,12 +180,19 @@ describe('Emisión de alertas (integración)', () => {
     return usuario;
   };
 
+  /**
+   * Cada denuncia busca a una persona distinta: un mismo autor no puede tener
+   * dos denuncias abiertas sobre la misma persona, y la base lo impide.
+   */
+  let personasBuscadas = 0;
   const crearDenunciaDifundida = async (autorId: string, radioM = 2000) =>
     denuncias.save(
       denuncias.create({
         denunciante_id: autorId,
         nombre_persona_buscada: 'Luis Mamani',
-        ci_hash_persona_buscada: 'b'.repeat(64),
+        ci_hash_persona_buscada: createHash('sha256')
+          .update(`buscada-${++personasBuscadas}`)
+          .digest('hex'),
         description: 'Visto por última vez el martes',
         latitude: LA_PAZ.lat,
         longitude: LA_PAZ.lng,
@@ -380,6 +387,25 @@ describe('Emisión de alertas (integración)', () => {
 
       const [emision] = await emisiones.find();
       expect(emision.destinatarios).toBe(0);
+      expect(await entregas.count()).toBe(0);
+    });
+
+    it('descarta la emisión de una alerta vencida aunque el planificador no la haya marcado', async () => {
+      // Al volver de una caída de más de un día el worker corre antes que el
+      // planificador y encuentra la alerta ACTIVA con el plazo cumplido. Lo que
+      // manda es el plazo, como en el mapa y en la lista.
+      const autor = await crearUsuario('autor@test.com');
+      await crearVecino('vecino@test.com');
+      const denuncia = await crearDenunciaDifundida(autor.id);
+      await encolarPara(denuncia.id);
+
+      await denuncias.update(denuncia.id, { expira_en: new Date(Date.now() - 1000) });
+      await alertas.procesarPendientes();
+
+      const [emision] = await emisiones.find();
+      expect(emision.estado).toBe('completada');
+      expect(emision.destinatarios).toBe(0);
+      expect(emision.ultimo_error).toBe('descartada: la alerta venció antes de emitirse');
       expect(await entregas.count()).toBe(0);
     });
 
@@ -964,6 +990,8 @@ describe('Emisión de alertas (integración)', () => {
           longitude: LA_PAZ.lng,
           nivel_confianza: nivel,
           estado,
+          // La base exige la fecha en una CERRADA, y solo en ella.
+          cerrada_en: estado === EstadoDenuncia.CERRADA ? new Date() : null,
           radio_actual_m: difundible ? 2000 : null,
           expira_en: difundible ? new Date(Date.now() + 86_400_000) : null,
         }),
@@ -1037,10 +1065,12 @@ describe('Emisión de alertas (integración)', () => {
     });
 
     it('avisa de cada denuncia activa cuando hay varias', async () => {
+      // De autores distintos: uno solo no puede tener dos abiertas sobre ella.
       const autor = await crearUsuario('autor@test.com');
+      const otroAutor = await crearUsuario('otro-autor@test.com');
       const reportada = await crearUsuario('reportada@test.com');
       await crearDenunciaContra(autor.id, reportada.ci_hash);
-      await crearDenunciaContra(autor.id, reportada.ci_hash);
+      await crearDenunciaContra(otroAutor.id, reportada.ci_hash);
 
       expect(
         await alertas.avisarPersonaReportada(reportada.id, reportada.ci_hash),

@@ -129,8 +129,13 @@ const projectId = (): string | undefined => {
  *
  * Es idempotente del lado del servidor: reenviar el mismo token actualiza el
  * registro en lugar de duplicarlo, así que puede llamarse en cada arranque.
+ *
+ * Con `pedirPermiso` en `false`, si el permiso no está concedido no se pide:
+ * así se llama al volver al primer plano (ver `useAlertas`).
  */
-export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegistro> {
+export async function registrarDispositivoParaAlertas(
+  pedirPermiso: boolean,
+): Promise<ResultadoRegistro> {
   if (!Device.isDevice) {
     return {
       registrado: false,
@@ -158,7 +163,7 @@ export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegist
 
   const { status: existente } = await Notifications.getPermissionsAsync();
   let status = existente;
-  if (status !== 'granted') {
+  if (status !== 'granted' && pedirPermiso) {
     status = (await Notifications.requestPermissionsAsync()).status;
   }
   if (status !== 'granted') {
@@ -195,8 +200,8 @@ export async function registrarDispositivoParaAlertas(): Promise<ResultadoRegist
  * Suscribe la reacción a una alerta tocada.
  *
  * El servidor manda `denuncia_id` y `motivo` en los datos de la notificación, así
- * que se puede llevar a la persona directo a lo que le concierne: al interruptor
- * si la denuncia la identifica, o al detalle si es una alerta de su zona.
+ * que se puede llevar a la persona directo a lo que le concierne: a cerrarla si
+ * la denuncia la identifica, o al detalle si es una alerta de su zona.
  */
 export function alTocarUnaAlerta(
   navegar: (pantalla: string, params?: Record<string, unknown>) => void,

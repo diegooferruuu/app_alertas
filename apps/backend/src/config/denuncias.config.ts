@@ -11,39 +11,54 @@ import { registerAs } from '@nestjs/config';
  * mayúsculas; los valores por defecto son los documentados aquí.
  */
 export interface DenunciasConfig {
-  /** Radio de difusión de una denuncia recién firmada. Reducido a propósito. */
+  /**
+   * Radio de difusión de una denuncia firmada. Corto a propósito: ninguna
+   * autoridad respalda la alerta, solo la palabra atribuida de quien la firmó.
+   */
   radioProvisionalM: number;
-  /** Radio una vez corroborada, cuando hay respaldo del caso. */
-  radioCorroboradoM: number;
   /** Radio para el vínculo TERCERO_NO_FAMILIAR: entra, pero con menos alcance. */
   radioTerceroNoFamiliarM: number;
 
-  /** Horas que vive la alerta provisional antes de caducar sin corroboración. */
+  /** Horas que vive la alerta antes de caducar, y las que suma cada prolongación. */
   caducidadProvisionalH: number;
-  /** Horas que vive la alerta una vez corroborada. */
-  caducidadCorroboradaH: number;
-  /** Caducidad más corta para el vínculo TERCERO_NO_FAMILIAR. */
+  /** Lo mismo, más corto, para el vínculo TERCERO_NO_FAMILIAR. */
   caducidadTerceroNoFamiliarH: number;
 
-  /** Cuántas firmas de terceros hacen falta para corroborar un caso. */
-  corroboradoresNecesarios: number;
-
-  /** Señalizaciones coincidentes de moderadores para que surta efecto. */
-  senalizacionesNecesarias: number;
-  /** Puntaje a partir del cual se deriva el rol de moderador. */
-  umbralReputacionModerador: number;
-
-  /** Horas de restricción tras la primera desactivación recibida. */
-  restriccionPrimeraDesactivacionH: number;
+  /**
+   * Veces que quien presentó una denuncia puede prolongar su alerta.
+   *
+   * Prolongar la mantiene a la vista —mapa, lista, avistamientos— sin volver a
+   * notificar a nadie: lo que vale de la notificación son las primeras horas.
+   * El tope acota la alerta a unos pocos días; después, el caso es de los
+   * canales oficiales.
+   */
+  maxProlongaciones: number;
 
   /**
-   * Puntos de reputación que se descuentan por cada desactivación recibida.
-   *
-   * Es una penalización, no la sanción en sí: la sanción es el cambio de estado
-   * de cuenta (5.4). Se descuenta en cada desactivación para que el puntaje
-   * refleje el patrón, del que depende después el rol (fase 7).
+   * Personas distintas que deben declarar falsas denuncias de una cuenta para
+   * suspenderla. Se cuentan personas y no cierres: el patrón tiene que venir de
+   * más de una fuente.
    */
-  penalizacionReputacionDesactivacion: number;
+  cierresConSancionParaSuspension: number;
+
+  /**
+   * Días que una falta deja a la cuenta sin registrar, firmar ni prolongar
+   * denuncias, contados desde la última falta.
+   *
+   * Corto a propósito: la falta depende solo de la palabra de la persona
+   * reportada, que nadie verifica, así que el castigo de una acusación injusta
+   * tiene que salir barato. Lo que disuade es que la falta queda para siempre y
+   * que la segunda, de otra persona, suspende la cuenta.
+   */
+  diasSuspensionTemporal: number;
+
+  /**
+   * Alertas que una cuenta puede tener difundiéndose a la vez.
+   *
+   * Es un límite de uso, no una sanción: frena a quien quisiera lanzar muchas
+   * alertas sobre personas distintas.
+   */
+  limiteAlertasProvisionales: number;
 
   /**
    * Cada cuántos minutos el planificador marca las alertas vencidas.
@@ -96,13 +111,6 @@ export interface DenunciasConfig {
    * para una demostración; en producción, preguntar antes solo gasta consultas.
    */
   esperaReciboMin: number;
-
-  /**
-   * Precisión del geohash de un avistamiento. 6 caracteres ≈ 1.2 × 0.6 km,
-   * que es la resolución de ~1 km que pide §3.3. Subirlo estrecha la zona y
-   * acerca el dato a una ubicación identificable: no aumentar sin motivo.
-   */
-  precisionGeohash: number;
 }
 
 /** Lee un entero de entorno; si falta o no es válido, usa el valor por defecto. */
@@ -117,33 +125,21 @@ export const denunciasConfig = registerAs(
   DENUNCIAS_CONFIG,
   (): DenunciasConfig => ({
     radioProvisionalM: entero(process.env.RADIO_PROVISIONAL_M, 2_000),
-    radioCorroboradoM: entero(process.env.RADIO_CORROBORADO_M, 10_000),
     radioTerceroNoFamiliarM: entero(process.env.RADIO_TERCERO_NO_FAMILIAR_M, 1_000),
 
     caducidadProvisionalH: entero(process.env.CADUCIDAD_PROVISIONAL_H, 24),
-    caducidadCorroboradaH: entero(process.env.CADUCIDAD_CORROBORADA_H, 168),
     caducidadTerceroNoFamiliarH: entero(
       process.env.CADUCIDAD_TERCERO_NO_FAMILIAR_H,
       12,
     ),
+    maxProlongaciones: entero(process.env.MAX_PROLONGACIONES, 3),
 
-    corroboradoresNecesarios: entero(process.env.CORROBORADORES_NECESARIOS, 1),
-
-    senalizacionesNecesarias: entero(process.env.SENALIZACIONES_NECESARIAS, 3),
-    umbralReputacionModerador: entero(
-      process.env.UMBRAL_REPUTACION_MODERADOR,
-      500,
+    cierresConSancionParaSuspension: entero(
+      process.env.CIERRES_CON_SANCION_PARA_SUSPENSION,
+      2,
     ),
-
-    restriccionPrimeraDesactivacionH: entero(
-      process.env.RESTRICCION_PRIMERA_DESACTIVACION_H,
-      720,
-    ),
-
-    penalizacionReputacionDesactivacion: entero(
-      process.env.PENALIZACION_REPUTACION_DESACTIVACION,
-      50,
-    ),
+    diasSuspensionTemporal: entero(process.env.DIAS_SUSPENSION_TEMPORAL, 7),
+    limiteAlertasProvisionales: entero(process.env.LIMITE_ALERTAS_PROVISIONALES, 2),
 
     intervaloCaducidadMin: entero(process.env.INTERVALO_CADUCIDAD_MIN, 5),
 
@@ -153,7 +149,5 @@ export const denunciasConfig = registerAs(
     arrendamientoEmisionMin: entero(process.env.ARRENDAMIENTO_EMISION_MIN, 5),
     intervaloRecibosMin: entero(process.env.INTERVALO_RECIBOS_MIN, 5),
     esperaReciboMin: entero(process.env.ESPERA_RECIBO_MIN, 15),
-
-    precisionGeohash: entero(process.env.PRECISION_GEOHASH, 6),
   }),
 );

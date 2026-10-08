@@ -4,13 +4,25 @@
  * Node atiende todas las peticiones en un solo hilo. Si el OCR o la inferencia
  * facial lo ocupan, cualquier otra petición —consultar alertas cercanas, emitir
  * una notificación— espera. Esto mide cuánto.
+ *
+ * Uso, desde la raíz del repositorio:
+ *   pnpm --dir apps/backend build && node tools/medir-bloqueo.cjs
+ *
+ * Medido el 2026-09-29 con el comparador real: con la inferencia en el hilo
+ * principal, cada comparación lo bloqueaba 190–293 ms; con el hilo de
+ * inferencia, 6 ms, que es el piso del propio reloj (lo mismo que en reposo).
  */
 const { monitorEventLoopDelay, performance } = require('perf_hooks');
 const path = require('path');
-const sharp = require('sharp');
+const { createRequire } = require('module');
+
+// Las dependencias viven en el backend, no en la raíz del monorepo.
+const BACKEND = path.join(__dirname, '..', 'apps', 'backend');
+const req = createRequire(path.join(BACKEND, 'package.json'));
+const sharp = req('sharp');
 
 const DEMO = path.join(
-  path.dirname(require.resolve('@vladmandic/face-api/package.json')),
+  path.dirname(req.resolve('@vladmandic/face-api/package.json')),
   'demo',
 );
 
@@ -65,7 +77,7 @@ async function medir(nombre, tarea) {
   });
 
   // --- OCR ---
-  const { createWorker } = require('tesseract.js');
+  const { createWorker } = req('tesseract.js');
   let worker;
   await medir('OCR · arranque del worker', async () => {
     worker = await createWorker('spa');
@@ -76,56 +88,17 @@ async function medir(nombre, tarea) {
   await worker.terminate();
 
   // --- Comparación facial ---
-  const tf = require('@tensorflow/tfjs');
-  const wasm = require('@tensorflow/tfjs-backend-wasm');
-  const faceapi = require('@vladmandic/face-api/dist/face-api.node-wasm.js');
+  // Se mide el comparador real, tal como corre en el servidor —con su hilo de
+  // inferencia—, y no una copia del algoritmo: una copia puede quedar desfasada
+  // del código sin que nadie lo note. Por eso hace falta compilar antes.
+  const { ComparadorFaceApi } = req('./dist/verification/rostros/comparador-face-api.js');
+  const comparador = new ComparadorFaceApi();
 
-  const raizWasm = path.join(
-    path.dirname(require.resolve('@tensorflow/tfjs-backend-wasm/package.json')),
-    'dist/',
+  await medir('Facial · 1ª comparación (carga modelos)', () =>
+    comparador.comparar(carnet, selfie),
   );
-  const raizModelos = path.join(
-    path.dirname(require.resolve('@vladmandic/face-api/package.json')),
-    'model',
-  );
-
-  await medir('Facial · cargar modelos', async () => {
-    wasm.setWasmPaths(raizWasm);
-    await tf.setBackend('wasm');
-    await tf.ready();
-    await faceapi.nets.ssdMobilenetv1.loadFromDisk(raizModelos);
-    await faceapi.nets.faceLandmark68Net.loadFromDisk(raizModelos);
-    await faceapi.nets.faceRecognitionNet.loadFromDisk(raizModelos);
-  });
-
-  const opciones = new faceapi.SsdMobilenetv1Options({
-    minConfidence: 0.5,
-    maxResults: 1,
-  });
-
-  const descriptor = async (buf) => {
-    const { data, info } = await sharp(buf)
-      .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
-      .removeAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const t = tf.tensor3d(new Uint8Array(data), [info.height, info.width, 3], 'int32');
-    try {
-      const caras = await faceapi
-        .detectAllFaces(t, opciones)
-        .withFaceLandmarks()
-        .withFaceDescriptors();
-      return caras[0]?.descriptor ?? null;
-    } finally {
-      tf.dispose(t);
-    }
-  };
-
-  await medir('Facial · inferencia sobre 2 imágenes', async () => {
-    const a = await descriptor(carnet);
-    const b = await descriptor(selfie);
-    if (a && b) faceapi.euclideanDistance(a, b);
-  });
+  await medir('Facial · comparación', () => comparador.comparar(carnet, selfie));
+  await comparador.onModuleDestroy();
 
   console.log(
     '\n«bloqueo máx» es lo que esperaría, en el peor momento, cualquier otra\n' +

@@ -19,7 +19,8 @@ export interface Coordenadas {
 export const SelectorDeUbicacion: React.FC<{
   valor: Coordenadas | null;
   onChange: (coords: Coordenadas) => void;
-}> = ({ valor, onChange }) => {
+  modo?: 'denuncia' | 'avistamiento';
+}> = ({ valor, onChange, modo = 'denuncia' }) => {
   const [buscando, setBuscando] = useState(false);
 
   const usarUbicacion = async () => {
@@ -36,7 +37,9 @@ export const SelectorDeUbicacion: React.FC<{
 
   return (
     <View style={estilos.contenedor}>
-      <Text style={estilos.etiqueta}>¿Dónde se la vio por última vez?</Text>
+      <Text style={estilos.etiqueta}>
+        {modo === 'avistamiento' ? '¿Dónde la viste?' : '¿Dónde se la vio por última vez?'}
+      </Text>
       <TouchableOpacity style={estilos.opcion} onPress={usarUbicacion} disabled={buscando}>
         {buscando ? (
           <ActivityIndicator size="small" color="#007AFF" />

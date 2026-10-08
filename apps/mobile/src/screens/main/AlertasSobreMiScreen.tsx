@@ -12,16 +12,22 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { resumenDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
-import desactivacionService, {
-  DenunciaQueMeIdentifica,
-} from '../../services/desactivacion.service';
+import cierreService, { DenunciaQueMeIdentifica } from '../../services/cierre.service';
 import constanciaService from '../../services/constancia.service';
 
 /** Cómo se le presenta a la persona el estado de una denuncia que la identifica. */
 const situacionDe = (d: DenunciaQueMeIdentifica) => {
+  if (d.estado === 'CERRADA') {
+    return {
+      etiqueta: 'Terminada por quien la presentó',
+      icono: 'checkmark-done-outline',
+      color: '#0E7247',
+      fondo: '#E2F2EA',
+    };
+  }
   if (d.estado === 'INVALIDADA') {
     return {
-      etiqueta: 'Retirada por ti',
+      etiqueta: 'Cerrada por ti',
       icono: 'checkmark-circle',
       color: '#0E7247',
       fondo: '#E2F2EA',
@@ -44,25 +50,24 @@ const situacionDe = (d: DenunciaQueMeIdentifica) => {
 };
 
 /**
- * El interruptor de desactivación, del lado de la persona reportada.
+ * Las alertas que identifican a la persona, y la puerta para cerrarlas.
  *
  * Es la garantía que sostiene el resto del diseño: el sistema no comprueba que
- * una denuncia sea cierta, pero quien es reportado puede detenerla. Hasta ahora
- * esa garantía existía solo en la API.
+ * una denuncia sea cierta, pero quien es reportado puede detenerla. El cierre
+ * en sí —«Estoy bien» o «Esta denuncia es falsa»— vive en su propia pantalla.
  *
  * Deliberadamente no muestra nada de quien denunció. Ver el detalle del porqué
- * en `desactivacion.service.ts`.
+ * en `cierre.service.ts`.
  */
 const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [alertas, setAlertas] = useState<DenunciaQueMeIdentifica[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [retirando, setRetirando] = useState<string | null>(null);
   const [pidiendo, setPidiendo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setAlertas(await desactivacionService.misAlertas());
+      setAlertas(await cierreService.misAlertas());
     } catch {
       // Se deja la lista como está: un fallo de red no debe dar a entender que
       // no hay ninguna alerta cuando puede haberla.
@@ -77,40 +82,6 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       load();
     }, [load]),
   );
-
-  const retirar = async (alerta: DenunciaQueMeIdentifica) => {
-    setRetirando(alerta.id);
-    try {
-      const resultado = await desactivacionService.desactivar(alerta.id);
-      await load();
-      Alert.alert('Alerta retirada', resultado.mensaje);
-    } catch (err: any) {
-      Alert.alert(
-        'No se pudo retirar',
-        err?.response?.data?.message ||
-          'No se pudo retirar la alerta. Inténtalo de nuevo.',
-      );
-    } finally {
-      setRetirando(null);
-    }
-  };
-
-  const confirmarRetiro = (alerta: DenunciaQueMeIdentifica) => {
-    Alert.alert(
-      '¿Retirar esta alerta?',
-      'Dejará de difundirse de inmediato y no podrá volver a activarse. ' +
-        'La denuncia queda registrada, y podrás solicitar después una constancia ' +
-        'con la identidad de quien la firmó.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Retirar',
-          style: 'destructive',
-          onPress: () => retirar(alerta),
-        },
-      ],
-    );
-  };
 
   const pedirConstancia = async (alerta: DenunciaQueMeIdentifica) => {
     setPidiendo(alerta.id);
@@ -165,8 +136,8 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       ListHeaderComponent={
         alertas.length > 0 ? (
           <Text style={styles.intro}>
-            Estas denuncias te identifican por tu documento. Si estás bien, puedes
-            retirarlas y dejarán de alertar a tu zona.
+            Estas denuncias te identifican por tu documento. Si estás bien, o si la
+            denuncia es falsa, puedes cerrarlas y dejarán de alertar a tu zona.
           </Text>
         ) : null
       }
@@ -201,25 +172,27 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
             Presentada el {new Date(item.created_at).toLocaleDateString()}
           </Text>
 
-          {/* Una caducada puede revivir si alguien la corrobora tarde, así que
-              también se puede retirar: por eso el botón no depende de que se
-              esté difundiendo ahora mismo. Una ya retirada no reaparece aquí
-              como accionable —INVALIDADA es terminal— pero sigue en la lista
-              porque su constancia no caduca. */}
-          {item.puede_retirarse && (
+          {/* Una caducada puede volver a mostrarse si quien la presentó la
+              prolonga, así que también se puede cerrar: por eso el botón no
+              depende de que se esté difundiendo ahora mismo. Una ya cerrada no
+              reaparece aquí como accionable —INVALIDADA es terminal— pero sigue
+              en la lista porque su constancia no caduca. */}
+          {/* Una que quien la presentó ya dio por terminada no se difunde,
+              pero la persona todavía puede responderla —y declararla falsa—:
+              terminarla no puede ser la forma de escapar de la falta. */}
+          {item.puede_cerrarse && (
             <TouchableOpacity
               style={styles.retirarButton}
-              onPress={() => confirmarRetiro(item)}
-              disabled={retirando !== null}
+              onPress={() => navigation.navigate('CerrarAlerta', { alerta: item })}
             >
-              {retirando === item.id ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="hand-left-outline" size={18} color="#fff" />
-                  <Text style={styles.retirarText}>Retirar esta alerta</Text>
-                </>
-              )}
+              <Ionicons
+                name={item.estado === 'CERRADA' ? 'chatbubble-ellipses-outline' : 'hand-left-outline'}
+                size={18}
+                color="#fff"
+              />
+              <Text style={styles.retirarText}>
+                {item.estado === 'CERRADA' ? 'Responder a esta denuncia' : 'Cerrar esta alerta'}
+              </Text>
             </TouchableOpacity>
           )}
 
@@ -229,7 +202,7 @@ const AlertasSobreMiScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
             <TouchableOpacity
               style={[
                 styles.constanciaButton,
-                item.puede_retirarse && styles.constanciaSecundario,
+                item.puede_cerrarse && styles.constanciaSecundario,
               ]}
               onPress={() => confirmarConstancia(item)}
               disabled={pidiendo !== null}

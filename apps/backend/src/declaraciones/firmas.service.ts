@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -11,7 +12,11 @@ import {
   DeclaracionJurada,
   TipoDeclaracion,
 } from './entities/declaracion-jurada.entity';
+import { ClaveDispositivo } from './entities/clave-dispositivo.entity';
+import { Prolongacion } from './entities/prolongacion.entity';
 import { FirmarDeclaracionDto } from './dto/firmar-declaracion.dto';
+import { ProlongarAlertaDto } from './dto/prolongar-alerta.dto';
+import { firmaValida, mensajeAFirmar, mensajeDeProlongacion } from './domain/firma-dispositivo';
 import { DeclaracionesService } from './declaraciones.service';
 import {
   VinculoDeclarado,
@@ -31,6 +36,9 @@ import { estaSuspendida } from '../users/domain/estado-cuenta';
 import { nombreEscritoCoincide } from '../verification/domain/nombres';
 import { DENUNCIAS_CONFIG, DenunciasConfig } from '../config/denuncias.config';
 import { AlertasService } from '../alertas/alertas.service';
+import { revocarEmisionesPendientes } from '../alertas/revocacion';
+import { SancionesService } from '../sanciones/sanciones.service';
+import { restriccion } from '../sanciones/restriccion';
 
 /**
  * El acto de firma de una declaración jurada.
@@ -48,6 +56,7 @@ export class FirmasService {
     private usersService: UsersService,
     private configService: ConfigService,
     private alertasService: AlertasService,
+    private sancionesService: SancionesService,
   ) {}
 
   private get config(): DenunciasConfig {
@@ -72,7 +81,7 @@ export class FirmasService {
   }
 
   /**
-   * Comprobaciones comunes a todo acto de firma, original o corroboración.
+   * Comprobaciones de quien firma, antes de abrir la transacción.
    *
    * Devuelve el usuario y la versión del texto para no releerlos después.
    */
@@ -84,12 +93,15 @@ export class FirmasService {
         'Debes registrar tu documento antes de firmar una declaración jurada',
       );
     }
-    // Solo la suspensión cierra la firma: firmar es lo que hace difundir. Una
-    // cuenta apenas RESTRINGIDA conserva el resto de funciones (§5.4), y firmar
-    // una denuncia que ya existía no es crear una nueva.
+    // La suspensión cierra la firma, porque firmar es lo que difunde: la
+    // definitiva y la de unos días que deja cada falta.
     if (estaSuspendida(usuario.estado_cuenta)) {
-      throw new ForbiddenException('Tu cuenta está suspendida');
+      throw restriccion(
+        'CUENTA_SUSPENDIDA',
+        'Tu cuenta está suspendida: no puedes firmar declaraciones.',
+      );
     }
+    await this.sancionesService.verificarSinSuspensionTemporal(userId, 'firmar declaraciones');
 
     // El nombre se compara contra el que quedó registrado con el documento, no
     // contra el que se tecleó al crear la cuenta.
@@ -110,13 +122,122 @@ export class FirmasService {
   }
 
   /**
+   * Registra la clave pública de un teléfono y devuelve su identificador.
+   *
+   * Idempotente para su dueño: el teléfono la registra antes de cada firma, así
+   * que si la base se reinició o la clave nunca llegó, se arregla sola. Una
+   * clave ya registrada por otra cuenta se rechaza: las firmas se atribuyen a
+   * quien es dueño de la clave.
+   */
+  async registrarClave(userId: string, clavePublica: string): Promise<{ id: string }> {
+    const claves = this.dataSource.getRepository(ClaveDispositivo);
+    // `orIgnore` y releer: dos registros simultáneos de la misma clave no pueden
+    // terminar en un error de unicidad.
+    await claves
+      .createQueryBuilder()
+      .insert()
+      .values({ usuario_id: userId, clave_publica: clavePublica })
+      .orIgnore()
+      .execute();
+    const clave = await claves.findOneOrFail({ where: { clave_publica: clavePublica } });
+    if (clave.usuario_id !== userId) {
+      throw new ConflictException('Esa clave ya está registrada en otra cuenta');
+    }
+    return { id: clave.id };
+  }
+
+  /**
+   * El hash del contenido que se va a sellar, para que el teléfono lo firme.
+   *
+   * Es el mismo cálculo que hace `firmar`, con la misma función. Si la denuncia
+   * cambiara entre esta consulta y la firma, el hash dejaría de coincidir y la
+   * firma se rechazaría, que es lo correcto: se habría firmado otra cosa.
+   */
+  async contenidoAFirmar(
+    userId: string,
+    denunciaId: string,
+  ): Promise<{ hash_contenido_denuncia: string }> {
+    const denuncia = await this.denunciaCompleta(this.dataSource.manager, denunciaId);
+    if (denuncia.denunciante_id !== userId) {
+      throw new ForbiddenException('Solo puedes firmar tus propias denuncias');
+    }
+    if (
+      denuncia.estado !== EstadoDenuncia.ACTIVA ||
+      denuncia.nivel_confianza !== NivelConfianza.REGISTRADA
+    ) {
+      throw new ConflictException('Esta denuncia ya no se puede firmar');
+    }
+    return { hash_contenido_denuncia: FirmasService.hashContenidoDe(denuncia) };
+  }
+
+  private static hashContenidoDe(denuncia: Denuncia): string {
+    return calcularHashContenido(
+      contenidoSellable(denuncia),
+      denuncia.version_formula_contenido,
+    );
+  }
+
+  /**
+   * Comprueba la firma del teléfono antes de guardar nada.
+   *
+   * Una clave ajena se trata igual que una inexistente. El teléfono registra su
+   * clave antes de firmar, así que cualquiera de los dos rechazos significa que
+   * hay que volver a intentarlo, no que algo esté perdido.
+   */
+  private async verificarFirmaDelTelefono(
+    manager: EntityManager,
+    userId: string,
+    firma: { clave_dispositivo_id: string; firma_dispositivo: string },
+    mensaje: string,
+    queSeFirmo: 'esta declaración' | 'esta prolongación',
+  ): Promise<ClaveDispositivo> {
+    const clave = await manager
+      .getRepository(ClaveDispositivo)
+      .findOne({ where: { id: firma.clave_dispositivo_id } });
+    if (!clave || clave.usuario_id !== userId) {
+      throw new BadRequestException(
+        'La clave de firma de este teléfono no está registrada en tu cuenta. Vuelve a firmar.',
+      );
+    }
+    if (!firmaValida(clave.clave_publica, mensaje, firma.firma_dispositivo)) {
+      throw new BadRequestException(
+        `La firma del teléfono no corresponde a ${queSeFirmo}. Vuelve a firmar.`,
+      );
+    }
+    return clave;
+  }
+
+  /**
+   * Rechaza otra alerta si la cuenta ya tiene las que admite su límite
+   * difundiéndose. Hay que llamarlo dentro del cerrojo de la cadena, que
+   * serializa firmas y prolongaciones: dos a la vez no pueden pasar ambas.
+   *
+   * Cuentan las que siguen a la vista, no las vencidas aunque el planificador
+   * todavía no las haya marcado.
+   */
+  private async verificarLimiteDeAlertas(manager: EntityManager, userId: string): Promise<void> {
+    const difundiendose = await manager
+      .getRepository(Denuncia)
+      .createQueryBuilder('d')
+      .where('d.denunciante_id = :id', { id: userId })
+      .andWhere('d.nivel_confianza <> :registrada', { registrada: NivelConfianza.REGISTRADA })
+      .andWhere('d.estado = :estado', { estado: EstadoDenuncia.ACTIVA })
+      .andWhere('d.expira_en > now()')
+      .getCount();
+    if (difundiendose >= this.config.limiteAlertasProvisionales) {
+      throw restriccion(
+        'LIMITE_ALERTAS_PROVISIONALES',
+        `Ya tienes ${difundiendose} alertas difundiéndose. Podrás difundir otra cuando alguna venza o la cierres.`,
+        409,
+      );
+    }
+  }
+
+  /**
    * Sella un registro en la cadena.
    *
-   * Es el mismo acto para una declaración original y para una corroboración:
-   * ambas comprometen igual a quien firma, y por eso comparten paquete
-   * probatorio en lugar de vivir en tablas distintas.
-   *
-   * Debe llamarse dentro de una transacción que ya tomó el cerrojo de la cadena.
+   * Debe llamarse dentro de una transacción que ya tomó el cerrojo de la cadena,
+   * y con la firma del teléfono ya verificada.
    */
   private async sellar(
     manager: EntityManager,
@@ -125,10 +246,13 @@ export class FirmasService {
       usuario: { id: string; ci_hash: string };
       versionId: string;
       hashTextoLegal: string;
+      hashContenido: string;
       vinculo: VinculoDeclarado;
       nombreEscrito: string;
       deviceId: string | null;
       tipo: TipoDeclaracion;
+      claveId: string;
+      firma: string;
     },
   ): Promise<void> {
     const declaraciones = manager.getRepository(DeclaracionJurada);
@@ -153,13 +277,12 @@ export class FirmasService {
       version_texto_legal_id: datos.versionId,
       hash_texto_legal: datos.hashTextoLegal,
       texto_firmado: datos.nombreEscrito,
-      hash_contenido_denuncia: calcularHashContenido(
-        contenidoSellable(datos.denuncia),
-        datos.denuncia.version_formula_contenido,
-      ),
+      hash_contenido_denuncia: datos.hashContenido,
       firmada_en: firmadaEn.toISOString(),
       device_id: datos.deviceId,
       hash_anterior: ultima?.hash_registro ?? null,
+      clave_publica_id: datos.claveId,
+      firma_criptografica: datos.firma,
     };
 
     await declaraciones.insert({
@@ -222,15 +345,38 @@ export class FirmasService {
         throw new ConflictException('Esta denuncia ya fue declarada bajo juramento');
       }
 
+      // Antes de sellar, para no dejar una declaración firmada sin efecto.
+      await this.verificarLimiteDeAlertas(manager, userId);
+
+      // Lo que firmó el teléfono, armado aquí con los valores del servidor: si
+      // el teléfono hubiera firmado otra cosa, la verificación no pasa.
+      const hashContenido = FirmasService.hashContenidoDe(denuncia);
+      const clave = await this.verificarFirmaDelTelefono(
+        manager,
+        userId,
+        dto,
+        mensajeAFirmar({
+          denuncia_id: denuncia.id,
+          hash_contenido_denuncia: hashContenido,
+          hash_texto_legal: version.hash_texto,
+          vinculo_declarado: vinculo,
+          texto_firmado: dto.nombre_escrito,
+        }),
+        'esta declaración',
+      );
+
       await this.sellar(manager, {
         denuncia,
         usuario: { id: userId, ci_hash: usuario.ci_hash },
         versionId: version.id,
         hashTextoLegal: version.hash_texto,
+        hashContenido,
         vinculo,
         nombreEscrito: dto.nombre_escrito,
         deviceId: dto.device_id ?? null,
         tipo: 'original',
+        claveId: clave.id,
+        firma: dto.firma_dispositivo,
       });
 
       const { radio_m, horas } = this.alcanceSegunVinculo(vinculo);
@@ -246,170 +392,133 @@ export class FirmasService {
       // entre firmar y encolar, quedaría una denuncia declarada bajo juramento
       // cuya alerta nunca se emite y de la que nadie se enteraría. Aquí o se
       // guardan las tres cosas —declaración, difusión y trabajo— o ninguna.
+      // Es la única notificación de la alerta: prolongarla no vuelve a avisar.
       await this.alertasService.encolar(manager, denuncia.id, radio_m, 'firma');
 
       return { firmada: true, nivel_confianza: NivelConfianza.PROVISIONAL };
     });
   }
 
-
   /**
-   * Amplía el alcance de una denuncia corroborada y vuelve a emitir.
+   * Prolonga la alerta de una denuncia: la mantiene a la vista —mapa, lista,
+   * avistamientos— por otro plazo, **sin notificar a nadie**.
    *
-   * Se llama desde dentro de una transacción ya en curso. Al corroborarse, el
-   * plazo se cuenta desde ahora: un caso con respaldo merece empezar de nuevo su
-   * ventana, no heredar lo que quedaba de la anterior.
-   */
-  private async ampliarPorCorroboracion(
-    manager: EntityManager,
-    denuncia: Denuncia,
-  ): Promise<void> {
-    const { radioCorroboradoM, caducidadCorroboradaH } = this.config;
-
-    await manager.getRepository(Denuncia).update(denuncia.id, {
-      nivel_confianza: NivelConfianza.CORROBORADA,
-      radio_actual_m: radioCorroboradoM,
-      expira_en: new Date(Date.now() + caducidadCorroboradaH * 3_600_000),
-      // Reactiva la alerta si había caducado esperando respaldo: muere la
-      // alerta, no el caso, y una corroboración tardía es motivo para revivirla.
-      estado: EstadoDenuncia.ACTIVA,
-    });
-
-    await this.alertasService.encolar(
-      manager,
-      denuncia.id,
-      radioCorroboradoM,
-      'corroboracion',
-    );
-  }
-
-  /** Cuántas corroboraciones lleva una denuncia. Se deriva, no se cuenta aparte. */
-  private async corroboracionesDe(
-    manager: EntityManager,
-    denunciaId: string,
-  ): Promise<number> {
-    return manager.getRepository(DeclaracionJurada).count({
-      where: { denuncia_id: denunciaId, tipo: 'corroboracion' },
-    });
-  }
-
-  /**
-   * Corrobora una denuncia ajena firmando la propia declaración jurada.
+   * Lo que vale de la notificación son las primeras horas, y repetirla a los
+   * mismos vecinos solo los cansaría. Prolongar es otra cosa: que quien buscaba
+   * la alerta en el mapa la siga encontrando.
    *
-   * No es un «me consta» ligero: quien corrobora firma con el mismo peso que
-   * quien denunció, y su identidad queda igual de atribuida. Por eso comparte
-   * paquete probatorio y el mismo acto de firma.
+   * Cada prolongación es una afirmación nueva —la persona sigue sin aparecer—
+   * firmada con el teléfono, y tiene un tope. El plazo se cuenta desde ahora, no
+   * se suma a lo que quedaba. Se puede prolongar una alerta ya vencida, mientras
+   * queden prolongaciones; en ese caso vuelve a contar para el límite de
+   * alertas simultáneas.
    */
-  async corroborar(
+  async prolongar(
     userId: string,
     denunciaId: string,
-    dto: FirmarDeclaracionDto,
-  ): Promise<{ corroborada: boolean; nivel_confianza: NivelConfianza }> {
-    const { usuario, version } = await this.validarFirmante(userId, dto);
-    const vinculo = dto.vinculo_declarado as VinculoDeclarado;
+    dto: ProlongarAlertaDto,
+  ): Promise<{ expira_en: Date; prolongaciones: number; prolongaciones_restantes: number }> {
+    const usuario = await this.usersService.findById(userId);
+    if (estaSuspendida(usuario.estado_cuenta)) {
+      throw restriccion(
+        'CUENTA_SUSPENDIDA',
+        'Tu cuenta está suspendida: no puedes prolongar alertas.',
+      );
+    }
+    await this.sancionesService.verificarSinSuspensionTemporal(userId, 'prolongar alertas');
+    const version = await this.declaracionesService.versionPorId(dto.version_texto_legal_id);
+    const tope = this.config.maxProlongaciones;
 
     return this.dataSource.transaction(async (manager) => {
-      await manager.query('SELECT pg_advisory_xact_lock($1)', [
-        FirmasService.CERROJO_CADENA,
-      ]);
+      // El mismo cerrojo que las firmas: reactivar una alerta vencida cuenta
+      // para el límite de alertas, igual que difundir una nueva.
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [FirmasService.CERROJO_CADENA]);
 
-      const denuncia = await this.denunciaCompleta(manager, denunciaId);
-
-      // Corroborarse a sí mismo no aporta respaldo alguno: es la misma persona
-      // diciendo dos veces lo mismo.
-      if (denuncia.denunciante_id === userId) {
-        throw new ForbiddenException(
-          'No puedes corroborar tu propia denuncia: la corroboración es el respaldo de otra persona',
-        );
-      }
-      if (denuncia.nivel_confianza === NivelConfianza.REGISTRADA) {
-        throw new ConflictException(
-          'Esta denuncia todavía no fue declarada bajo juramento por su autor',
-        );
-      }
-      if (
-        denuncia.estado === EstadoDenuncia.INVALIDADA ||
-        denuncia.estado === EstadoDenuncia.CERRADA
-      ) {
-        throw new ConflictException(
-          `Una denuncia ${denuncia.estado} no admite corroboración`,
-        );
-      }
-
-      const yaCorroboro = await manager.getRepository(DeclaracionJurada).count({
-        where: { denuncia_id: denunciaId, usuario_id: userId },
-      });
-      if (yaCorroboro > 0) {
-        throw new ConflictException('Ya firmaste una declaración sobre esta denuncia');
-      }
-
-      await this.sellar(manager, {
-        denuncia,
-        usuario: { id: userId, ci_hash: usuario.ci_hash },
-        versionId: version.id,
-        hashTextoLegal: version.hash_texto,
-        vinculo,
-        nombreEscrito: dto.nombre_escrito,
-        deviceId: dto.device_id ?? null,
-        tipo: 'corroboracion',
-      });
-
-      const corroboraciones = await this.corroboracionesDe(manager, denunciaId);
-      const suficientes = corroboraciones >= this.config.corroboradoresNecesarios;
-
-      if (suficientes && denuncia.nivel_confianza !== NivelConfianza.CORROBORADA) {
-        await this.ampliarPorCorroboracion(manager, denuncia);
-        return { corroborada: true, nivel_confianza: NivelConfianza.CORROBORADA };
-      }
-
-      // Firmó, pero todavía faltan respaldos para ampliar el alcance.
-      return { corroborada: false, nivel_confianza: denuncia.nivel_confianza };
-    });
-  }
-
-  /**
-   * Registra el número de caso de la FELCC: la otra vía de corroboración.
-   *
-   * Aquí no hay declaración jurada porque el respaldo no viene de una persona
-   * del sistema sino de una autoridad: lo que corrobora el caso es que exista
-   * una denuncia formal, no que alguien más se comprometa.
-   */
-  async registrarCasoFelcc(
-    userId: string,
-    denunciaId: string,
-    numeroCaso: string,
-  ): Promise<{ nivel_confianza: NivelConfianza }> {
-    return this.dataSource.transaction(async (manager) => {
-      const denuncia = await this.denunciaCompleta(manager, denunciaId);
-
+      const denuncia = await manager.getRepository(Denuncia).findOne({ where: { id: denunciaId } });
+      if (!denuncia) throw new NotFoundException('Denuncia no encontrada');
       if (denuncia.denunciante_id !== userId) {
-        throw new ForbiddenException(
-          'Solo el autor puede registrar el número de caso',
-        );
+        throw new ForbiddenException('Solo quien presentó la denuncia puede prolongar su alerta');
       }
       if (denuncia.nivel_confianza === NivelConfianza.REGISTRADA) {
         throw new ConflictException(
-          'Firma primero la declaración jurada de esta denuncia',
+          'Esta denuncia todavía no se difunde: firma la declaración primero.',
         );
       }
-      if (
-        denuncia.estado === EstadoDenuncia.INVALIDADA ||
-        denuncia.estado === EstadoDenuncia.CERRADA
-      ) {
+      if (denuncia.estado === EstadoDenuncia.INVALIDADA) {
+        throw new ConflictException('La persona reportada cerró esta alerta: ya no se puede prolongar.');
+      }
+      if (denuncia.estado === EstadoDenuncia.CERRADA) {
+        throw new ConflictException('Diste esta denuncia por terminada: ya no se puede prolongar.');
+      }
+      if (denuncia.prolongaciones >= tope) {
         throw new ConflictException(
-          `Una denuncia ${denuncia.estado} no admite corroboración`,
+          `Ya prolongaste esta alerta las ${tope} veces que se puede. Si la persona sigue sin aparecer, los canales oficiales siguen disponibles.`,
         );
       }
 
+      const vencida =
+        denuncia.estado === EstadoDenuncia.CADUCADA ||
+        !denuncia.expira_en ||
+        denuncia.expira_en.getTime() <= Date.now();
+      if (vencida) {
+        await this.verificarLimiteDeAlertas(manager, userId);
+        // Una notificación que no alcanzó a salir mientras la alerta estaba
+        // vigente —el worker no pasó: una caída larga, o los datos de
+        // demostración— ya no sale. Al volver a la vista saldría ahora, y
+        // prolongar promete no notificar. A una vigente no se le toca: si se
+        // prolonga apenas firmada, su única notificación sigue en camino.
+        await revocarEmisionesPendientes(
+          manager,
+          denuncia.id,
+          'la alerta venció antes de emitirse y volvió a la vista sin notificar',
+          { soloDifusion: true },
+        );
+      }
+
+      const numero = denuncia.prolongaciones + 1;
+      const clave = await this.verificarFirmaDelTelefono(
+        manager,
+        userId,
+        dto,
+        mensajeDeProlongacion({
+          denuncia_id: denuncia.id,
+          numero: String(numero),
+          hash_texto_legal: version.hash_texto,
+        }),
+        'esta prolongación',
+      );
+
+      // El plazo según el vínculo con que se declaró, como al firmar.
+      const original = await manager.getRepository(DeclaracionJurada).findOne({
+        where: { denuncia_id: denuncia.id, tipo: 'original' },
+        select: { vinculo_declarado: true },
+        order: { firmada_en: 'ASC' },
+      });
+      if (!original) {
+        throw new ConflictException('Esta denuncia no tiene una declaración que prolongar.');
+      }
+      const { horas } = this.alcanceSegunVinculo(original.vinculo_declarado);
+      const expiraEn = new Date(Date.now() + horas * 3_600_000);
+
+      // El índice único de (denuncia, número) es la segunda línea: dos
+      // prolongaciones simultáneas no pueden llevarse el mismo número.
+      await manager.getRepository(Prolongacion).insert({
+        denuncia_id: denuncia.id,
+        usuario_id: userId,
+        numero,
+        version_texto_legal_id: version.id,
+        hash_texto_legal: version.hash_texto,
+        clave_dispositivo_id: clave.id,
+        firma_dispositivo: dto.firma_dispositivo,
+        expira_en: expiraEn,
+      });
       await manager.getRepository(Denuncia).update(denuncia.id, {
-        numero_caso_felcc: numeroCaso.trim(),
+        estado: EstadoDenuncia.ACTIVA,
+        expira_en: expiraEn,
+        prolongaciones: numero,
       });
 
-      if (denuncia.nivel_confianza !== NivelConfianza.CORROBORADA) {
-        await this.ampliarPorCorroboracion(manager, denuncia);
-      }
-
-      return { nivel_confianza: NivelConfianza.CORROBORADA };
+      return { expira_en: expiraEn, prolongaciones: numero, prolongaciones_restantes: tope - numero };
     });
   }
 
@@ -439,6 +548,8 @@ export class FirmasService {
       firmada_en: registro.firmada_en.toISOString(),
       device_id: registro.device_id,
       hash_anterior: registro.hash_anterior,
+      clave_publica_id: registro.clave_publica_id,
+      firma_criptografica: registro.firma_criptografica,
       hash_registro: registro.hash_registro,
     };
   }

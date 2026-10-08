@@ -62,14 +62,18 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }, [loadNearby, region.latitude, region.longitude]),
   );
 
+  // Arriba, el nombre: es lo que se busca en el mapa. Abajo, que el recuadro
+  // lleva al detalle; si no se dijera, nadie lo tocaría.
   const marcadores = useMemo<MarcadorMapa[]>(
     () =>
       denuncias.map((inc) => ({
         id: inc.id,
         lat: inc.latitude,
         lng: inc.longitude,
-        titulo: DENUNCIA_META.label,
-        detalle: inc.nombre_persona_buscada ?? undefined,
+        titulo: inc.nombre_persona_buscada ?? DENUNCIA_META.label,
+        detalle: inc.nombre_persona_buscada
+          ? `${DENUNCIA_META.label} · Ver detalle ›`
+          : 'Ver detalle ›',
         color: DENUNCIA_META.color,
       })),
     [denuncias],
@@ -102,6 +106,7 @@ const MapScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           region={region}
           marcadores={marcadores}
           ubicacionUsuario={miUbicacion}
+          alAbrirMarcador={(id) => navigation.navigate('DenunciaDetail', { id })}
         />
       )}
 

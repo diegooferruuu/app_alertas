@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { VerificationService } from './verification.service';
-import { DocumentoBloqueado } from '../desactivaciones/entities/documento-bloqueado.entity';
+import { DocumentoBloqueado } from '../sanciones/entities/documento-bloqueado.entity';
 import { UsersModule } from '../users/users.module';
 import { AlertasModule } from '../alertas/alertas.module';
 import { ComparadorDeRostros } from './rostros/comparador-de-rostros';
@@ -16,7 +16,7 @@ import { LectorTesseract } from './documento/lector-tesseract';
   // introduce ciclo.
   //
   // DocumentoBloqueado: para rechazar el re-registro de un documento bloqueado
-  // por sanción (H4.5). Solo se lee aquí; la escritura vive en desactivaciones.
+  // por sanción (H4.5). Solo se lee aquí; la escritura vive en sanciones.
   imports: [
     TypeOrmModule.forFeature([DocumentoBloqueado]),
     UsersModule,

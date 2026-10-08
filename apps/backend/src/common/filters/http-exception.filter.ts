@@ -36,6 +36,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let error = 'Internal Server Error';
+    // Código propio de una restricción (`sanciones/restriccion.ts`). Se deja
+    // pasar para que la app sepa por qué se le dijo que no, no solo que no.
+    let codigo: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -43,6 +46,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (typeof exceptionResponse === 'object') {
         message = (exceptionResponse as any).message || exception.message;
         error = (exceptionResponse as any).error || 'Error';
+        codigo = (exceptionResponse as any).codigo;
       } else {
         message = exception.message;
       }
@@ -68,6 +72,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: ctx.getRequest().url,
       message,
       error,
+      ...(codigo ? { codigo } : {}),
     });
   }
 }

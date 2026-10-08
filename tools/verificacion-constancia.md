@@ -49,7 +49,13 @@ Une los campos de `verificacion.orden_campos_registro`, tomándolos de cada
 elemento de `declaraciones`, y aplica SHA-256. El resultado debe ser igual a
 `hash_registro`.
 
-Si difiere, el registro fue alterado después de sellarse.
+Si la declaración trae `firma_criptografica` (constancias `v3` en adelante),
+agrega al final los campos de `verificacion.campos_registro_con_firma`: la
+clave y la firma del teléfono también están selladas. Las declaraciones sin
+firma, anteriores a ella, se unen sin esos campos y conservan su hash de siempre.
+
+Si difiere, el registro fue alterado después de sellarse. Con firma, eso incluye
+haberla quitado o cambiado.
 
 ### 2. El contenido de la denuncia
 
@@ -73,12 +79,21 @@ esta comprobación no dependa de pedirle nada al sistema.
 
 ### 4. La firma del dispositivo
 
-Si la declaración trae `firma_criptografica` y `clave_publica`, verifica la firma
-**Ed25519** sobre los bytes UTF-8 de `hash_registro` usando esa clave pública.
+Si la declaración trae `firma_criptografica` y `clave_publica`, arma el mensaje
+que firmó el teléfono: `verificacion.firma.encabezado` y después los campos de
+`verificacion.firma.orden_campos`, tomados de la declaración, **uno por línea**
+(separados por U+000A, sin salto al final). Verifica sobre sus bytes UTF-8 la
+firma **Ed25519** con `clave_publica`. La clave (32 bytes) y la firma (64 bytes)
+vienen en hexadecimal.
 
-Es la comprobación más fuerte: la clave privada nunca sale del dispositivo de
-quien firmó, así que una firma válida descarta que el registro lo fabricara quien
-opera el servidor.
+El teléfono no firma `hash_registro`: ese hash lo calcula el servidor al sellar,
+con su propia hora y el eslabón anterior de la cadena, y el teléfono no puede
+conocerlo antes. Firma lo que la persona declaró: la denuncia, su contenido, el
+texto legal que leyó, el vínculo y el nombre que escribió.
+
+Es la comprobación más fuerte: la clave privada nunca sale del teléfono de quien
+firmó, así que una firma válida descarta que el registro lo fabricara quien opera
+el servidor.
 
 ## Lo que una constancia no demuestra
 
@@ -97,3 +112,8 @@ detectar una alteración *posterior*, pero no para descartar que el propio
 operador fabricara el registro desde el principio. La firma del dispositivo es lo
 único que cierra esa puerta, y por eso la constancia dice siempre, de forma
 explícita, si la lleva o no.
+
+**Quién tenía el teléfono en la mano.** La firma prueba que la hizo el teléfono
+que guarda la clave. La aplicación pide desbloquearlo —código, huella o rostro—
+antes de firmar, pero ese paso ocurre en el teléfono y no se puede comprobar
+desde la constancia.

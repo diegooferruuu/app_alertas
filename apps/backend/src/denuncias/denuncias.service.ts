@@ -24,8 +24,9 @@ import { esMenorDeEdad, MOTIVO_SIN_FOTOGRAFIA } from './domain/minoria-edad';
 import { VERSION_FORMULA_ACTUAL } from '../declaraciones/domain/cadena';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
-import { EstadoCuenta, puedeCrearDenuncia } from '../users/domain/estado-cuenta';
 import { AlertasService } from '../alertas/alertas.service';
+import { revocarEmisionesPendientes } from '../alertas/revocacion';
+import { SancionesService } from '../sanciones/sanciones.service';
 
 @Injectable()
 export class DenunciasService {
@@ -37,6 +38,7 @@ export class DenunciasService {
     private usersService: UsersService,
     private dataSource: DataSource,
     private alertasService: AlertasService,
+    private sancionesService: SancionesService,
   ) {}
 
   /** El número de documento nunca se almacena en claro, solo su hash. */
@@ -75,17 +77,13 @@ export class DenunciasService {
         'Debes registrar tu documento de identidad para reportar',
       );
     }
-    // La sanción graduada (§5.4) muerde aquí: crear denuncias es justo lo que
-    // pierde una cuenta restringida o suspendida. La restricción es temporal y
-    // se interpreta contra su plazo, así que una cuenta cuya restricción venció
-    // vuelve a poder sin que nada le haya cambiado el estado.
-    if (!puedeCrearDenuncia(user.estado_cuenta, user.restringida_hasta)) {
-      throw new ForbiddenException(
-        user.estado_cuenta === EstadoCuenta.SUSPENDIDA
-          ? 'Tu cuenta está suspendida y no puede crear denuncias'
-          : 'Tu cuenta está restringida temporalmente y no puede crear denuncias nuevas',
-      );
-    }
+    const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
+
+    // El régimen de sanciones muerde aquí: una cuenta suspendida no denuncia, ni
+    // nadie puede denunciar a una persona que le bloqueó hacerlo, ni tener dos
+    // denuncias abiertas sobre la misma. Ninguna de las tres revela nada que el
+    // denunciante no sepa (I5): todas miran su propio historial.
+    await this.sancionesService.verificarPuedeDenunciar(user, ciHashPersonaBuscada);
 
     this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
 
@@ -109,8 +107,6 @@ export class DenunciasService {
       latitude: dto.latitude,
       longitude: dto.longitude,
     });
-
-    const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
 
     const guardada = await this.dataSource.transaction(async (manager) => {
       const denuncias = manager.getRepository(Denuncia);
@@ -179,6 +175,13 @@ export class DenunciasService {
       }
 
       return denuncia;
+    }).catch((error) => {
+      // Dos peticiones simultáneas pasan las dos la comprobación previa; la que
+      // llega segunda choca con el índice único y recibe el mismo mensaje.
+      if (error?.driverError?.constraint === 'uq_denuncias_abierta_por_persona') {
+        throw this.sancionesService.denunciaAbierta();
+      }
+      throw error;
     });
 
     // `save()` rellena la columna generada con su representación binaria pese a
@@ -366,6 +369,11 @@ export class DenunciasService {
         'Esta denuncia ya fue declarada bajo juramento y su contenido no puede modificarse',
       );
     }
+    // Sin firmar no hay sellado, pero una cerrada tampoco se edita: cambiarla
+    // después alteraría lo que la persona reportada vio cuando la cerró.
+    if (denuncia.estado !== EstadoDenuncia.ACTIVA) {
+      throw new ConflictException('Una denuncia cerrada ya no se puede editar');
+    }
 
     if (dto.ultimo_avistamiento_en !== undefined) {
       this.rechazarAvistamientoFuturo(dto.ultimo_avistamiento_en);
@@ -459,8 +467,8 @@ export class DenunciasService {
    * Una denuncia queda atribuida a la identidad de quien la firmó: poder
    * borrarla permitiría reportar a alguien, difundir la alerta y hacer
    * desaparecer el rastro. Lo que sí ocurre —solo por mecanismos automáticos—
-   * es que la alerta deje de difundirse: por caducidad o por desactivación de
-   * la persona reportada. La información no se borra nunca.
+   * es que la alerta deje de difundirse: por caducidad o porque la cierre la
+   * persona reportada. La información no se borra nunca.
    *
    * Si en el futuro hiciera falta retirar contenido, la vía correcta es una
    * transición de estado, no un DELETE.
@@ -521,6 +529,86 @@ export class DenunciasService {
   async findOne(id: string): Promise<Denuncia> {
     const denuncia = await this.denunciasRepository.findOne({ where: { id } });
     if (!denuncia) {
+      throw new NotFoundException('Denuncia no encontrada');
+    }
+    return denuncia;
+  }
+
+  /**
+   * El detalle de una denuncia, si quien pregunta puede verlo.
+   *
+   * Quien la presentó la ve siempre. Cualquier otra persona, solo si llegó a
+   * difundirse y nadie la cerró: activa —la que también está en el mapa— o
+   * vencida, a la que se llega desde la notificación que ya se recibió. Una sin
+   * firmar nunca salió del teléfono de su autor. Y una que la persona reportada
+   * cerró dejó de ser asunto de los vecinos: mostrarla seguiría exponiendo su
+   * foto después de que pidió detenerla.
+   *
+   * El rechazo es el mismo que para una que no existe: distinguirlos dejaría
+   * sondear qué identificadores esconden una denuncia.
+   */
+  /**
+   * «La encontramos»: quien presentó la denuncia da el caso por terminado.
+   *
+   * La alerta deja de difundirse para siempre —CERRADA es terminal— y queda la
+   * fecha, que mide cuánto tardó en aparecer la persona. No se borra nada (I7):
+   * la declaración jurada sigue siendo verificable.
+   *
+   * Lo que **no** hace es quitarle nada a la persona reportada: puede seguir
+   * declarándola falsa, con su falta. Si no fuera así, darla por terminada
+   * sería la forma de escapar de la sanción antes de que la persona reaccione.
+   *
+   * Para cualquiera que no sea su autor, responde como si no existiera.
+   */
+  async darPorEncontrada(
+    userId: string,
+    id: string,
+  ): Promise<{ denuncia: Denuncia; mensaje: string }> {
+    return this.dataSource.transaction(async (manager) => {
+      const repositorio = manager.getRepository(Denuncia);
+      const denuncia = await repositorio
+        .createQueryBuilder('d')
+        .where('d.id = :id', { id })
+        // Contra un cierre simultáneo de la persona reportada: uno de los dos
+        // gana, y el otro ve el estado que dejó.
+        .setLock('pessimistic_write')
+        .getOne();
+
+      if (!denuncia || denuncia.denunciante_id !== userId) {
+        throw new NotFoundException('Denuncia no encontrada');
+      }
+      if (!puedeTransicionarEstado(denuncia.estado, EstadoDenuncia.CERRADA)) {
+        throw new ConflictException(
+          denuncia.estado === EstadoDenuncia.INVALIDADA
+            ? 'La persona reportada ya cerró esta alerta'
+            : 'Esta denuncia ya está cerrada',
+        );
+      }
+
+      await repositorio.update(id, {
+        estado: EstadoDenuncia.CERRADA,
+        cerrada_en: () => 'now()',
+      });
+      await revocarEmisionesPendientes(manager, id, 'quien denunció dio el caso por terminado');
+
+      const seDifundio = denuncia.nivel_confianza !== NivelConfianza.REGISTRADA;
+      return {
+        denuncia: await repositorio.findOneByOrFail({ id }),
+        mensaje: seDifundio
+          ? 'Caso cerrado. La alerta dejó de difundirse y ya no se puede reactivar. Gracias por avisar.'
+          : 'Denuncia cerrada. No llegó a difundirse.',
+      };
+    });
+  }
+
+  async findVisiblePara(userId: string, id: string): Promise<Denuncia> {
+    const denuncia = await this.findOne(id);
+    if (denuncia.denunciante_id === userId) return denuncia;
+
+    const seDifundio = denuncia.nivel_confianza !== NivelConfianza.REGISTRADA;
+    const sigueAbierta =
+      denuncia.estado === EstadoDenuncia.ACTIVA || denuncia.estado === EstadoDenuncia.CADUCADA;
+    if (!seDifundio || !sigueAbierta) {
       throw new NotFoundException('Denuncia no encontrada');
     }
     return denuncia;

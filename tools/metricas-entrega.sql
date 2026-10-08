@@ -47,3 +47,44 @@ SELECT count(*) AS entregas_con_radio,
   FROM entregas_alerta e
   JOIN emisiones_alerta em ON em.id = e.emision_id
  WHERE em.radio_m IS NOT NULL;
+
+\echo '5. Intención de reporte de avistamiento, por alerta y canal'
+-- Cuenta toques en «Llamar» y «Enviar por WhatsApp», no reportes entregados:
+-- lo que pasa después del toque ocurre fuera del sistema. Sin quién ni dónde
+-- (I2), y con la hora al minuto. Se compara con cuántos recibieron la alerta.
+SELECT u.denuncia_id,
+       count(*) FILTER (WHERE u.canal = 'LLAMADA') AS llamadas,
+       count(*) FILTER (WHERE u.canal = 'MENSAJE') AS mensajes,
+       (SELECT count(*) FROM entregas_alerta e
+          JOIN emisiones_alerta em ON em.id = e.emision_id
+         WHERE em.denuncia_id = u.denuncia_id
+           AND e.estado IN ('aceptada', 'despachada')) AS notificados
+  FROM usos_canal_avistamiento u
+ GROUP BY u.denuncia_id
+ ORDER BY min(u.creado_en);
+
+\echo '6. Tiempo desde que se difundió la alerta hasta «La encontramos»'
+-- Solo las que su autor dio por terminadas después de difundirse. Mide lo que
+-- el sistema sabe: cuándo lo informó quien denunció, no cuándo apareció la
+-- persona. La emisión de la firma se encola en la misma transacción que la
+-- firma, así que su `creada_en` es el momento en que empezó la difusión.
+SELECT count(*) AS casos,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY d.cerrada_en - f.difundida_en) AS mediana,
+       max(d.cerrada_en - f.difundida_en) AS maxima
+  FROM denuncias d
+  JOIN LATERAL (SELECT min(em.creada_en) AS difundida_en
+                  FROM emisiones_alerta em
+                 WHERE em.denuncia_id = d.id AND em.motivo = 'firma') f ON true
+ WHERE d.estado = 'CERRADA' AND f.difundida_en IS NOT NULL;
+
+\echo '7. Prolongaciones: cuántas alertas siguieron a la vista después de su primer plazo'
+-- Ninguna prolongación notifica: mide cuánto tiempo más quiso quien denunció
+-- que la alerta siguiera en el mapa, no cuánta gente la vio. Solo las firmadas,
+-- que son las únicas que se difunden.
+SELECT d.prolongaciones,
+       count(*) AS alertas,
+       round(100.0 * count(*) / sum(count(*)) OVER (), 1) AS porcentaje
+  FROM denuncias d
+ WHERE d.nivel_confianza <> 'REGISTRADA'
+ GROUP BY d.prolongaciones
+ ORDER BY d.prolongaciones;

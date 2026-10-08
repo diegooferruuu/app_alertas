@@ -53,6 +53,16 @@ import {
 @Entity('denuncias')
 @Index('idx_denuncias_created_at', ['created_at'])
 @Index('idx_denuncias_ci_persona_buscada', ['ci_hash_persona_buscada'])
+// Una sola denuncia abierta por denunciante y persona. Sin esto, dos denuncias
+// simultáneas sobre la misma persona, cerradas ambas como falsas, suspenderían
+// una cuenta por la palabra de una sola persona. Vive en la base y no solo en
+// el código para que dos peticiones a la vez no lo esquiven. «Abierta» incluye
+// CADUCADA, porque su autor todavía puede prolongarla; si la persona apareció,
+// la cierra con «La encontramos» y queda libre para denunciar otra vez.
+@Index('uq_denuncias_abierta_por_persona', ['denunciante_id', 'ci_hash_persona_buscada'], {
+  unique: true,
+  where: `"estado" IN ('ACTIVA', 'CADUCADA')`,
+})
 // Los valores válidos se controlan en el dominio; estas restricciones son la
 // segunda línea, para que una escritura directa a la base no pueda dejar la
 // máquina de estados en un valor que el código no sabe interpretar.
@@ -60,7 +70,7 @@ import {
 // `migration:generate` no proponga recrearlas en cada ejecución.
 @Check(
   'chk_denuncias_nivel_confianza',
-  `((nivel_confianza)::text = ANY ((ARRAY['REGISTRADA'::character varying, 'PROVISIONAL'::character varying, 'CORROBORADA'::character varying])::text[]))`,
+  `((nivel_confianza)::text = ANY (ARRAY[('REGISTRADA'::character varying)::text, ('PROVISIONAL'::character varying)::text]))`,
 )
 @Check(
   'chk_denuncias_estado',
@@ -72,6 +82,18 @@ import {
 @Check(
   'chk_denuncias_difusion_coherente',
   `(((((nivel_confianza)::text = 'REGISTRADA'::text) AND (radio_actual_m IS NULL) AND (expira_en IS NULL)) OR (((nivel_confianza)::text <> 'REGISTRADA'::text) AND (radio_actual_m IS NOT NULL) AND (expira_en IS NOT NULL))))`,
+)
+// Las prolongaciones no son negativas, y una sin firmar no tiene alerta que
+// prolongar. El tope vive en la configuración: cambiarlo no exige migrar.
+@Check(
+  'chk_denuncias_prolongaciones',
+  `((prolongaciones >= 0) AND (((nivel_confianza)::text <> 'REGISTRADA'::text) OR (prolongaciones = 0)))`,
+)
+// Una denuncia que su autor dio por terminada sabe cuándo, y solo ella lo
+// tiene: la fecha no puede quedar suelta en otro estado ni faltar en este.
+@Check(
+  'chk_denuncias_cerrada_con_fecha',
+  `(((((estado)::text = 'CERRADA'::text) AND (cerrada_en IS NOT NULL)) OR (((estado)::text <> 'CERRADA'::text) AND (cerrada_en IS NULL))))`,
 )
 // Cada campo descriptivo, contra su dominio. La especificación lo pide explícito
 // (§7): validar solo en el servidor dejaría el dominio a merced de una escritura
@@ -132,8 +154,8 @@ export class Denuncia {
   /**
    * SHA-256 del documento de la persona buscada. Obligatorio.
    *
-   * Es el campo que habilita el interruptor de desactivación: sin él, la persona
-   * reportada no tendría forma de demostrar que una denuncia la identifica. El
+   * Es el campo que habilita el cierre por la persona reportada: sin él, no
+   * tendría forma de demostrar que una denuncia la identifica. El
    * número nunca se almacena en claro, y este hash no viaja en ninguna respuesta.
    */
   @Column({ type: 'varchar', length: 64, select: false })
@@ -293,9 +315,21 @@ export class Denuncia {
   @Column({ type: 'timestamptz', nullable: true })
   expira_en!: Date | null;
 
-  /** Número de caso de la FELCC. Una de las dos vías de corroboración. */
-  @Column({ type: 'varchar', length: 60, nullable: true })
-  numero_caso_felcc!: string | null;
+  /**
+   * Cuántas veces la prolongó quien la presentó. Cada una está firmada en
+   * `prolongaciones`; este contador es lo que se consulta para el tope y lo que
+   * ve la aplicación.
+   */
+  @Column({ type: 'smallint', default: 0 })
+  prolongaciones!: number;
+
+  /**
+   * Cuándo la dio por terminada quien la presentó: «La encontramos». Nulo en
+   * cualquier otro estado. Con la firma, mide cuánto tardó en aparecer la
+   * persona.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  cerrada_en!: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;

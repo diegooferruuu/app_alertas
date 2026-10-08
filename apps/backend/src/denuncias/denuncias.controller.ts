@@ -5,6 +5,7 @@ import {
   Patch,
   Body,
   Param,
+  ParseUUIDPipe,
   Query,
   UseGuards,
   BadRequestException,
@@ -70,10 +71,13 @@ export class DenunciasController {
    * Es el único punto que devuelve el contenido de las imágenes: las consultas
    * de listado y de cercanía no lo traen, para no arrastrar cientos de
    * kilobytes por fila en la ruta crítica del sistema.
+   *
+   * Quién puede ver qué lo decide `findVisiblePara`: antes devolvía cualquier
+   * denuncia a cualquiera que tuviera su identificador.
    */
   @Get(':id')
-  async findOne(@CurrentUser() user: any, @Param('id') id: string) {
-    const denuncia = await this.denunciasService.findOne(id);
+  async findOne(@CurrentUser() user: any, @Param('id', ParseUUIDPipe) id: string) {
+    const denuncia = await this.denunciasService.findVisiblePara(user.userId, id);
     const fotografias = await this.denunciasService.fotografiasDe(id);
     return { ...vistaPublica(denuncia, user.userId), fotografias };
   }
@@ -88,7 +92,18 @@ export class DenunciasController {
     return vistaPublica(denuncia, user.userId);
   }
 
+  /** «La encontramos»: quien la presentó da el caso por terminado. */
+  @Post(':id/encontrada')
+  async darPorEncontrada(
+    @CurrentUser() user: any,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const { denuncia, mensaje } = await this.denunciasService.darPorEncontrada(user.userId, id);
+    return { ...vistaPublica(denuncia, user.userId), mensaje };
+  }
+
   // No hay DELETE, y no es un olvido: el invariante I7 dice que ningún rol
-  // puede eliminar una denuncia. Una alerta deja de difundirse por caducidad o
-  // por desactivación de la persona reportada, nunca borrando la fila.
+  // puede eliminar una denuncia. Una alerta deja de difundirse por caducidad,
+  // porque la cierra la persona reportada o porque quien la presentó la da por
+  // terminada, nunca borrando la fila.
 }

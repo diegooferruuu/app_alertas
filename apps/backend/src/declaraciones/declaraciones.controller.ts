@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { DeclaracionesService } from './declaraciones.service';
 import { FirmasService } from './firmas.service';
 import { FirmarDeclaracionDto } from './dto/firmar-declaracion.dto';
-import { RegistrarCasoFelccDto } from './dto/registrar-caso-felcc.dto';
+import { ProlongarAlertaDto } from './dto/prolongar-alerta.dto';
+import { RegistrarClaveDto } from './dto/registrar-clave.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ETIQUETA_VINCULO, VINCULOS_VALIDOS } from './domain/vinculos';
@@ -47,6 +48,24 @@ export class DeclaracionesController {
     }));
   }
 
+  /**
+   * La clave pública del teléfono. El teléfono la registra antes de cada
+   * firma: es idempotente, y así nunca firma con un identificador vencido.
+   */
+  @Post('claves')
+  async registrarClave(@CurrentUser() user: any, @Body() dto: RegistrarClaveDto) {
+    return this.firmasService.registrarClave(user.userId, dto.clave_publica);
+  }
+
+  /** El hash del contenido que el teléfono va a firmar. */
+  @Get('denuncias/:denunciaId/contenido')
+  async contenidoAFirmar(
+    @CurrentUser() user: any,
+    @Param('denunciaId', ParseUUIDPipe) denunciaId: string,
+  ) {
+    return this.firmasService.contenidoAFirmar(user.userId, denunciaId);
+  }
+
   @Post('denuncias/:denunciaId/firmar')
   async firmar(
     @CurrentUser() user: any,
@@ -57,30 +76,15 @@ export class DeclaracionesController {
   }
 
   /**
-   * Corrobora la denuncia de otra persona firmando la propia declaración.
-   *
-   * Compromete igual que la original: quien corrobora también queda atribuido.
+   * Mantiene la alerta a la vista otro plazo, sin notificar a nadie. Firmado
+   * con el teléfono: es afirmar de nuevo que la persona sigue sin aparecer.
    */
-  @Post('denuncias/:denunciaId/corroborar')
-  async corroborar(
+  @Post('denuncias/:denunciaId/prolongar')
+  async prolongar(
     @CurrentUser() user: any,
-    @Param('denunciaId') denunciaId: string,
-    @Body() dto: FirmarDeclaracionDto,
+    @Param('denunciaId', ParseUUIDPipe) denunciaId: string,
+    @Body() dto: ProlongarAlertaDto,
   ) {
-    return this.firmasService.corroborar(user.userId, denunciaId, dto);
-  }
-
-  /** La otra vía de corroboración: el respaldo de una denuncia formal. */
-  @Post('denuncias/:denunciaId/caso-felcc')
-  async registrarCasoFelcc(
-    @CurrentUser() user: any,
-    @Param('denunciaId') denunciaId: string,
-    @Body() dto: RegistrarCasoFelccDto,
-  ) {
-    return this.firmasService.registrarCasoFelcc(
-      user.userId,
-      denunciaId,
-      dto.numero_caso,
-    );
+    return this.firmasService.prolongar(user.userId, denunciaId, dto);
   }
 }

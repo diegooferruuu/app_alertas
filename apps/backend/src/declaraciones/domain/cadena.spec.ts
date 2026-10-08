@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
   CamposDelRegistro,
   calcularHashContenido,
@@ -83,6 +84,55 @@ describe('Cadena de hashes del paquete probatorio', () => {
     it('rechaza un campo que contenga el separador', () => {
       expect(contieneSeparador('nombre normal')).toBe(false);
       expect(contieneSeparador('nombre\x1Finyectado')).toBe(true);
+    });
+  });
+
+  describe('firma del teléfono (H6.3)', () => {
+    const firmado = () => ({
+      ...registroBase(),
+      clave_publica_id: '44444444-4444-4444-4444-444444444444',
+      firma_criptografica: 'd'.repeat(128),
+    });
+
+    it('un registro sin firma conserva exactamente su hash de siempre', () => {
+      // La fórmula de antes de la H6.3, escrita a mano: los 12 campos y nada
+      // más. Si cambiara, ninguna constancia ya emitida se podría verificar.
+      const r = registroBase();
+      const formulaAnterior = createHash('sha256')
+        .update(
+          [
+            r.denuncia_id,
+            r.usuario_id,
+            r.ci_hash_declarante,
+            r.vinculo_declarado,
+            r.tipo,
+            r.version_texto_legal_id,
+            r.hash_texto_legal,
+            r.texto_firmado,
+            r.hash_contenido_denuncia,
+            r.firmada_en,
+            r.device_id ?? '',
+            r.hash_anterior ?? '',
+          ].join('\x1F'),
+          'utf8',
+        )
+        .digest('hex');
+
+      expect(calcularHashRegistro(r)).toBe(formulaAnterior);
+      expect(
+        calcularHashRegistro({ ...r, clave_publica_id: null, firma_criptografica: null }),
+      ).toBe(formulaAnterior);
+    });
+
+    it('la firma entra en el hash: quitarla o cambiarla después se detecta', () => {
+      const sellado = calcularHashRegistro(firmado());
+
+      expect(registroIntacto({ ...firmado(), firma_criptografica: null }, sellado)).toBe(false);
+      expect(registroIntacto({ ...firmado(), firma_criptografica: 'e'.repeat(128) }, sellado)).toBe(
+        false,
+      );
+      expect(registroIntacto({ ...firmado(), clave_publica_id: '5'.repeat(36) }, sellado)).toBe(false);
+      expect(registroIntacto(firmado(), sellado)).toBe(true);
     });
   });
 

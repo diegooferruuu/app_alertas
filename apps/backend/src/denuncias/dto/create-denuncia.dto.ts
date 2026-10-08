@@ -64,8 +64,8 @@ export class CreateDenunciaDto {
   /**
    * Número de documento de la persona buscada. Obligatorio, sin excepción.
    *
-   * Solo se guarda su hash: es lo que permite que esa persona desactive la
-   * alerta si la denuncia es falsa. Sin este dato la denuncia sería
+   * Solo se guarda su hash: es lo que permite que esa persona cierre la
+   * alerta si está bien o si la denuncia es falsa. Sin este dato la denuncia sería
    * irreversible para quien resulta afectado, así que no hay vía alternativa.
    * El número en claro no se almacena, ni se registra en logs, ni vuelve en
    * ninguna respuesta de la API (P6).

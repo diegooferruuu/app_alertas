@@ -1,7 +1,11 @@
 import { apiClient } from './api';
 
-/** Cuánto respaldo tiene el caso. Determina si se difunde, con qué alcance. */
-export type NivelConfianza = 'REGISTRADA' | 'PROVISIONAL' | 'CORROBORADA';
+/**
+ * Cuánto respaldo tiene el caso: si ya se firmó la declaración y se difunde.
+ * Hubo un tercero, CORROBORADA, con el caso de la FELCC; se quitó porque ese
+ * número no es público y el sistema no podía comprobarlo.
+ */
+export type NivelConfianza = 'REGISTRADA' | 'PROVISIONAL';
 
 /** Si la denuncia sigue viva, y por qué dejó de estarlo. */
 export type EstadoDenuncia = 'ACTIVA' | 'CADUCADA' | 'INVALIDADA' | 'CERRADA';
@@ -52,7 +56,10 @@ export interface Denuncia {
   estado: EstadoDenuncia;
   radio_actual_m: number | null;
   expira_en: string | null;
-  numero_caso_felcc: string | null;
+  /** Cuántas veces la prolongó quien la presentó. */
+  prolongaciones: number;
+  /** Cuándo la dio por terminada quien la presentó: «La encontramos». */
+  cerrada_en: string | null;
   created_at: string;
   distance_meters?: number;
 }
@@ -109,17 +116,20 @@ export const ESTADO_META: Record<
 > = {
   CADUCADA: {
     label: 'Alerta vencida',
-    desc: 'Dejó de difundirse por falta de respaldo. El caso sigue registrado.',
+    // Lo leen también quienes no la presentaron: no se le habla al autor.
+    desc: 'Venció su plazo. Sigue registrada, y quien la presentó puede prolongarla unas veces más.',
     color: '#8E8E93',
   },
   INVALIDADA: {
     label: 'Alerta retirada',
-    desc: 'La persona reportada retiró esta alerta.',
+    desc: 'La persona reportada cerró esta alerta.',
     color: '#B32C24',
   },
   CERRADA: {
     label: 'Caso cerrado',
-    desc: 'Este caso terminó.',
+    // Solo la ven quien la presentó y la persona reportada: para los demás,
+    // una cerrada ya no existe.
+    desc: 'Quien la presentó informó que la persona apareció.',
     color: '#0E7247',
   },
 };
@@ -131,18 +141,13 @@ export const NIVEL_META: Record<
 > = {
   REGISTRADA: {
     label: 'Registrada',
-    desc: 'Solo tú la ves. Firma la declaración para que se difunda.',
+    desc: 'Todavía no se difunde. Firma la declaración para que se alerte a la zona.',
     color: '#8E8E93',
   },
   PROVISIONAL: {
     label: 'Difundida',
-    desc: 'Se está alertando a la zona cercana.',
+    desc: 'Se alertó a la zona cercana, y sigue a la vista en el mapa hasta que venza.',
     color: '#FF9500',
-  },
-  CORROBORADA: {
-    label: 'Corroborada',
-    desc: 'Con respaldo. Se alerta a una zona más amplia.',
-    color: '#34C759',
   },
 };
 
@@ -205,6 +210,18 @@ class DenunciaService {
     return response.data;
   }
 
+  /**
+   * «La encontramos»: da el caso por terminado. La alerta deja de difundirse y
+   * no se puede reactivar. La persona reportada conserva su derecho a
+   * declararla falsa.
+   */
+  async darPorEncontrada(id: string): Promise<Denuncia & { mensaje: string }> {
+    const response = await apiClient.post<Denuncia & { mensaje: string }>(
+      `/denuncias/${id}/encontrada`,
+    );
+    return response.data;
+  }
+
   // No hay método para eliminar: el servidor no expone esa operación. Una
   // denuncia queda atribuida a quien la firmó y no se puede hacer desaparecer.
 }
@@ -254,7 +271,35 @@ export interface FirmarPayload {
   vinculo_declarado: string;
   nombre_escrito: string;
   device_id?: string;
+  /** La firma del teléfono: obligatoria. Ver `firma-dispositivo.ts`. */
+  clave_dispositivo_id: string;
+  firma_dispositivo: string;
 }
+
+export interface ResultadoFirma {
+  firmada: true;
+  nivel_confianza: NivelConfianza;
+}
+
+export interface ProlongarPayload {
+  /** La versión del texto legal que se mostró al prolongar. */
+  version_texto_legal_id: string;
+  /** La firma del teléfono sobre la prolongación. Ver `firma-dispositivo.ts`. */
+  clave_dispositivo_id: string;
+  firma_dispositivo: string;
+}
+
+export interface ResultadoProlongacion {
+  expira_en: string;
+  prolongaciones: number;
+  prolongaciones_restantes: number;
+}
+
+/**
+ * Veces que se puede prolongar una alerta. Lo impone el servidor, que rechaza
+ * la que pase el tope; aquí solo sirve para decir cuántas quedan.
+ */
+export const MAX_PROLONGACIONES = 3;
 
 class DeclaracionService {
   async textoLegal(): Promise<TextoLegal> {
@@ -273,32 +318,44 @@ class DeclaracionService {
     return response.data;
   }
 
-  async firmar(denunciaId: string, payload: FirmarPayload): Promise<void> {
-    await apiClient.post(
+  /** El hash del contenido que el teléfono va a firmar. */
+  async contenidoAFirmar(denunciaId: string): Promise<{ hash_contenido_denuncia: string }> {
+    const response = await apiClient.get<{ hash_contenido_denuncia: string }>(
+      `/declaraciones/denuncias/${denunciaId}/contenido`,
+    );
+    return response.data;
+  }
+
+  /** Registra la clave pública del teléfono. Idempotente: se llama antes de cada firma. */
+  async registrarClave(clavePublica: string): Promise<{ id: string }> {
+    const response = await apiClient.post<{ id: string }>('/declaraciones/claves', {
+      clave_publica: clavePublica,
+    });
+    return response.data;
+  }
+
+  async firmar(denunciaId: string, payload: FirmarPayload): Promise<ResultadoFirma> {
+    const response = await apiClient.post<ResultadoFirma>(
       `/declaraciones/denuncias/${denunciaId}/firmar`,
       payload,
     );
+    return response.data;
   }
 
   /**
-   * Corrobora la denuncia de otra persona.
-   *
-   * Misma ceremonia y mismo compromiso que firmar la propia: quien corrobora
-   * también queda atribuido. Por eso reutiliza la pantalla de firma en lugar de
-   * ofrecer un botón de "confirmar" barato.
+   * Mantiene la alerta a la vista otro plazo, contado desde ahora, sin
+   * notificar a nadie. También devuelve al mapa una alerta vencida. Firmado con
+   * el teléfono: es afirmar de nuevo que la persona sigue sin aparecer.
    */
-  async corroborar(denunciaId: string, payload: FirmarPayload): Promise<void> {
-    await apiClient.post(
-      `/declaraciones/denuncias/${denunciaId}/corroborar`,
+  async prolongar(
+    denunciaId: string,
+    payload: ProlongarPayload,
+  ): Promise<ResultadoProlongacion> {
+    const response = await apiClient.post<ResultadoProlongacion>(
+      `/declaraciones/denuncias/${denunciaId}/prolongar`,
       payload,
     );
-  }
-
-  /** La otra vía de corroboración: el respaldo de una denuncia formal. */
-  async registrarCasoFelcc(denunciaId: string, numeroCaso: string): Promise<void> {
-    await apiClient.post(`/declaraciones/denuncias/${denunciaId}/caso-felcc`, {
-      numero_caso: numeroCaso,
-    });
+    return response.data;
   }
 }
 

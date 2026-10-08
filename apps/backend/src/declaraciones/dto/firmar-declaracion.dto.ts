@@ -1,5 +1,6 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 import { VINCULOS_VALIDOS } from '../domain/vinculos';
+import { FIRMA_HEX } from '../domain/firma-dispositivo';
 
 export class FirmarDeclaracionDto {
   /** Versión del texto legal que se mostró, no «la vigente». */
@@ -30,4 +31,14 @@ export class FirmarDeclaracionDto {
   @IsString()
   @MaxLength(120)
   device_id?: string;
+
+  /**
+   * La clave registrada del teléfono que firma, y su firma Ed25519 sobre lo
+   * declarado. Obligatorias: toda declaración nueva lleva la firma del teléfono.
+   */
+  @IsUUID()
+  clave_dispositivo_id!: string;
+
+  @Matches(FIRMA_HEX, { message: 'La firma del dispositivo debe ser Ed25519 en hexadecimal' })
+  firma_dispositivo!: string;
 }

@@ -9,9 +9,16 @@ import {
 } from 'typeorm';
 import { VinculoDeclarado } from '../domain/vinculos';
 import { VersionTextoLegal } from './version-texto-legal.entity';
+import { ClaveDispositivo } from './clave-dispositivo.entity';
 import { Denuncia } from '../../denuncias/entities/denuncia.entity';
 
-/** Distingue la declaración que difunde el caso de las que lo corroboran. */
+/**
+ * Distingue la declaración que difunde el caso de las que lo corroboraban.
+ *
+ * Ya no se firman corroboraciones: la de otros usuarios se quitó primero, y
+ * después el respaldo por el caso de la FELCC. El valor se conserva porque las
+ * declaraciones son de solo inserción y las firmadas antes deben poder leerse.
+ */
 export type TipoDeclaracion = 'original' | 'corroboracion';
 
 /**
@@ -47,11 +54,8 @@ export class DeclaracionJurada {
   vinculo_declarado!: VinculoDeclarado;
 
   /**
-   * Original difunde el caso; corroboración lo respalda.
-   *
-   * Un campo aquí evita una tabla aparte para las corroboraciones: son el mismo
-   * acto de firma, con el mismo paquete probatorio. El contador de
-   * corroboraciones se deriva de estas filas y no se guarda duplicado.
+   * Original difunde el caso; corroboración lo respaldaba (ver
+   * `TipoDeclaracion`: las nuevas son siempre originales).
    */
   @Column({ type: 'varchar', length: 20, default: 'original' })
   tipo!: TipoDeclaracion;
@@ -86,12 +90,23 @@ export class DeclaracionJurada {
   @Column({ type: 'varchar', length: 120, nullable: true })
   device_id!: string | null;
 
-  /** Firma Ed25519 del dispositivo. Se implementa en la fase 6. */
+  /**
+   * Firma Ed25519 del teléfono sobre lo declarado (ver `domain/firma-dispositivo`),
+   * en hexadecimal. Nula en las declaraciones anteriores a la H6.3.
+   *
+   * Es lo que impide que el propio operador fabrique una declaración: sin la
+   * clave privada, que nunca sale del teléfono, no hay firma válida posible.
+   */
   @Column({ type: 'text', nullable: true })
   firma_criptografica!: string | null;
 
+  /** La clave del teléfono que firmó. */
   @Column({ type: 'uuid', nullable: true })
   clave_publica_id!: string | null;
+
+  @ManyToOne(() => ClaveDispositivo, { onDelete: 'NO ACTION', nullable: true })
+  @JoinColumn({ name: 'clave_publica_id' })
+  clave?: ClaveDispositivo | null;
 
   /**
    * Hash del registro anterior de la cadena.

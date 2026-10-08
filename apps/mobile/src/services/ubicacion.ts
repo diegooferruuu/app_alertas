@@ -17,9 +17,16 @@ export interface ResultadoUbicacion {
   motivo?: string;
 }
 
-export async function reportarUbicacion(): Promise<ResultadoUbicacion> {
+/**
+ * Con `pedirPermiso` en `false` solo se consulta el permiso, sin pedirlo, y no
+ * se ofrece activar la ubicación precisa. Así tiene que llamarse siempre que la
+ * app vuelve al primer plano: el porqué está en `useAlertas`.
+ */
+export async function reportarUbicacion(pedirPermiso: boolean): Promise<ResultadoUbicacion> {
   try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    const { status } = pedirPermiso
+      ? await Location.requestForegroundPermissionsAsync()
+      : await Location.getForegroundPermissionsAsync();
     if (status !== 'granted') {
       return {
         reportada: false,
@@ -32,6 +39,9 @@ export async function reportarUbicacion(): Promise<ResultadoUbicacion> {
     // cambiar a quién alcanza la alerta.
     const posicion = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
+      // En Android, el diálogo para activar la ubicación precisa también es
+      // una pantalla del sistema encima de la app, igual que la de permisos.
+      mayShowUserSettingsDialog: pedirPermiso,
     });
 
     await alertasService.actualizarUbicacion(

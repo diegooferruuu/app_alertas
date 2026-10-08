@@ -40,5 +40,10 @@ export interface PropsMapa {
   /** Si se pasa, se marca dónde está quien mira el mapa. */
   ubicacionUsuario?: PuntoMapa | null;
   alTocar?: (punto: PuntoMapa) => void;
+  /**
+   * Al tocar el recuadro que aparece sobre un marcador, con el `id` de ese
+   * marcador. Sin esto, el recuadro solo informa.
+   */
+  alAbrirMarcador?: (id: string) => void;
   style?: StyleProp<ViewStyle>;
 }

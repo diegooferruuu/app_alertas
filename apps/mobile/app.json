@@ -64,7 +64,13 @@
       "expo-notifications",
       "expo-dev-client",
       "expo-secure-store",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Usamos Face ID para confirmar que eres tú al firmar una declaración jurada."
+        }
+      ]
     ],
     "scheme": "myapp",
     "extra": {

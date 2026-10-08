@@ -12,6 +12,10 @@ import { Denuncia } from '../../denuncias/entities/denuncia.entity';
 /** Por qué se emitió esta alerta. */
 export type MotivoEmision =
   | 'firma'
+  /**
+   * Ya no se emite: era la ampliación al registrar el caso de la FELCC, que se
+   * quitó. Queda porque las emisiones viejas son el registro de lo que salió.
+   */
   | 'corroboracion'
   /**
    * Aviso directo a la persona que una denuncia identifica.

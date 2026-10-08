@@ -3,55 +3,45 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
-import { sancionVigente } from '../../services/auth.service';
-import desactivacionService from '../../services/desactivacion.service';
-
-const getRoleInfo = (
-  role: string | undefined,
-  documentoRegistrado: boolean,
-): { label: string; color: string; desc: string } => {
-  if (role === 'moderator') {
-    return {
-      label: 'Moderador',
-      color: '#AF52DE',
-      desc: 'Puedes señalar denuncias presuntamente falsas.',
-    };
-  }
-  if (documentoRegistrado) {
-    return {
-      label: 'Ciudadano',
-      color: '#34C759',
-      desc: 'Puedes reportar denuncias, calificar y recibir alertas.',
-    };
-  }
-  return {
-    label: 'Visitante',
-    color: '#FF9500',
-    desc: 'Puedes ver el mapa y la lista. Registra tu documento para reportar.',
-  };
-};
+import cierreService from '../../services/cierre.service';
+import sancionesService, {
+  SituacionSanciones,
+  presentacionDe,
+} from '../../services/sanciones.service';
 
 const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, documentoRegistrado, logout } = useAuth();
-  const roleInfo = getRoleInfo(user?.role, documentoRegistrado);
-  const sancion = sancionVigente(user);
   const [alertasSobreMi, setAlertasSobreMi] = useState(0);
+  const [situacion, setSituacion] = useState<SituacionSanciones | null>(null);
 
-  // El interruptor tiene que ser encontrable sin depender de la notificación:
-  // quien reinstala la app, o desactiva los avisos, no dejaría de estar
-  // reportado por eso. El contador es lo que lo hace visible.
+  // El cierre tiene que ser encontrable sin depender de la notificación: quien
+  // reinstala la app, o desactiva los avisos, no deja de estar reportado por
+  // eso. El contador es lo que lo hace visible.
+  //
+  // La situación se pide aquí por la misma razón que el contador: una cuenta
+  // sancionada recibe un rechazo al denunciar o firmar, y tiene que poder
+  // enterarse de por qué sin esperar a encontrárselo.
   useFocusEffect(
     useCallback(() => {
       if (!documentoRegistrado) {
         setAlertasSobreMi(0);
+        setSituacion(null);
         return;
       }
-      desactivacionService
+      cierreService
         .misAlertas()
-        .then((a) => setAlertasSobreMi(a.length))
+        .then((a) => setAlertasSobreMi(a.filter((d) => d.puede_cerrarse).length))
         .catch(() => setAlertasSobreMi(0));
+      sancionesService
+        .miSituacion()
+        .then(setSituacion)
+        // Sin respuesta no se muestra nada: callar es mejor que decir «sin
+        // faltas» de una cuenta que podría tenerlas.
+        .catch(() => setSituacion(null));
     }, [documentoRegistrado]),
   );
+
+  const presentacion = situacion ? presentacionDe(situacion) : null;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -64,74 +54,90 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <Text style={styles.name}>{user?.full_name || 'Usuario'}</Text>
       <Text style={styles.email}>{user?.email}</Text>
 
-      <View style={[styles.roleBadge, { backgroundColor: `${roleInfo.color}20` }]}>
-        <Text style={[styles.roleLabel, { color: roleInfo.color }]}>{roleInfo.label}</Text>
-      </View>
-      <Text style={styles.roleDesc}>{roleInfo.desc}</Text>
+      {documentoRegistrado ? (
+        <View style={[styles.badge, { backgroundColor: '#E2F2EA' }]}>
+          <Ionicons name="checkmark-circle" size={15} color="#0E7247" />
+          <Text style={[styles.badgeLabel, { color: '#0E7247' }]}>Documento registrado</Text>
+        </View>
+      ) : (
+        <>
+          <View style={[styles.badge, { backgroundColor: '#FFF1DE' }]}>
+            <Ionicons name="person-circle-outline" size={15} color="#8F5600" />
+            <Text style={[styles.badgeLabel, { color: '#8F5600' }]}>Visitante</Text>
+          </View>
+          <Text style={styles.badgeDesc}>
+            Puedes ver el mapa y la lista. Registra tu documento para reportar.
+          </Text>
+        </>
+      )}
 
-      {/* Sin esto, una cuenta sancionada recibe un 403 al reportar y no tiene
-          dónde enterarse de por qué. La sanción es automática: no hay a quién
-          reclamarle, así que al menos debe ser legible. */}
-      {sancion && (
-        <View
+      {/* Solo cuando hay algo que contar: «sin faltas» queda dentro de «Mi
+          situación», no ocupa el perfil. */}
+      {situacion && presentacion && situacion.estado !== 'NORMAL' && (
+        <TouchableOpacity
           style={[
             styles.sancion,
-            { backgroundColor: `${sancion.color}15`, borderColor: `${sancion.color}40` },
+            { backgroundColor: presentacion.fondo, borderColor: `${presentacion.color}40` },
           ]}
+          onPress={() => navigation.navigate('MiSituacion')}
         >
-          <Ionicons name="alert-circle-outline" size={20} color={sancion.color} />
+          <Ionicons name={presentacion.icono as any} size={20} color={presentacion.color} />
           <View style={styles.sancionBody}>
-            <Text style={[styles.sancionTitulo, { color: sancion.color }]}>
-              {sancion.titulo}
+            <Text style={[styles.sancionTitulo, { color: presentacion.color }]}>
+              {presentacion.titulo}
             </Text>
-            <Text style={styles.sancionDetalle}>{sancion.detalle}</Text>
+            <Text style={styles.sancionDetalle}>{presentacion.detalle}</Text>
           </View>
-        </View>
-      )}
-
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{user?.reputation_score ?? '—'}</Text>
-          <Text style={styles.statLabel}>Reputación</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Ionicons
-            name={documentoRegistrado ? 'checkmark-circle' : 'close-circle'}
-            size={28}
-            color={documentoRegistrado ? '#34C759' : '#FF3B30'}
-          />
-          <Text style={styles.statLabel}>Documento</Text>
-        </View>
-      </View>
-
-      <TouchableOpacity
-        style={styles.menuItem}
-        onPress={() => navigation.navigate('MisDenuncias')}
-      >
-        <Ionicons name="document-text-outline" size={20} color="#007AFF" />
-        <Text style={styles.menuItemText}>Mis denuncias</Text>
-        <Ionicons name="chevron-forward" size={18} color="#ccc" />
-      </TouchableOpacity>
-
-      {documentoRegistrado && (
-        <TouchableOpacity
-          style={styles.menuItem}
-          onPress={() => navigation.navigate('AlertasSobreMi')}
-        >
-          <Ionicons
-            name="shield-outline"
-            size={20}
-            color={alertasSobreMi > 0 ? '#B32C24' : '#007AFF'}
-          />
-          <Text style={styles.menuItemText}>Alertas sobre mí</Text>
-          {alertasSobreMi > 0 && (
-            <View style={styles.contador}>
-              <Text style={styles.contadorText}>{alertasSobreMi}</Text>
-            </View>
-          )}
-          <Ionicons name="chevron-forward" size={18} color="#ccc" />
+          <Ionicons name="chevron-forward" size={18} color={presentacion.color} />
         </TouchableOpacity>
       )}
+
+      <View style={styles.menu}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('MisDenuncias')}
+        >
+          <Ionicons name="document-text-outline" size={20} color="#007AFF" />
+          <Text style={styles.menuItemText}>Mis denuncias</Text>
+          <Ionicons name="chevron-forward" size={18} color="#ccc" />
+        </TouchableOpacity>
+
+        {documentoRegistrado && (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('AlertasSobreMi')}
+          >
+            <Ionicons
+              name="shield-outline"
+              size={20}
+              color={alertasSobreMi > 0 ? '#B32C24' : '#007AFF'}
+            />
+            <Text style={styles.menuItemText}>Alertas sobre mí</Text>
+            {alertasSobreMi > 0 && (
+              <View style={styles.contador}>
+                <Text style={styles.contadorText}>{alertasSobreMi}</Text>
+              </View>
+            )}
+            <Ionicons name="chevron-forward" size={18} color="#ccc" />
+          </TouchableOpacity>
+        )}
+
+        {documentoRegistrado && (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('MiSituacion')}
+          >
+            <Ionicons name="scale-outline" size={20} color="#007AFF" />
+            <Text style={styles.menuItemText}>Mi situación</Text>
+            {presentacion && (
+              <Text style={[styles.menuEstado, { color: presentacion.color }]}>
+                {presentacion.titulo}
+              </Text>
+            )}
+            <Ionicons name="chevron-forward" size={18} color="#ccc" />
+          </TouchableOpacity>
+        )}
+      </View>
 
       {!documentoRegistrado && (
         <TouchableOpacity
@@ -166,32 +172,37 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: 36, fontWeight: 'bold' },
   name: { fontSize: 22, fontWeight: 'bold', color: '#1a1a1a' },
   email: { fontSize: 14, color: '#666', marginBottom: 16 },
-  roleBadge: { paddingVertical: 6, paddingHorizontal: 18, borderRadius: 20, marginBottom: 8 },
-  roleLabel: { fontSize: 15, fontWeight: '700' },
-  roleDesc: { fontSize: 13, color: '#777', textAlign: 'center', marginBottom: 24, paddingHorizontal: 12 },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    marginBottom: 8,
+  },
+  badgeLabel: { fontSize: 14, fontWeight: '700' },
+  badgeDesc: {
+    fontSize: 13,
+    color: '#777',
+    textAlign: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 12,
+  },
   sancion: {
     flexDirection: 'row',
     gap: 10,
-    alignItems: 'flex-start',
+    alignItems: 'center',
     width: '100%',
     borderRadius: 12,
     borderWidth: 1,
     padding: 14,
-    marginBottom: 20,
+    marginTop: 12,
   },
   sancionBody: { flex: 1 },
   sancionTitulo: { fontSize: 14, fontWeight: '700', marginBottom: 3 },
   sancionDetalle: { fontSize: 13, color: '#555', lineHeight: 19 },
-  statsRow: { flexDirection: 'row', gap: 16, marginBottom: 28 },
-  statCard: {
-    backgroundColor: '#f7f7f7',
-    borderRadius: 12,
-    paddingVertical: 18,
-    paddingHorizontal: 28,
-    alignItems: 'center',
-  },
-  statValue: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a' },
-  statLabel: { fontSize: 12, color: '#888', marginTop: 4 },
+  menu: { width: '100%', gap: 14, marginTop: 24, marginBottom: 14 },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -201,9 +212,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 16,
-    marginBottom: 14,
   },
   menuItemText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  menuEstado: { fontSize: 13, fontWeight: '600' },
   contador: {
     minWidth: 22,
     height: 22,
