@@ -56,6 +56,42 @@ export function momentoDe(franja: FranjaAvistamiento, ahora: Date): string {
 export const enlaceDeMapa = (lat: number, lng: number): string =>
   `https://maps.google.com/?q=${lat.toFixed(5)},${lng.toFixed(5)}`;
 
+/** Quién manda el reporte. */
+export interface QuienReporta {
+  nombre: string;
+  /** Si la cuenta registró su documento. */
+  conDocumento: boolean;
+}
+
+/**
+ * Quién manda el reporte, a partir de su cuenta.
+ *
+ * Va siempre: es quien avisa, y la llamada o el WhatsApp ya le muestran su
+ * número a la autoridad. El nombre es el de la cuenta en los dos casos. Con
+ * documento registrado es además el que se contrastó contra el carnet
+ * —registrarlo lo copia tal cual y la cuenta no deja cambiarlo—; sin documento,
+ * es el que la persona escribió al crear la cuenta. El reporte dice cuál de los
+ * dos es, para que la autoridad sepa cuánto pesa.
+ */
+export const quienReporta = (cuenta: {
+  full_name: string;
+  documento_registrado: boolean;
+}): QuienReporta => ({
+  nombre: cuenta.full_name.trim(),
+  conDocumento: cuenta.documento_registrado,
+});
+
+/**
+ * El enlace a la ficha pública de la alerta: foto, nombre y descripción, para
+ * que la autoridad reconozca a la persona sin tener la aplicación.
+ *
+ * Es el mismo para toda la alerta, no uno por reporte: abrirlo no le dice al
+ * servidor que alguien vio a la persona (I2). Y la ficha la sirve el sistema en
+ * cada visita, así que deja de mostrarse si la alerta se retira.
+ */
+export const enlaceDeFicha = (urlDeLaApi: string, denunciaId: string): string =>
+  `${urlDeLaApi.replace(/\/+$/, '')}/fichas/${denunciaId}`;
+
 export interface DatosDelReporte {
   nombre: string | null;
   punto: { lat: number; lng: number };
@@ -63,6 +99,9 @@ export interface DatosDelReporte {
   calle: string | null;
   franja: FranjaAvistamiento;
   ahora: Date;
+  /** Nulo solo si la sesión no cargó su cuenta: el reporte sale igual, sin esa línea. */
+  reporta: QuienReporta | null;
+  ficha: string | null;
 }
 
 /**
@@ -73,14 +112,25 @@ export interface DatosDelReporte {
  * que no es público: la Policía lo da a quien denuncia y no aparece en sus
  * propias pancartas. Con el nombre, la zona y el momento, la autoridad busca
  * el caso como con cualquier aviso ciudadano.
+ *
+ * Nada de quien presentó la denuncia: ni su nombre ni un contacto (I8, P4). La
+ * autoridad llega a la familia por sus propios canales.
  */
 export function armarReporte(d: DatosDelReporte): string {
   const mapa = enlaceDeMapa(d.punto.lat, d.punto.lng);
   return [
     'Reporte de avistamiento — persona reportada como desaparecida',
-    `Nombre: ${d.nombre?.trim() || 'sin nombre registrado'}`,
+    `Persona buscada: ${d.nombre?.trim() || 'sin nombre registrado'}`,
     `Zona: ${d.calle?.trim() ? `${d.calle.trim()} — ${mapa}` : mapa}`,
     `Momento: ${momentoDe(d.franja, d.ahora)}`,
+    ...(d.reporta
+      ? [
+          `Reporta: ${d.reporta.nombre} (${
+            d.reporta.conDocumento ? 'con documento registrado' : 'sin documento registrado'
+          })`,
+        ]
+      : []),
+    ...(d.ficha ? [`Ficha de la persona: ${d.ficha}`] : []),
   ].join('\n');
 }
 

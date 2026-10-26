@@ -17,12 +17,16 @@ import avistamientoService, {
   CanalAvistamiento,
   ContactoAutoridad,
 } from '../../services/avistamiento.service';
+import { API_URL } from '../../services/api';
+import { useAuth } from '../../hooks/useAuth';
 import {
   FRANJAS,
   FranjaAvistamiento,
   armarReporte,
+  enlaceDeFicha,
   enlaceDeLlamada,
   enlaceDeWhatsApp,
+  quienReporta,
 } from '../../utils/reporte-avistamiento';
 
 /** Lo que la pantalla necesita de la alerta. Viene del detalle ya cargado. */
@@ -39,11 +43,17 @@ interface AlertaVista {
  * es qué botón se tocó, sin saber quién lo tocó. Solo dos datos estructurados
  * —lugar y franja—, sin texto libre ni fotos.
  *
+ * Lleva el nombre de quien reporta, que la autoridad igual identifica por su
+ * número, y el enlace a la ficha pública de la alerta, que le muestra la foto.
+ * Sin firma: el reporte es un aviso a la Policía, que lo comprueba con sus
+ * propios medios.
+ *
  * No se restringe por sanciones: avisar a la Policía no usa la credibilidad
  * del sistema, e impedirlo solo perjudicaría a la persona que se busca.
  */
 const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
   const alerta: AlertaVista = route.params.alerta;
+  const { user } = useAuth();
   const [punto, setPunto] = useState<Coordenadas | null>(null);
   const [calle, setCalle] = useState<string | null>(null);
   const [franja, setFranja] = useState<FranjaAvistamiento | null>(null);
@@ -85,6 +95,8 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
           calle,
           franja,
           ahora: new Date(),
+          reporta: user ? quienReporta(user) : null,
+          ficha: enlaceDeFicha(API_URL, alerta.id),
         })
       : null;
   const reporte = reporteAhora();
@@ -193,8 +205,9 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
 
       <Text style={estilos.privacidad}>
         El reporte va de tu teléfono a la Policía y la aplicación no lo guarda: solo cuenta, sin
-        saber quién, que se usó un botón. El nombre de la calle lo averigua tu teléfono con su
-        servicio de mapas
+        saber quién, que se usó un botón. Lleva tu nombre y un enlace a la ficha de la persona, que
+        deja de mostrarse si la alerta se retira. El nombre de la calle lo averigua tu teléfono con
+        su servicio de mapas
         {contacto?.mensajeria ? ', y el mensaje pasa por WhatsApp' : ''}.
       </Text>
     </ScrollView>

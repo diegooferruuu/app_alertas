@@ -88,6 +88,7 @@ class AuthService {
     id_back_base64: string;
     personal_data: {
       ci_number: string;
+      ci_complemento?: string;
       birth_place: string;
       birth_date: string;
     };
@@ -101,6 +102,7 @@ class AuthService {
     selfie_base64: string;
     personal_data: {
       ci_number: string;
+      ci_complemento?: string;
       birth_place: string;
       birth_date: string;
     };

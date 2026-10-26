@@ -2,10 +2,12 @@ import { describe, expect, it } from '@jest/globals';
 import {
   FRANJAS,
   armarReporte,
+  enlaceDeFicha,
   enlaceDeLlamada,
   enlaceDeMapa,
   enlaceDeWhatsApp,
   momentoDe,
+  quienReporta,
 } from './reporte-avistamiento';
 
 /**
@@ -49,23 +51,42 @@ describe('momentoDe', () => {
 });
 
 describe('armarReporte', () => {
+  const FICHA = 'http://172.20.10.10:3000/api/fichas/5c3f0d7e-1111-4a2b-9c3d-123456789abc';
   const base = {
     nombre: 'Luis Mamani',
     punto: { lat: -17.381879, lng: -66.151987 },
     calle: 'Av. Heroínas',
     franja: 'MENOS_DE_30_MIN' as const,
     ahora: a(1, 14, 40),
+    reporta: { nombre: 'Caro Vaca Ortiz', conDocumento: true },
+    ficha: FICHA,
   };
 
   it('arma el texto que se lee o se envía', () => {
     expect(armarReporte(base)).toBe(
       [
         'Reporte de avistamiento — persona reportada como desaparecida',
-        'Nombre: Luis Mamani',
+        'Persona buscada: Luis Mamani',
         'Zona: Av. Heroínas — https://maps.google.com/?q=-17.38188,-66.15199',
         'Momento: entre las 14:10 y las 14:40 del 01/10/2026',
+        'Reporta: Caro Vaca Ortiz (con documento registrado)',
+        `Ficha de la persona: ${FICHA}`,
       ].join('\n'),
     );
+  });
+
+  it('dice si el nombre de quien reporta viene de una cuenta sin documento registrado', () => {
+    expect(armarReporte({ ...base, reporta: { nombre: 'Caro', conDocumento: false } })).toContain(
+      'Reporta: Caro (sin documento registrado)',
+    );
+  });
+
+  it('sin la cuenta cargada sale igual, sin esa línea', () => {
+    const texto = armarReporte({ ...base, reporta: null, ficha: null });
+
+    expect(texto).not.toContain('Reporta:');
+    expect(texto).not.toContain('Ficha');
+    expect(texto).toContain('Momento:');
   });
 
   it('no lleva el CI: quien recibe la alerta no lo tiene', () => {
@@ -101,5 +122,29 @@ describe('enlaces', () => {
 
     expect(enlace.startsWith('https://wa.me/59170000000?text=')).toBe(true);
     expect(decodeURIComponent(enlace.split('text=')[1])).toBe('Nombre: Luis\nZona: Av. Heroínas — x');
+  });
+
+  it('la ficha cuelga de la dirección de la API, con o sin barra final', () => {
+    const id = '5c3f0d7e-1111-4a2b-9c3d-123456789abc';
+
+    expect(enlaceDeFicha('http://172.20.10.10:3000/api', id)).toBe(
+      `http://172.20.10.10:3000/api/fichas/${id}`,
+    );
+    expect(enlaceDeFicha('http://172.20.10.10:3000/api/', id)).toBe(
+      `http://172.20.10.10:3000/api/fichas/${id}`,
+    );
+  });
+});
+
+describe('quienReporta', () => {
+  it('usa el nombre de la cuenta y dice si tiene documento registrado', () => {
+    expect(quienReporta({ full_name: 'Caro Vaca Ortiz', documento_registrado: true })).toEqual({
+      nombre: 'Caro Vaca Ortiz',
+      conDocumento: true,
+    });
+    expect(quienReporta({ full_name: ' Caro Vaca ', documento_registrado: false })).toEqual({
+      nombre: 'Caro Vaca',
+      conDocumento: false,
+    });
   });
 });

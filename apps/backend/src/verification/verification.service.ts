@@ -1,12 +1,13 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createHash } from 'crypto';
 import { UsersService } from '../users/users.service';
+import { hashDeDocumento } from '../users/domain/documento-identidad';
 import { AlertasService } from '../alertas/alertas.service';
 import { DocumentoBloqueado } from '../sanciones/entities/documento-bloqueado.entity';
 import { PersonalDataDto } from './dto/documento.dto';
 import { nombreConsistenteConDocumento } from './domain/nombres';
+import { compararNumeroDelCarnet } from './domain/numero-de-documento';
 import { MENSAJES, esConsistente } from './domain/comparacion-facial';
 import { ComparadorDeRostros } from './rostros/comparador-de-rostros';
 import { LectorDeDocumento } from './documento/lector-de-documento';
@@ -77,7 +78,7 @@ export class VerificationService {
     }
 
     // Chequeo temprano de duplicados para no hacer perder tiempo a la persona
-    const ciHash = this.hashDeCi(datosDeclarados.ci_number);
+    const ciHash = hashDeDocumento(datosDeclarados.ci_number, datosDeclarados.ci_complemento);
     await this.rechazarSiBloqueado(ciHash);
     const usuarioExistente = await this.usersService.findByCiHash(ciHash);
     if (usuarioExistente && usuarioExistente.id !== userId) {
@@ -121,7 +122,7 @@ export class VerificationService {
 
     await this.exigirRostroConsistente(idFrontBase64, selfieBase64);
 
-    const ciHash = this.hashDeCi(datosDeclarados.ci_number);
+    const ciHash = hashDeDocumento(datosDeclarados.ci_number, datosDeclarados.ci_complemento);
 
     await this.rechazarSiBloqueado(ciHash);
     const usuarioExistente = await this.usersService.findByCiHash(ciHash);
@@ -202,29 +203,25 @@ export class VerificationService {
     }
   }
 
-  /** El número de documento nunca se almacena en claro, solo su hash. */
-  private hashDeCi(ciNumber: string): string {
-    return createHash('sha256').update(ciNumber.trim()).digest('hex');
-  }
-
   /**
    * Compara los datos declarados contra el texto extraído por OCR.
    *
    * Coincidencia no significa autenticidad: el documento pudo ser de otra
-   * persona. Significa que lo declarado es consistente con lo que se leyó.
+   * persona. Significa que lo declarado es consistente con lo que se leyó: el
+   * número como cifra entera, el complemento si el carnet lo tiene, y el nombre
+   * de la cuenta.
    */
   private compararDatosExtraidos(
     textoExtraido: string,
     nombreDeLaCuenta: string,
     datosDeclarados: PersonalDataDto,
   ): { coincide: boolean; motivo?: string } {
-    const ciNormalizado = datosDeclarados.ci_number.replace(/\D/g, '');
-    if (!textoExtraido.replace(/\D/g, '').includes(ciNormalizado)) {
-      return {
-        coincide: false,
-        motivo: `el número ${ciNormalizado} no aparece en el documento`,
-      };
-    }
+    const numero = compararNumeroDelCarnet(
+      textoExtraido,
+      datosDeclarados.ci_number,
+      datosDeclarados.ci_complemento,
+    );
+    if (!numero.coincide) return numero;
 
     return nombreConsistenteConDocumento(nombreDeLaCuenta, textoExtraido);
   }

@@ -209,9 +209,13 @@ export const vestimenta = (d: DenunciaDescriptible): string | null => {
   const abajo = etiquetaDe(PRENDA_INFERIOR, d.prenda_inferior);
   const colorAbajo = etiquetaDe(COLOR_PRENDA, d.color_prenda_inferior);
 
+  // La prenda de abajo va en minúscula cuando sigue a la de arriba: es la mitad
+  // de una misma frase.
   const piezas = [
     arriba ? [arriba, colorArriba?.toLowerCase()].filter(Boolean).join(' ') : null,
-    abajo ? [abajo, colorAbajo?.toLowerCase()].filter(Boolean).join(' ') : null,
+    abajo
+      ? [arriba ? abajo.toLowerCase() : abajo, colorAbajo?.toLowerCase()].filter(Boolean).join(' ')
+      : null,
   ].filter(Boolean);
 
   return piezas.length > 0 ? piezas.join(' y ') : null;

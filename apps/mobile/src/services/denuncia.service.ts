@@ -76,6 +76,8 @@ export interface CreateDenunciaPayload {
   nombre_persona_buscada: string;
   /** Documento de la persona buscada. El servidor solo guarda su hash. */
   ci_persona_buscada: string;
+  /** Solo si el carnet lo tiene: `1K` en `12345678-1K`. */
+  ci_complemento_persona_buscada?: string;
   fecha_nacimiento: string;
   sexo: string;
   estatura_rango: string;

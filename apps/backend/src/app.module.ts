@@ -12,6 +12,7 @@ import { CierresModule } from './cierres/cierres.module';
 import { SancionesModule } from './sanciones/sanciones.module';
 import { ConstanciasModule } from './constancias/constancias.module';
 import { AvistamientosModule } from './avistamientos/avistamientos.module';
+import { SaludController } from './salud/salud.controller';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
 import { autoridadConfig } from './config/autoridad.config';
@@ -63,5 +64,6 @@ import { validarEntorno } from './config/validar-entorno';
     ConstanciasModule,
     AvistamientosModule,
   ],
+  controllers: [SaludController],
 })
 export class AppModule {}

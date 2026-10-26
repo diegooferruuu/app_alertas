@@ -58,6 +58,14 @@ async function bootstrap() {
   // Prefix for API routes
   app.setGlobalPrefix('api');
 
+  // Detrás de Caddy, la petición llega por HTTP desde el proxy. Sin confiar en
+  // él, Express cree que el protocolo es `http`, y la ficha pública arma con eso
+  // la dirección de su foto: la vista previa del enlace pediría una imagen por
+  // HTTP en un sitio servido por HTTPS. Solo un salto, el del proxy propio.
+  if (process.env.DETRAS_DE_PROXY === '1') {
+    app.set('trust proxy', 1);
+  }
+
   const port = process.env.BACKEND_PORT || 3000;
   await app.listen(port);
   console.log(`Application is running on: http://localhost:${port}/api`);

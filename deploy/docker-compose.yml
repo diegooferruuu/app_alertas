@@ -1,0 +1,83 @@
+# Beta en el servidor de Oracle: base, migraciones, backend y HTTPS.
+#
+# Desde esta carpeta, con el `.env` del servidor al lado (ver `.env.example`):
+#
+#   sudo docker compose up -d --build
+#
+# Solo Caddy publica puertos. La base y el backend viven en la red interna de
+# Compose: desde internet no se alcanzan, y la base no tiene puerto ni en el
+# propio servidor.
+name: alertas-beta
+
+services:
+  db:
+    build:
+      context: ../docker
+      dockerfile: postgis/Dockerfile
+    image: alertas-postgis:15
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - datos:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Aplica las migraciones pendientes y termina. El backend no arranca hasta que
+  # esto sale bien: nunca corre contra un esquema más viejo que su código.
+  migraciones:
+    build:
+      context: ..
+      dockerfile: apps/backend/Dockerfile
+    image: alertas-backend
+    command: ["node", "node_modules/typeorm/cli.js", "migration:run", "-d", "dist/database/data-source.js"]
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: apps/backend/Dockerfile
+    image: alertas-backend
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: "5432"
+      BACKEND_PORT: "3000"
+      DETRAS_DE_PROXY: "1"
+    depends_on:
+      migraciones:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_datos:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  datos:
+  caddy_datos:
+  caddy_config:

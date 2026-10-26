@@ -13,6 +13,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { COMPLEMENTO, NUMERO_DE_CEDULA } from '../../users/domain/documento-identidad';
 import {
   CALZADO,
   CIRCUNSTANCIA,
@@ -71,10 +72,22 @@ export class CreateDenunciaDto {
    * ninguna respuesta de la API (P6).
    */
   @IsString()
-  @Matches(/^\d{5,12}$/, {
+  @Matches(NUMERO_DE_CEDULA, {
     message: 'El documento de la persona buscada debe tener entre 5 y 12 dígitos',
   })
   ci_persona_buscada!: string;
+
+  /**
+   * El complemento del carnet de la persona buscada, si lo tiene: `1K` en
+   * `12345678-1K`.
+   *
+   * Sin él, una persona con complemento no queda vinculada a la denuncia: no
+   * recibe el aviso ni puede retirarla. Se compara exacto a propósito: aproximarlo
+   * dejaría que el otro titular del mismo número la retirara.
+   */
+  @IsOptional()
+  @Matches(COMPLEMENTO, { message: 'El complemento son uno o dos caracteres, como 1K' })
+  ci_complemento_persona_buscada?: string;
 
   /** De aquí se deriva la edad; no se pide la edad por separado. */
   @IsDateString()

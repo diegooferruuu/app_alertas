@@ -53,6 +53,7 @@ export const PROCEDIMIENTO_VERIFICACION = [
   'Todos los valores de `denuncia` vienen ya en su forma canónica de texto: las coordenadas con 7 decimales, las fechas en ISO-8601 y los campos de valor múltiple unidos por coma en orden alfabético. Únelos tal como llegan, sin reformatearlos.',
   'Aplica SHA-256 al `texto` del texto legal correspondiente y compara con `hash_texto_legal`. Si difiere, el texto mostrado no es el que se declara. El texto trae el marcador `{{VINCULO}}`, igual para todos: la aplicación lo muestra con el vínculo declarado escrito en ese lugar, y el hash se calcula sobre el texto con el marcador.',
   'Si existe `firma_criptografica`, arma el mensaje firmado: `firma.encabezado` seguido de los campos de `firma.orden_campos`, uno por línea, separados por U+000A y sin salto final. Verifica sobre sus bytes UTF-8 la firma Ed25519 con `clave_publica`; la clave (32 bytes) y la firma (64 bytes) vienen en hexadecimal. Si es válida, la declaración la hizo el teléfono dueño de esa clave: ni el operador del sistema pudo fabricarla.',
+  'Para comprobar que un hash de documento (`ci_hash` de quien firmó, o `ci_hash_persona_buscada`) corresponde a un carnet que tienes en la mano, aplica SHA-256 a su número escrito solo con dígitos. Si el carnet tiene complemento, agrega un guion y el complemento en mayúsculas: `12345678-1K`. Sin complemento, el número solo: `12345678`. El lugar de expedición no entra.',
 ];
 
 /**

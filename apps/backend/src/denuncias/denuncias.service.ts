@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
-import { createHash } from 'crypto';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
 import { CreateDenunciaDto } from './dto/create-denuncia.dto';
@@ -24,6 +23,7 @@ import { esMenorDeEdad, MOTIVO_SIN_FOTOGRAFIA } from './domain/minoria-edad';
 import { VERSION_FORMULA_ACTUAL } from '../declaraciones/domain/cadena';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
+import { hashDeDocumento } from '../users/domain/documento-identidad';
 import { AlertasService } from '../alertas/alertas.service';
 import { revocarEmisionesPendientes } from '../alertas/revocacion';
 import { SancionesService } from '../sanciones/sanciones.service';
@@ -40,11 +40,6 @@ export class DenunciasService {
     private alertasService: AlertasService,
     private sancionesService: SancionesService,
   ) {}
-
-  /** El número de documento nunca se almacena en claro, solo su hash. */
-  private hashDeCi(ciNumber: string): string {
-    return createHash('sha256').update(ciNumber.trim()).digest('hex');
-  }
 
   /**
    * Nadie fue visto por última vez en el futuro (§7).
@@ -77,7 +72,12 @@ export class DenunciasService {
         'Debes registrar tu documento de identidad para reportar',
       );
     }
-    const ciHashPersonaBuscada = this.hashDeCi(dto.ci_persona_buscada);
+    // Número y complemento: con el número solo, dos titulares del mismo número
+    // serían la misma persona, y el equivocado podría retirar la alerta.
+    const ciHashPersonaBuscada = hashDeDocumento(
+      dto.ci_persona_buscada,
+      dto.ci_complemento_persona_buscada,
+    );
 
     // El régimen de sanciones muerde aquí: una cuenta suspendida no denuncia, ni
     // nadie puede denunciar a una persona que le bloqueó hacerlo, ni tener dos
@@ -605,12 +605,34 @@ export class DenunciasService {
     const denuncia = await this.findOne(id);
     if (denuncia.denunciante_id === userId) return denuncia;
 
-    const seDifundio = denuncia.nivel_confianza !== NivelConfianza.REGISTRADA;
-    const sigueAbierta =
-      denuncia.estado === EstadoDenuncia.ACTIVA || denuncia.estado === EstadoDenuncia.CADUCADA;
-    if (!seDifundio || !sigueAbierta) {
+    if (!visibleParaTerceros(denuncia)) {
+      throw new NotFoundException('Denuncia no encontrada');
+    }
+    return denuncia;
+  }
+
+  /**
+   * La alerta tal como la muestra su ficha pública, la página que abre el
+   * enlace del reporte de avistamiento.
+   *
+   * Con las mismas reglas que para cualquiera que no la presentó, porque quien
+   * abre el enlace tampoco la presentó. Y sin la excepción del autor: la ficha
+   * no sabe quién la mira.
+   */
+  async fichaPublica(id: string): Promise<Denuncia> {
+    const denuncia = await this.findOne(id);
+    if (!visibleParaTerceros(denuncia)) {
       throw new NotFoundException('Denuncia no encontrada');
     }
     return denuncia;
   }
 }
+
+/**
+ * Si alguien que no la presentó puede verla: que se haya difundido y que nadie
+ * la haya cerrado. Activa —la que está en el mapa— o vencida, a la que se llega
+ * desde la notificación o desde la ficha.
+ */
+const visibleParaTerceros = (denuncia: Denuncia): boolean =>
+  denuncia.nivel_confianza !== NivelConfianza.REGISTRADA &&
+  (denuncia.estado === EstadoDenuncia.ACTIVA || denuncia.estado === EstadoDenuncia.CADUCADA);

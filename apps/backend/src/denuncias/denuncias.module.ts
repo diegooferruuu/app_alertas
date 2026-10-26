@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DenunciasService } from './denuncias.service';
 import { DenunciasController } from './denuncias.controller';
+import { FichasController } from './fichas.controller';
 import { CaducidadScheduler } from './caducidad.scheduler';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
@@ -15,7 +16,7 @@ import { User } from '../users/entities/user.entity';
     UsersModule,
     AlertasModule,
     SancionesModule,],
-  controllers: [DenunciasController],
+  controllers: [DenunciasController, FichasController],
   providers: [DenunciasService, CaducidadScheduler],
   exports: [DenunciasService],
 })

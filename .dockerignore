@@ -1,0 +1,24 @@
+# Lo que no viaja al construir las imágenes del servidor.
+#
+# Nunca un `.env`: los secretos del servidor se generan en el servidor.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+
+.git
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+
+# La app móvil no se construye aquí. Solo viaja su package.json: pnpm lo
+# necesita para validar el lockfile del monorepo entero.
+apps/mobile/*
+!apps/mobile/package.json
+
+docs
+tools
+deploy
+spa.traineddata

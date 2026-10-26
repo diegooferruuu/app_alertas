@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { BadRequestException } from '@nestjs/common';
 import { LectorTesseract } from './lector-tesseract';
+import { leerNumeroDelCarnet } from '../domain/numero-de-documento';
 
 /**
  * El lector de verdad, ejecutando OCR.
@@ -41,6 +42,14 @@ describe('LectorTesseract (integración, con OCR real)', () => {
     // Se compara sobre los dígitos, como hace el servicio: el OCR mete espacios
     // y saltos de línea donde le parece.
     expect(texto.replace(/\D/g, '')).toContain('8472913');
+  }, 120_000);
+
+  it('lee el complemento pegado al número, como lo imprime el carnet nuevo', async () => {
+    // Es lo que distingue a dos titulares del mismo número: si el OCR no lo
+    // leyera, quien lo tiene podría registrarse con el número solo.
+    const texto = await lector.leer(await carnet('CALLISAYA', '8472913-1K'));
+
+    expect(leerNumeroDelCarnet(texto, '8472913')).toEqual({ aparece: true, complemento: '1K' });
   }, 120_000);
 
   it('lee el apellido', async () => {

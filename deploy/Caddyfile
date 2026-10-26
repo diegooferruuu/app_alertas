@@ -1,0 +1,9 @@
+# HTTPS automático con Let's Encrypt para el dominio del servidor.
+#
+# Con sslip.io el dominio resuelve a la IP que lleva en el nombre
+# (152-67-46-104.sslip.io → 152.67.46.104), así que no hace falta comprar uno.
+# Caddy pide y renueva el certificado solo, y redirige HTTP a HTTPS.
+{$DOMINIO} {
+	encode zstd gzip
+	reverse_proxy backend:3000
+}

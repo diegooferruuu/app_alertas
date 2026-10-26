@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuthStore } from '../../store/auth.store';
+import { complementoParaEnviar, limpiarComplemento } from '../../utils/documento';
 
 // Las 9 capitales de departamento de Bolivia
 const BOLIVIAN_CITIES = [
@@ -28,6 +29,7 @@ const BOLIVIAN_CITIES = [
 
 interface PersonalData {
   ci_number: string;
+  ci_complemento?: string;
   birth_place: string;
   birth_date: string;
 }
@@ -42,6 +44,7 @@ const formatDate = (date: Date): string => {
 const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { setPersonalData, user } = useAuthStore();
   const [ciNumber, setCiNumber] = useState('');
+  const [complemento, setComplemento] = useState('');
   const [birthPlace, setBirthPlace] = useState('');
   const [birthDate, setBirthDate] = useState<Date | null>(null);
 
@@ -73,6 +76,7 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
     setPersonalData({
       ci_number: ciNumber.trim(),
+      ci_complemento: complementoParaEnviar(complemento),
       birth_place: birthPlace,
       birth_date: formatDate(birthDate),
     });
@@ -115,6 +119,26 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         maxLength={8}
         returnKeyType="next"
       />
+
+      {/*
+        Hay números de carnet duplicados, y el SEGIP distingue a sus titulares
+        con el complemento. Sin él, quien lo tiene sería, para el sistema, el
+        otro titular del mismo número. Si el carnet lo muestra, el servidor lo
+        exige.
+      */}
+      <Text style={styles.label}>Complemento (solo si tu carnet lo tiene)</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej: 1K"
+        value={complemento}
+        onChangeText={(v) => setComplemento(limpiarComplemento(v))}
+        autoCapitalize="characters"
+        autoCorrect={false}
+      />
+      <Text style={styles.campoFijoAyuda}>
+        Algunos carnets tienen el número seguido de un guion y dos caracteres, como
+        12345678-1K: eso es el complemento. Si el tuyo no lo tiene, déjalo vacío.
+      </Text>
 
       <Text style={styles.label}>Lugar de nacimiento</Text>
       <TouchableOpacity style={styles.selector} onPress={() => setCityModalVisible(true)}>

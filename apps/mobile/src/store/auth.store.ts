@@ -12,6 +12,8 @@ import authService, {
  */
 interface PersonalData {
   ci_number: string;
+  /** Solo si el carnet lo tiene: `1K` en `12345678-1K`. */
+  ci_complemento?: string;
   birth_place: string;
   birth_date: string;
 }
@@ -73,6 +75,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         id_back_base64: backBase64,
         personal_data: {
           ci_number: personalData.ci_number,
+          ci_complemento: personalData.ci_complemento,
           birth_place: personalData.birth_place,
           birth_date: personalData.birth_date,
         },
@@ -168,6 +171,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         selfie_base64: selfieBase64,
         personal_data: {
           ci_number: personalData.ci_number,
+          ci_complemento: personalData.ci_complemento,
           birth_place: personalData.birth_place,
           birth_date: personalData.birth_date,
         },

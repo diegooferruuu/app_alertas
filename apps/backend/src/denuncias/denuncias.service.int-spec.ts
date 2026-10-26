@@ -706,6 +706,42 @@ describe('DenunciasService (integración)', () => {
       expect(oculta.getStatus()).toBe(inexistente.getStatus());
       expect(oculta.getResponse()).toEqual(inexistente.getResponse());
     });
+
+    it('la ficha pública muestra una alerta difundida, también vencida', async () => {
+      // La abre la Policía desde el reporte de avistamiento, que se puede hacer
+      // sobre una vencida: la persona puede seguir desaparecida.
+      // Una autora por denuncia: la misma no puede tener dos abiertas sobre la
+      // misma persona.
+      const activa = await difundida((await crearDenunciante()).id);
+      const vencida = await difundida((await crearDenunciante('otra@test.com')).id);
+      await denuncias.update(vencida, { estado: EstadoDenuncia.CADUCADA });
+
+      await expect(service.fichaPublica(activa)).resolves.toMatchObject({ id: activa });
+      await expect(service.fichaPublica(vencida)).resolves.toMatchObject({ id: vencida });
+    });
+
+    it('la ficha de una sin firmar, retirada o cerrada responde igual que una que no existe', async () => {
+      // Ni su autor la ve por el enlace: la ficha no sabe quién la mira.
+      const { id: sinFirmar } = await service.create(
+        (await crearDenunciante()).id,
+        datosDeDenuncia,
+      );
+      const retirada = await difundida((await crearDenunciante('otra@test.com')).id);
+      await denuncias.update(retirada, { estado: EstadoDenuncia.INVALIDADA });
+      const cerrada = await difundida((await crearDenunciante('tercera@test.com')).id);
+      await denuncias.update(cerrada, { estado: EstadoDenuncia.CERRADA, cerrada_en: new Date() });
+
+      const inexistente = await service
+        .fichaPublica('00000000-0000-4000-8000-000000000000')
+        .catch((e) => e);
+      expect(inexistente).toBeInstanceOf(NotFoundException);
+
+      for (const id of [sinFirmar, retirada, cerrada]) {
+        const oculta = await service.fichaPublica(id).catch((e) => e);
+        expect(oculta).toBeInstanceOf(NotFoundException);
+        expect(oculta.getResponse()).toEqual(inexistente.getResponse());
+      }
+    });
   });
 
   describe('difusión', () => {
@@ -1153,6 +1189,34 @@ describe('DenunciasService (integración)', () => {
       expect(emisiones[0].usuario_objetivo_id).toBe(reportado.id);
       // Un aviso personal no tiene zona que alcanzar.
       expect(emisiones[0].radio_m).toBeNull();
+    });
+
+    it('el mismo número con otro complemento es otra persona: el aviso va solo a quien coincide', async () => {
+      // Números duplicados: el SEGIP distingue a sus titulares con el
+      // complemento. Con el número solo, el aviso —y el derecho a retirar la
+      // alerta— le llegaba a quien se hubiera registrado primero.
+      const autor = await crearDenunciante();
+      const titularSinComplemento = await crearPersonaReportada();
+      const titularConComplemento = await usuarios.save(
+        usuarios.create({
+          full_name: 'Lucía Mamani',
+          email: 'complemento@test.com',
+          password_hash: 'x',
+          documento_registrado: true,
+          ci_hash: hashDe(`${CI_REPORTADO}-1K`),
+        }),
+      );
+
+      const denuncia = await service.create(autor.id, {
+        ...datosConCi(CI_REPORTADO),
+        ci_complemento_persona_buscada: '1k',
+      });
+
+      const emisiones = await denuncias.manager.find(EmisionAlerta, {
+        where: { denuncia_id: denuncia.id },
+      });
+      expect(emisiones.map((e) => e.usuario_objetivo_id)).toEqual([titularConComplemento.id]);
+      expect(emisiones[0].usuario_objetivo_id).not.toBe(titularSinComplemento.id);
     });
 
     it('no encola nada si la persona reportada no tiene cuenta', async () => {

@@ -22,6 +22,7 @@ import {
 } from '../../components/SelectorDeUbicacion';
 import denunciaService from '../../services/denuncia.service';
 import { rechazoDe } from '../../services/restricciones';
+import { complementoParaEnviar, limpiarComplemento } from '../../utils/documento';
 import {
   SelectorCerrado,
   SelectorMultiple,
@@ -53,6 +54,7 @@ import {
 const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [nombrePersonaBuscada, setNombrePersonaBuscada] = useState('');
   const [ciPersonaBuscada, setCiPersonaBuscada] = useState('');
+  const [complementoPersonaBuscada, setComplementoPersonaBuscada] = useState('');
 
   // Persona buscada
   const [fechaNacimiento, setFechaNacimiento] = useState<Date | null>(null);
@@ -153,6 +155,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       await denunciaService.create({
         nombre_persona_buscada: nombrePersonaBuscada.trim(),
         ci_persona_buscada: ciPersonaBuscada.trim(),
+        ci_complemento_persona_buscada: complementoParaEnviar(complementoPersonaBuscada),
         fecha_nacimiento: soloFecha(fechaNacimiento!),
         sexo: sexo!,
         estatura_rango: estatura!,
@@ -297,6 +300,21 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       <Text style={styles.hint}>
         Lo pedimos porque es lo que permite a esa persona enterarse y cerrar la
         alerta si hubo un error. No guardamos el número: solo una huella cifrada de él.
+      </Text>
+
+      <Text style={styles.label}>Complemento del carnet (solo si lo tiene)</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej: 1K"
+        value={complementoPersonaBuscada}
+        onChangeText={(v) => setComplementoPersonaBuscada(limpiarComplemento(v))}
+        autoCapitalize="characters"
+        autoCorrect={false}
+      />
+      <Text style={styles.hint}>
+        Algunos carnets llevan el número seguido de un guion y dos caracteres, como
+        1K en 12345678-1K. Si el de la persona lo tiene, escríbelo: sin él, no podrá
+        enterarse de la alerta ni retirarla.
       </Text>
 
       <View style={styles.campo}>

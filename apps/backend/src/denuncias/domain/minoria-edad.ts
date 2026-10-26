@@ -72,7 +72,7 @@ export const esMenorDeEdad = (
  * es el 19 de mayo a las 20:00: un día menos. En un límite de edad eso cambia el
  * resultado para quien cumple años justo hoy.
  */
-const aFechaLocal = (valor: Date | string): Date => {
+export const aFechaLocal = (valor: Date | string): Date => {
   if (valor instanceof Date) return valor;
 
   const [anio, mes, dia] = valor.slice(0, 10).split('-').map(Number);
