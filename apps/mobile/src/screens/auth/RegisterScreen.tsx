@@ -8,8 +8,11 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
+import { API_URL } from '../../services/api';
+import { paginaPublica } from '../../utils/sitio';
 import { CampoContrasena } from '../../components/CampoContrasena';
 
 export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
@@ -178,6 +181,18 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       {error && <Text style={styles.error}>{error}</Text>}
 
+      <Text style={styles.privacidad}>
+        Al crear tu cuenta aceptas la{' '}
+        <Text
+          style={styles.privacidadEnlace}
+          accessibilityRole="link"
+          onPress={() => Linking.openURL(paginaPublica(API_URL, 'privacidad'))}
+        >
+          política de privacidad
+        </Text>
+        .
+      </Text>
+
       <TouchableOpacity
         style={[styles.button, isLoading && styles.buttonDisabled]}
         onPress={handleRegister}
@@ -249,6 +264,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
   },
+  privacidad: { fontSize: 13, color: '#666', textAlign: 'center', marginBottom: 12, lineHeight: 19 },
+  privacidadEnlace: { color: '#007AFF', fontWeight: '600' },
   buttonDisabled: {
     opacity: 0.6,
   },

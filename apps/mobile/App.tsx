@@ -19,6 +19,8 @@ import { ReportarAvistamientoScreen } from './src/screens/main/ReportarAvistamie
 import { ConstanciaScreen } from './src/screens/main/ConstanciaScreen';
 import { TextoLegalScreen } from './src/screens/main/TextoLegalScreen';
 import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScreen';
+import { EliminarCuentaScreen } from './src/screens/main/EliminarCuentaScreen';
+import { ReportarContenidoScreen } from './src/screens/main/ReportarContenidoScreen';
 import { ActivityIndicator, View } from 'react-native';
 import { storage } from './src/utils/storage';
 import { navigationRef } from './src/navigation/navigationRef';
@@ -153,6 +155,18 @@ function Aplicacion() {
               name="FirmarDeclaracion"
               component={FirmarDeclaracionScreen}
               options={{ title: 'Firmar declaración' }}
+            />
+            <Stack.Screen
+              name="ReportarContenido"
+              component={ReportarContenidoScreen}
+              options={{ title: 'Reportar contenido' }}
+            />
+            {/* Lo exige Google Play: quien crea una cuenta tiene que poder
+                eliminarla desde la app. */}
+            <Stack.Screen
+              name="EliminarCuenta"
+              component={EliminarCuentaScreen}
+              options={{ title: 'Eliminar mi cuenta' }}
             />
             {/* Flujo de verificación de identidad (on-demand) */}
             <Stack.Screen

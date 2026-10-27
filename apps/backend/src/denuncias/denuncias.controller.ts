@@ -15,7 +15,7 @@ import { CreateDenunciaDto } from './dto/create-denuncia.dto';
 import { UpdateDenunciaDto } from './dto/update-denuncia.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { vistaPublica, vistaPublicaDe } from './vista-publica';
+import { conOcultamiento, vistaPublica, vistaPublicaDe } from './vista-publica';
 
 @Controller('denuncias')
 @UseGuards(JwtAuthGuard)
@@ -49,20 +49,20 @@ export class DenunciasController {
       longitude,
       radiusMeters,
     );
-    return vistaPublicaDe(denuncias, user.userId);
+    return this.paraTerceros(vistaPublicaDe(denuncias, user.userId));
   }
 
   // Denuncias del usuario autenticado (debe ir antes de ':id')
   @Get('mias')
   async findMine(@CurrentUser() user: any) {
     const denuncias = await this.denunciasService.findMine(user.userId);
-    return vistaPublicaDe(denuncias, user.userId);
+    return this.paraTerceros(vistaPublicaDe(denuncias, user.userId));
   }
 
   @Get()
   async findRecent(@CurrentUser() user: any) {
     const denuncias = await this.denunciasService.findRecent();
-    return vistaPublicaDe(denuncias, user.userId);
+    return this.paraTerceros(vistaPublicaDe(denuncias, user.userId));
   }
 
   /**
@@ -79,7 +79,8 @@ export class DenunciasController {
   async findOne(@CurrentUser() user: any, @Param('id', ParseUUIDPipe) id: string) {
     const denuncia = await this.denunciasService.findVisiblePara(user.userId, id);
     const fotografias = await this.denunciasService.fotografiasDe(id);
-    return { ...vistaPublica(denuncia, user.userId), fotografias };
+    const oculta = await this.denunciasService.estaOculta(id);
+    return conOcultamiento({ ...vistaPublica(denuncia, user.userId), fotografias }, oculta);
   }
 
   @Patch(':id')
@@ -100,6 +101,14 @@ export class DenunciasController {
   ) {
     const { denuncia, mensaje } = await this.denunciasService.darPorEncontrada(user.userId, id);
     return { ...vistaPublica(denuncia, user.userId), mensaje };
+  }
+
+  /** Una lista, con lo que se ocultó tras un reporte quitado para quien no la presentó. */
+  private async paraTerceros<T extends { id: string; es_mia: boolean; description?: string | null }>(
+    vistas: T[],
+  ) {
+    const ocultas = await this.denunciasService.ocultasEntre(vistas.map((v) => v.id));
+    return vistas.map((v) => conOcultamiento(v, ocultas.has(v.id)));
   }
 
   // No hay DELETE, y no es un olvido: el invariante I7 dice que ningún rol

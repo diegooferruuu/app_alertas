@@ -52,6 +52,11 @@ export interface Denuncia {
    * kilobytes por fila.
    */
   fotografias?: Array<{ id: string; contenido: string }>;
+  /**
+   * Si la foto y el relato se ocultaron tras un reporte de contenido. A quien
+   * no la presentó, el servidor ya no se los manda; a quien la presentó, sí.
+   */
+  contenido_oculto?: boolean;
   nivel_confianza: NivelConfianza;
   estado: EstadoDenuncia;
   radio_actual_m: number | null;
@@ -63,6 +68,16 @@ export interface Denuncia {
   created_at: string;
   distance_meters?: number;
 }
+
+/**
+ * Por qué se reporta el contenido de una alerta. No hay «es falsa»: eso solo
+ * puede declararlo la persona reportada, desde «Alertas sobre mí».
+ */
+export type MotivoDeReporte =
+  | 'imagen_inapropiada'
+  | 'contenido_ofensivo'
+  | 'no_es_una_desaparicion'
+  | 'otro';
 
 /**
  * Lo que se envía al crear una denuncia.
@@ -221,6 +236,22 @@ class DenunciaService {
     const response = await apiClient.post<Denuncia & { mensaje: string }>(
       `/denuncias/${id}/encontrada`,
     );
+    return response.data;
+  }
+
+  /**
+   * «Reportar contenido»: avisa a quien opera el sistema, que decide si ocultar
+   * la foto. No oculta ni detiene nada por sí solo.
+   */
+  async reportarContenido(
+    id: string,
+    motivo: MotivoDeReporte,
+    detalle?: string,
+  ): Promise<{ mensaje: string }> {
+    const response = await apiClient.post<{ mensaje: string }>(`/denuncias/${id}/reportes`, {
+      motivo,
+      ...(detalle?.trim() ? { detalle: detalle.trim() } : {}),
+    });
     return response.data;
   }
 

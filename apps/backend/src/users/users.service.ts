@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { componerNombre } from './domain/nombre-persona';
@@ -89,6 +89,22 @@ export class UsersService {
     return this.findById(id);
   }
 
+  /**
+   * Si la cuenta existe y no se eliminó.
+   *
+   * La consulta la hace cada petición con sesión: un token emitido antes de
+   * eliminar la cuenta sigue bien firmado durante sus quince minutos, y no
+   * puede seguir actuando en nombre de una cuenta que ya no existe.
+   */
+  async estaActiva(id: string): Promise<boolean> {
+    return this.usersRepository.exists({ where: { id, deleted_at: IsNull() } });
+  }
+
+  /**
+   * Busca por hash del documento, **también entre las eliminadas**: el hash es
+   * lo que queda de ellas, y es lo que permite recuperar una con el mismo
+   * carnet en vez de crear otra sin su historial.
+   */
   async findByCiHash(ciHash: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { ci_hash: ciHash } });
   }

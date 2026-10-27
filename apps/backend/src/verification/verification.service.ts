@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
+import { CuentasService } from '../users/cuentas.service';
 import { hashDeDocumento } from '../users/domain/documento-identidad';
 import { AlertasService } from '../alertas/alertas.service';
 import { DocumentoBloqueado } from '../sanciones/entities/documento-bloqueado.entity';
@@ -26,6 +27,7 @@ export class VerificationService {
 
   constructor(
     private usersService: UsersService,
+    private cuentasService: CuentasService,
     private alertasService: AlertasService,
     @InjectRepository(DocumentoBloqueado)
     private documentosBloqueados: Repository<DocumentoBloqueado>,
@@ -80,12 +82,7 @@ export class VerificationService {
     // Chequeo temprano de duplicados para no hacer perder tiempo a la persona
     const ciHash = hashDeDocumento(datosDeclarados.ci_number, datosDeclarados.ci_complemento);
     await this.rechazarSiBloqueado(ciHash);
-    const usuarioExistente = await this.usersService.findByCiHash(ciHash);
-    if (usuarioExistente && usuarioExistente.id !== userId) {
-      throw new BadRequestException(
-        'Este documento ya está registrado en otra cuenta',
-      );
-    }
+    await this.cuentaPreviaDelDocumento(ciHash, userId);
 
     return {
       coincide: true,
@@ -125,16 +122,14 @@ export class VerificationService {
     const ciHash = hashDeDocumento(datosDeclarados.ci_number, datosDeclarados.ci_complemento);
 
     await this.rechazarSiBloqueado(ciHash);
-    const usuarioExistente = await this.usersService.findByCiHash(ciHash);
-    if (usuarioExistente && usuarioExistente.id !== userId) {
-      throw new BadRequestException(
-        'Este documento ya está registrado en otra cuenta',
-      );
-    }
+    const previa = await this.cuentaPreviaDelDocumento(ciHash, userId);
 
     // El nombre de la cuenta queda registrado como referencia de la firma
-    // escrita a mano que exige la declaración jurada.
-    await this.usersService.registrarDocumento(userId, ciHash);
+    // escrita a mano que exige la declaración jurada. Si el carnet ya tenía una
+    // cuenta eliminada, es esa la que vuelve, con su historial.
+    const cuentaId = previa
+      ? (await this.cuentasService.recuperar(previa.id, userId)).id
+      : (await this.usersService.registrarDocumento(userId, ciHash)).id;
 
     // H4.4 — Vía de acceso para la persona reportada sin cuenta previa.
     //
@@ -146,16 +141,37 @@ export class VerificationService {
     // fallara, el acceso no se pierde: se propaga el error y el reintento es
     // seguro (idempotente), sin dejar el documento a medio registrar.
     const denunciasQueLoIdentifican =
-      await this.alertasService.avisarPersonaReportada(userId, ciHash);
+      await this.alertasService.avisarPersonaReportada(cuentaId, ciHash);
 
     return {
       documento_registrado: true,
-      message: 'Documento registrado correctamente',
+      // La sesión con que se hizo esta petición es de la cuenta nueva, que ya
+      // no existe: la app tiene que pedir que se vuelva a entrar.
+      cuenta_recuperada: Boolean(previa),
+      message: previa
+        ? 'Este carnet ya tenía una cuenta, que eliminaste antes. La recuperamos con tus datos nuevos: vuelve a iniciar sesión con tu correo y tu contraseña.'
+        : 'Documento registrado correctamente',
       // Deja que la app lo lleve de inmediato al interruptor —«minutos, no
       // horas»— sin esperar a que llegue la notificación push. No revela nada
       // del denunciante (I8): es un recuento de denuncias sobre uno mismo.
       denuncias_que_te_identifican: denunciasQueLoIdentifican,
     };
+  }
+
+  /**
+   * La cuenta eliminada que tenía este documento, si la hay.
+   *
+   * Un documento en una cuenta viva de otra persona se rechaza, como siempre.
+   * Uno en una cuenta eliminada no: es el mismo carnet que vuelve, y lo que
+   * corresponde es recuperar esa cuenta con su historial, no crear otra limpia.
+   */
+  private async cuentaPreviaDelDocumento(ciHash: string, userId: string) {
+    const existente = await this.usersService.findByCiHash(ciHash);
+    if (!existente || existente.id === userId) return null;
+    if (!existente.deleted_at) {
+      throw new BadRequestException('Este documento ya está registrado en otra cuenta');
+    }
+    return existente;
   }
 
   /**

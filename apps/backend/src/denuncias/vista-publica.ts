@@ -28,3 +28,23 @@ export const vistaPublicaDe = <T extends Denuncia>(
   denuncias: T[],
   userId: string,
 ) => denuncias.map((d) => vistaPublica(d, userId));
+
+/**
+ * Lo que deja de verse de una alerta cuyo contenido se ocultó tras un reporte:
+ * la fotografía y el relato libre, para quien no la presentó.
+ *
+ * Quien la presentó lo sigue viendo todo: es su denuncia, y tiene que poder
+ * saber qué se ocultó. `contenido_oculto` va para todos, para que la app
+ * explique por qué falta la foto en vez de dejar un hueco.
+ */
+export function conOcultamiento<
+  T extends { es_mia: boolean; description?: string | null; fotografias?: unknown[] },
+>(vista: T, oculta: boolean): T & { contenido_oculto: boolean } {
+  if (!oculta || vista.es_mia) return { ...vista, contenido_oculto: oculta };
+  return {
+    ...vista,
+    description: null,
+    ...(vista.fotografias !== undefined ? { fotografias: [] } : {}),
+    contenido_oculto: true,
+  };
+}

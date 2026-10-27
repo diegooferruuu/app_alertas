@@ -2,6 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "backend",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["start:dev"],
+      "cwd": "apps/backend",
+      "port": 3000,
+      "url": "http://localhost:3000"
+    },
+    {
       "name": "mobile-web",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["expo", "start", "--web", "--port", "8081"],

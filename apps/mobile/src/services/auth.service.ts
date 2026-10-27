@@ -40,6 +40,12 @@ export interface RegistroDocumentoResultado {
   documento_registrado: boolean;
   message: string;
   denuncias_que_te_identifican: number;
+  /**
+   * El carnet ya tenía una cuenta, eliminada antes, y volvió esa —con su
+   * historial— en lugar de la que se acaba de crear. La sesión actual era de la
+   * nueva y ya no vale: hay que volver a entrar.
+   */
+  cuenta_recuperada?: boolean;
 }
 
 /**
@@ -111,6 +117,18 @@ class AuthService {
       '/auth/documento/registrar',
       payload,
     );
+    return response.data;
+  }
+
+  /**
+   * Elimina la cuenta. Pide la contraseña aunque haya sesión: es irreversible.
+   * El servidor borra los datos personales y conserva lo que atribuye las
+   * denuncias firmadas; los detalles están en la página de eliminar cuenta.
+   */
+  async eliminarCuenta(password: string): Promise<{ mensaje: string }> {
+    const response = await apiClient.post<{ mensaje: string }>('/auth/cuenta/eliminar', {
+      password,
+    });
     return response.data;
   }
 

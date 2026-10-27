@@ -12,10 +12,13 @@ import { CierresModule } from './cierres/cierres.module';
 import { SancionesModule } from './sanciones/sanciones.module';
 import { ConstanciasModule } from './constancias/constancias.module';
 import { AvistamientosModule } from './avistamientos/avistamientos.module';
+import { ReportesModule } from './reportes/reportes.module';
 import { SaludController } from './salud/salud.controller';
+import { LegalController } from './legal/legal.controller';
 import { baseDataSourceOptions } from './database/data-source';
 import { denunciasConfig } from './config/denuncias.config';
 import { autoridadConfig } from './config/autoridad.config';
+import { contactoConfig } from './config/contacto.config';
 import { validarEntorno } from './config/validar-entorno';
 
 @Module({
@@ -23,7 +26,7 @@ import { validarEntorno } from './config/validar-entorno';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../../.env',
-      load: [denunciasConfig, autoridadConfig],
+      load: [denunciasConfig, autoridadConfig, contactoConfig],
       validate: validarEntorno,
     }),
     TypeOrmModule.forRootAsync({
@@ -63,7 +66,8 @@ import { validarEntorno } from './config/validar-entorno';
     SancionesModule,
     ConstanciasModule,
     AvistamientosModule,
+    ReportesModule,
   ],
-  controllers: [SaludController],
+  controllers: [SaludController, LegalController],
 })
 export class AppModule {}

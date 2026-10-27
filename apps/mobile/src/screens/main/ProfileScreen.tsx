@@ -1,9 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import cierreService from '../../services/cierre.service';
+import { API_URL } from '../../services/api';
+import { paginaPublica } from '../../utils/sitio';
 import sancionesService, {
   SituacionSanciones,
   presentacionDe,
@@ -153,6 +155,18 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <Ionicons name="log-out-outline" size={18} color="#FF3B30" />
         <Text style={styles.logoutText}>Cerrar sesión</Text>
       </TouchableOpacity>
+
+      <View style={styles.pie}>
+        <TouchableOpacity
+          onPress={() => Linking.openURL(paginaPublica(API_URL, 'privacidad'))}
+          accessibilityRole="link"
+        >
+          <Text style={styles.pieEnlace}>Política de privacidad</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('EliminarCuenta')}>
+          <Text style={[styles.pieEnlace, styles.pieEliminar]}>Eliminar mi cuenta</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 };
@@ -251,6 +265,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: { color: '#FF3B30', fontSize: 15, fontWeight: '600' },
+  pie: { width: '100%', alignItems: 'center', gap: 14, marginTop: 28 },
+  pieEnlace: { fontSize: 14, color: '#007AFF', fontWeight: '600' },
+  pieEliminar: { color: '#999' },
 });
 
 export { ProfileScreen };

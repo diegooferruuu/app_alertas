@@ -35,12 +35,20 @@ interface AuthStore {
   login: (email: string, password: string) => Promise<void>;
   register: (datos: DatosDeRegistro) => Promise<void>;
   logout: () => Promise<void>;
+  eliminarCuenta: (password: string) => Promise<string>;
   extraerDatosDocumento: (frontBase64: string, backBase64: string) => Promise<void>;
   /** Devuelve cuántas denuncias activas identifican a esta persona (H4.4). */
-  registrarDocumento: (selfieBase64: string) => Promise<number>;
+  registrarDocumento: (selfieBase64: string) => Promise<ResultadoDelRegistro>;
   getProfile: () => Promise<void>;
   setError: (error: string | null) => void;
   setPersonalData: (data: PersonalData) => void;
+}
+
+/** Lo que la pantalla de la selfie necesita saber del registro del documento. */
+export interface ResultadoDelRegistro {
+  denunciasQueTeIdentifican: number;
+  cuentaRecuperada: boolean;
+  mensaje: string;
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -156,6 +164,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
+  eliminarCuenta: async (password: string) => {
+    // Sin `isLoading` global: el error de una contraseña equivocada se muestra
+    // en la propia pantalla, y la sesión sigue hasta que la eliminación sale.
+    const { mensaje } = await authService.eliminarCuenta(password);
+    await get().logout();
+    return mensaje;
+  },
+
   registrarDocumento: async (selfieBase64: string) => {
     set({ isLoading: true, error: null });
     try {
@@ -181,9 +197,15 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         documentoRegistrado: true,
         verificationDraft: { personalData: null, idFrontBase64: null, idBackBase64: null },
       });
-      await get().getProfile();
+      // Si volvió una cuenta eliminada, esta sesión ya no existe: pedir el
+      // perfil daría un 401. La pantalla avisa y cierra la sesión.
+      if (!resultado.cuenta_recuperada) await get().getProfile();
 
-      return resultado.denuncias_que_te_identifican ?? 0;
+      return {
+        denunciasQueTeIdentifican: resultado.denuncias_que_te_identifican ?? 0,
+        cuentaRecuperada: Boolean(resultado.cuenta_recuperada),
+        mensaje: resultado.message,
+      };
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Verification failed';
       set({ error: errorMessage });

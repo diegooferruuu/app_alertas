@@ -60,11 +60,16 @@ export class FichasController {
     // La dirección de la foto va absoluta: la vista previa de WhatsApp no
     // resuelve una relativa. Se arma con el mismo host por el que llegó la
     // petición, que es el que el teléfono sabe alcanzar.
-    const urlFoto = (await this.fotoDe(denuncia))
-      ? `${req.protocol}://${req.get('host')}${req.originalUrl.split('?')[0].replace(/\/$/, '')}/foto`
-      : null;
+    const contenidoOculto = await this.denunciasService.estaOculta(denuncia.id);
+    const urlFoto =
+      !contenidoOculto && (await this.fotoDe(denuncia))
+        ? `${req.protocol}://${req.get('host')}${req.originalUrl.split('?')[0].replace(/\/$/, '')}/foto`
+        : null;
 
-    res.status(200).type('html').send(htmlDeFicha(denuncia, { urlFoto, ahora: new Date() }));
+    res
+      .status(200)
+      .type('html')
+      .send(htmlDeFicha(denuncia, { urlFoto, contenidoOculto, ahora: new Date() }));
   }
 
   @Get(':id/foto')
@@ -72,7 +77,10 @@ export class FichasController {
     res.set(CABECERAS);
 
     const denuncia = await this.visible(id);
-    const foto = denuncia ? await this.fotoDe(denuncia) : null;
+    const foto =
+      denuncia && !(await this.denunciasService.estaOculta(denuncia.id))
+        ? await this.fotoDe(denuncia)
+        : null;
     if (!foto) {
       res.status(404).end();
       return;

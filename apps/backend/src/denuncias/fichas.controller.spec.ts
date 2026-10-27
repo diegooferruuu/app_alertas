@@ -4,6 +4,7 @@ import { FichasController } from './fichas.controller';
 import { DenunciasService } from './denuncias.service';
 import { Denuncia } from './entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from './domain/estados';
+import { FOTOGRAFIA_OCULTA } from './ficha-publica';
 
 const ID = '5c3f0d7e-1111-4a2b-9c3d-123456789abc';
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
@@ -36,13 +37,17 @@ const visible = (cambios: Partial<Denuncia> = {}): Partial<Denuncia> => ({
   ...cambios,
 });
 
-/** El servicio, con la denuncia que «existe» y sus fotos. Sin denuncia, todo es «no encontrada». */
-const servicio = (denuncia: object | null, fotos: Buffer[] = []) => ({
+/**
+ * El servicio, con la denuncia que «existe» y sus fotos. Sin denuncia, todo es
+ * «no encontrada». `contenidoOculto`: si su foto se ocultó tras un reporte.
+ */
+const servicio = (denuncia: object | null, fotos: Buffer[] = [], contenidoOculto = false) => ({
   fichaPublica: jest.fn(async () => {
     if (!denuncia) throw new NotFoundException('Denuncia no encontrada');
     return denuncia;
   }),
   fotografiasDe: jest.fn(async () => fotos.map((f) => ({ contenido: f.toString('base64') }))),
+  estaOculta: jest.fn(async () => contenidoOculto),
 });
 
 /** Una respuesta de Express mínima que anota lo que se le hizo. */
@@ -162,6 +167,18 @@ describe('FichasController', () => {
 
   it('una alerta oculta tampoco entrega su foto', async () => {
     expect((await pedirFoto(servicio(null, [JPEG]))).estado).toBe(404);
+  });
+
+  it('una alerta con el contenido oculto tras un reporte sigue a la vista, sin su foto', async () => {
+    // Ocultar no es retirar: el nombre y las señas siguen sirviendo para buscar.
+    const conFotoOculta = servicio(visible(), [JPEG], true);
+
+    const ficha = await abrirFicha(conFotoOculta);
+    expect(ficha.estado).toBe(200);
+    expect(ficha.cuerpo).toContain('Rosa Vargas');
+    expect(ficha.cuerpo).not.toContain('og:image');
+    expect(ficha.cuerpo).toContain(FOTOGRAFIA_OCULTA);
+    expect((await pedirFoto(conFotoOculta)).estado).toBe(404);
   });
 
   it('un fallo que no es «no encontrada» no se disfraza de ficha retirada', async () => {

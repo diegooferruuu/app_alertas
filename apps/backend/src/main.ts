@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -55,8 +55,14 @@ async function bootstrap() {
   // Global filters
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Prefix for API routes
-  app.setGlobalPrefix('api');
+  // Prefix for API routes. Las páginas legales quedan fuera: son las
+  // direcciones que se publican en la ficha de Google Play.
+  app.setGlobalPrefix('api', {
+    exclude: [
+      { path: 'privacidad', method: RequestMethod.GET },
+      { path: 'eliminar-cuenta', method: RequestMethod.GET },
+    ],
+  });
 
   // Detrás de Caddy, la petición llega por HTTP desde el proxy. Sin confiar en
   // él, Express cree que el protocolo es `http`, y la ficha pública arma con eso

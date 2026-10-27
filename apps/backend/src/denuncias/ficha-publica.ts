@@ -74,6 +74,8 @@ export type DenunciaDeFicha = Pick<
 export interface ContextoDeFicha {
   /** Dirección absoluta de la foto, o nulo si no hay una que mostrar. */
   urlFoto: string | null;
+  /** Si la foto se ocultó tras un reporte: se dice, en vez de «Sin fotografía». */
+  contenidoOculto?: boolean;
   ahora: Date;
 }
 
@@ -103,6 +105,9 @@ export const tipoDeImagen = (bytes: Buffer): TipoDeImagen | null => {
   }
   return null;
 };
+
+/** Lo que se muestra en lugar de una foto que se ocultó tras un reporte. */
+export const FOTOGRAFIA_OCULTA = 'La fotografía se ocultó tras un reporte de contenido.';
 
 /** El nombre de la persona buscada es texto libre: todo se escapa antes de entrar al HTML. */
 export const escaparHtml = (texto: string): string =>
@@ -289,7 +294,11 @@ export const htmlDeFicha = (d: DenunciaDeFicha, contexto: ContextoDeFicha): stri
   const foto = urlFoto
     ? `<img src="${escaparHtml(urlFoto)}" alt="${escaparHtml(nombre ? `Fotografía de ${nombre}` : 'Fotografía de la persona buscada')}">`
     : `<p class="sin-foto">${escaparHtml(
-        esMenorDeEdad(d.fecha_nacimiento, ahora) ? MOTIVO_SIN_FOTOGRAFIA : 'Sin fotografía.',
+        esMenorDeEdad(d.fecha_nacimiento, ahora)
+          ? MOTIVO_SIN_FOTOGRAFIA
+          : contexto.contenidoOculto
+            ? FOTOGRAFIA_OCULTA
+            : 'Sin fotografía.',
       )}</p>`;
 
   const datos = filas(d, ahora)

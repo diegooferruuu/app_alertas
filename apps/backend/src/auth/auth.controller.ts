@@ -1,9 +1,19 @@
-import { Controller, Post, Body, UseGuards, Get, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Get,
+  BadRequestException,
+  HttpCode,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { VerificationService } from '../verification/verification.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { EliminarCuentaDto } from './dto/eliminar-cuenta.dto';
+import { CuentasService } from '../users/cuentas.service';
 import {
   RegistrarDocumentoDto,
   ExtraerDatosDocumentoDto,
@@ -18,6 +28,7 @@ export class AuthController {
     private authService: AuthService,
     private usersService: UsersService,
     private verificationService: VerificationService,
+    private cuentasService: CuentasService,
   ) {}
 
   @Post('register')
@@ -66,6 +77,17 @@ export class AuthController {
       dto.selfie_base64,
       dto.personal_data,
     );
+  }
+
+  /**
+   * Elimina la cuenta de la sesión. POST y no DELETE: lleva la contraseña en el
+   * cuerpo, y un DELETE con cuerpo es algo que no todo cliente ni proxy respeta.
+   */
+  @Post('cuenta/eliminar')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async eliminarCuenta(@CurrentUser() user: any, @Body() dto: EliminarCuentaDto) {
+    return this.cuentasService.eliminar(user.userId, dto.password);
   }
 
   @Get('me')

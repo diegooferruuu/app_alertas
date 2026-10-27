@@ -24,7 +24,10 @@
     },
     "production": {
       "autoIncrement": true,
-      "environment": "production"
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://152-67-46-104.sslip.io/api"
+      }
     }
   },
   "submit": {

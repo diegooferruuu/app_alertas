@@ -326,6 +326,17 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
 
         <Text style={styles.name}>{denuncia.nombre_persona_buscada || 'Sin nombre'}</Text>
 
+        {denuncia.contenido_oculto && (
+          <View style={[styles.aviso, styles.avisoOculto]}>
+            <Ionicons name="eye-off-outline" size={16} color="#8F5600" />
+            <Text style={styles.avisoText}>
+              {isOwner
+                ? 'Tras un reporte de contenido, la foto de esta alerta dejó de mostrarse a los demás. Tú la sigues viendo; la alerta y tu declaración no cambian.'
+                : 'La foto de esta alerta se ocultó tras un reporte de contenido.'}
+            </Text>
+          </View>
+        )}
+
         <Text style={styles.sectionLabel}>Descripción</Text>
         {detalleDescriptivo(denuncia).map((fila) => (
           <View key={fila.etiqueta} style={styles.filaDato}>
@@ -441,6 +452,18 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
             </Text>
           </View>
         )}
+
+        {/* Cualquier alerta ajena que se ve se puede reportar: es lo que exige
+            Google Play del contenido que publican los usuarios. */}
+        {!isOwner && (
+          <TouchableOpacity
+            style={styles.reportar}
+            onPress={() => navigation.navigate('ReportarContenido', { denunciaId: denuncia.id })}
+          >
+            <Ionicons name="flag-outline" size={15} color="#888" />
+            <Text style={styles.reportarTexto}>Reportar contenido inapropiado</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
@@ -510,6 +533,16 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   avisoText: { flex: 1, fontSize: 13, color: '#6B4300', lineHeight: 19 },
+  avisoOculto: { marginBottom: 16 },
+  reportar: {
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 20,
+  },
+  reportarTexto: { fontSize: 13, color: '#888', fontWeight: '600' },
   cerrada: {
     flexDirection: 'row',
     gap: 10,

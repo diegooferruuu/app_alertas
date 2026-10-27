@@ -60,6 +60,13 @@ export class AuthService {
       return null;
     }
 
+    // Una eliminada no tiene un correo que alguien pueda escribir, pero no
+    // depender de eso cuesta una línea.
+    if (user.deleted_at) {
+      this.logger.warn('Ingreso rechazado: la cuenta está eliminada');
+      return null;
+    }
+
     const isPasswordValid = await bcryptjs.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
@@ -111,6 +118,9 @@ export class AuthService {
       });
 
       const user = await this.usersService.findById(payload.sub);
+      // El token de refresco dura días: sin esto, una cuenta eliminada seguiría
+      // renovando su sesión toda la semana.
+      if (user.deleted_at) throw new UnauthorizedException();
       return this.generateTokens(user);
     } catch {
       throw new UnauthorizedException('Invalid refresh token');

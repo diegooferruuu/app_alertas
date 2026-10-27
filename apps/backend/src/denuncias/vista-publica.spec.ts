@@ -1,4 +1,4 @@
-import { vistaPublica, vistaPublicaDe } from './vista-publica';
+import { conOcultamiento, vistaPublica, vistaPublicaDe } from './vista-publica';
 import { Denuncia } from './entities/denuncia.entity';
 import { EstadoDenuncia, NivelConfianza } from './domain/estados';
 
@@ -65,5 +65,43 @@ describe('Vista pública de una denuncia', () => {
     expect(vistas.map((v) => v.es_mia)).toEqual([true, false]);
     expect(JSON.stringify(vistas)).not.toContain(AUTOR);
     expect(JSON.stringify(vistas)).not.toContain(OTRA_PERSONA);
+  });
+});
+
+describe('Contenido oculto tras un reporte', () => {
+  const conFoto = (userId: string) => ({
+    ...vistaPublica(denunciaDePrueba(), userId),
+    fotografias: [{ contenido: 'foto' }],
+  });
+
+  it('a quien no la presentó le quita la foto y el relato, no el nombre', () => {
+    const vista = conOcultamiento(conFoto(OTRA_PERSONA), true);
+
+    expect(vista.fotografias).toEqual([]);
+    expect(vista.description).toBeNull();
+    expect(vista.nombre_persona_buscada).toBe('Luis Mamani');
+    expect(vista.contenido_oculto).toBe(true);
+  });
+
+  it('a quien la presentó le deja todo y le dice que se ocultó', () => {
+    const vista = conOcultamiento(conFoto(AUTOR), true);
+
+    expect(vista.fotografias).toHaveLength(1);
+    expect(vista.description).toBe('Visto por última vez el martes');
+    expect(vista.contenido_oculto).toBe(true);
+  });
+
+  it('en una lista, que no trae fotos, no inventa el campo', () => {
+    const vista = conOcultamiento(vistaPublica(denunciaDePrueba(), OTRA_PERSONA), true);
+
+    expect(vista).not.toHaveProperty('fotografias');
+    expect(vista.description).toBeNull();
+  });
+
+  it('sin ocultamiento no cambia nada', () => {
+    const vista = conOcultamiento(conFoto(OTRA_PERSONA), false);
+
+    expect(vista.fotografias).toHaveLength(1);
+    expect(vista.contenido_oculto).toBe(false);
   });
 });

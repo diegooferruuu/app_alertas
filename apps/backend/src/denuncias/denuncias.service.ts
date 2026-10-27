@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Denuncia } from './entities/denuncia.entity';
 import { FotografiaDenuncia } from './entities/fotografia-denuncia.entity';
+import { OcultamientoContenido } from './entities/ocultamiento-contenido.entity';
 import { CreateDenunciaDto } from './dto/create-denuncia.dto';
 import { UpdateDenunciaDto } from './dto/update-denuncia.dto';
 import {
@@ -625,6 +626,27 @@ export class DenunciasService {
       throw new NotFoundException('Denuncia no encontrada');
     }
     return denuncia;
+  }
+
+  /**
+   * Cuáles de estas denuncias tienen el contenido oculto tras un reporte.
+   *
+   * Una sola consulta para una lista entera: la del mapa corre con cada
+   * movimiento y no puede pagar una por fila.
+   */
+  async ocultasEntre(ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const filas = await this.dataSource
+      .getRepository(OcultamientoContenido)
+      .createQueryBuilder('o')
+      .select('o.denuncia_id', 'denuncia_id')
+      .where('o.denuncia_id IN (:...ids)', { ids })
+      .getRawMany<{ denuncia_id: string }>();
+    return new Set(filas.map((f) => f.denuncia_id));
+  }
+
+  async estaOculta(id: string): Promise<boolean> {
+    return (await this.ocultasEntre([id])).has(id);
   }
 }
 

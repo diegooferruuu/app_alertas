@@ -13,7 +13,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { prepararParaEnviar } from '../../services/imagenes';
 
 const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { registrarDocumento, isLoading, error } = useAuthStore();
+  const { registrarDocumento, logout, isLoading, error } = useAuthStore();
   const [selfieImage, setSelfieImage] = useState<string | null>(null);
 
   const takeSelfie = async () => {
@@ -46,7 +46,18 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
 
     try {
-      const meIdentifican = await registrarDocumento(selfieImage);
+      const resultado = await registrarDocumento(selfieImage);
+      const meIdentifican = resultado.denunciasQueTeIdentifican;
+
+      // El carnet ya tenía una cuenta, que la persona eliminó antes: volvió esa,
+      // con su historial, y la sesión de la recién creada dejó de existir. Se
+      // entra de nuevo con el mismo correo y contraseña.
+      if (resultado.cuentaRecuperada) {
+        Alert.alert('Recuperamos tu cuenta', resultado.mensaje, [
+          { text: 'Iniciar sesión', onPress: () => logout() },
+        ]);
+        return;
+      }
 
       // H4.4 — Vía de acceso para la persona reportada sin cuenta previa.
       //
