@@ -11,7 +11,7 @@ exige una prueba cerrada antes de abrir la app al público:
 
 Un tester que se sale antes de los 14 días no cuenta. Conviene invitar a 15 o más.
 
-Paquete: `com.emergencyalert.app`. Una vez subido, no se puede cambiar.
+Paquete: `download.alertatemprana` (el dominio al revés). Una vez subido, no se puede cambiar.
 
 ---
 
@@ -40,7 +40,7 @@ solo acepta la firma de EAS, así que en la versión instalada desde Play el map
 1. Ve a **Probar y publicar → Configuración → Integridad de la app → Firma de apps**.
 2. Copia el **certificado SHA-1 de la clave de firma de apps**.
 3. En Google Cloud, entra a **APIs y servicios → Credenciales** y abre la clave de Maps.
-4. En **Restricciones de aplicaciones**, agrega `com.emergencyalert.app` con ese SHA-1. No borres el de EAS: el APK de `preview` lo sigue usando.
+4. En **Restricciones de aplicaciones**, agrega `download.alertatemprana` con ese SHA-1. No borres el de EAS: el APK de `preview` lo sigue usando.
 
 ---
 
@@ -50,7 +50,7 @@ Está en **Política → Contenido de la app**. Toda esta sección es obligatori
 
 ### Política de privacidad
 ```
-https://152-67-46-104.sslip.io/privacidad
+https://alertatemprana.download/privacidad
 ```
 
 ### Acceso a la app
@@ -111,7 +111,7 @@ Respuestas generales:
 |---|---|
 | ¿Recopila o comparte datos del usuario? | Sí |
 | ¿Están cifrados en tránsito? | Sí (HTTPS) |
-| ¿Ofrece una forma de solicitar la eliminación? | Sí, con este enlace: `https://152-67-46-104.sslip.io/eliminar-cuenta` |
+| ¿Ofrece una forma de solicitar la eliminación? | Sí, con este enlace: `https://alertatemprana.download/eliminar-cuenta` |
 
 **Compartido:** solo el **Nombre**. Es el de quien firma una declaración jurada, que puede
 recibir la persona reportada en la constancia. Márcalo con el propósito «Prevención de fraudes,

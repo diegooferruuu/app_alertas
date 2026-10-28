@@ -22,7 +22,7 @@ set -euo pipefail
 
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_MOVIL="$RAIZ/apps/mobile/.env"
-URL_BETA="https://152-67-46-104.sslip.io/api"
+URL_BETA="https://alertatemprana.download/api"
 
 case "${1:-local}" in
   beta)

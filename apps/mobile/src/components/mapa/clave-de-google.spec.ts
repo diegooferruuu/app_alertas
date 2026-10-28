@@ -49,7 +49,7 @@ describe('clave de Google Maps, de EAS al mapa', () => {
   it('conserva lo que viene de app.json', () => {
     const config = resolver(CLAVE);
 
-    expect(config.android.package).toBe('com.emergencyalert.app');
+    expect(config.android.package).toBe('download.alertatemprana');
     expect(config.extra.eas.projectId).toBe(appJson.extra.eas.projectId);
     expect(config.plugins).toEqual(appJson.plugins);
   });

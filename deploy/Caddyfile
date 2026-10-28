@@ -1,9 +1,14 @@
-# HTTPS automático con Let's Encrypt para el dominio del servidor.
+# HTTPS automático con Let's Encrypt para el dominio del servidor. Caddy pide y
+# renueva el certificado solo, y redirige HTTP a HTTPS.
 #
-# Con sslip.io el dominio resuelve a la IP que lleva en el nombre
-# (152-67-46-104.sslip.io → 152.67.46.104), así que no hace falta comprar uno.
-# Caddy pide y renueva el certificado solo, y redirige HTTP a HTTPS.
-{$DOMINIO} {
+# DOMINIO es el de la app (alertatemprana.download). DOMINIO_ANTERIOR, el de
+# sslip.io con que salieron los primeros APK: la dirección de la API queda
+# compilada en la app, así que se sigue atendiendo mientras haya teléfonos con
+# esa versión. Cuando todos tengan la nueva, se borra del .env y basta.
+#
+# Las dos variables se sustituyen antes de leer el archivo: si DOMINIO_ANTERIOR
+# está vacía, el sitio queda solo con DOMINIO.
+{$DOMINIO} {$DOMINIO_ANTERIOR} {
 	encode zstd gzip
 	reverse_proxy backend:3000
 }

@@ -11,7 +11,7 @@
  * nativo. **No se versiona**, porque el repositorio es público: es la variable
  * `GOOGLE_MAPS_API_KEY` de EAS (entornos development y preview), que solo existe
  * al compilar allí. En Google Cloud va restringida al paquete
- * `com.emergencyalert.app` con la huella SHA-1 del keystore de EAS, y a la API
+ * `download.alertatemprana` con la huella SHA-1 del keystore de EAS, y a la API
  * «Maps SDK for Android».
  *
  * Sin la variable no se escribe ninguna clave. Pasa al compilar sin ella y cada
