@@ -37,8 +37,8 @@ En Play Console, toca **Crear app** y completa:
 Google vuelve a firmar la app con su propia clave. Con la restricción actual, la clave de Google Maps
 solo acepta la firma de EAS, así que en la versión instalada desde Play el mapa saldría gris.
 
-1. Ve a **Probar y publicar → Configuración → Integridad de la app → Firma de apps**.
-2. Copia el **certificado SHA-1 de la clave de firma de apps**.
+1. Ve a **Probar y publicar → Integridad de la app**. En la sección **Firma de apps de Play**, toca **Configuración**. Si no lo encuentras en el menú, escribe «firma de apps» en el buscador de arriba de Play Console. Esta sección aparece recién cuando la versión con el `.aab` queda guardada.
+2. En **Certificado de la clave de firma de apps** (no el de la clave de subida), copia la **huella digital del certificado SHA-1**.
 3. En Google Cloud, entra a **APIs y servicios → Credenciales** y abre la clave de Maps.
 4. En **Restricciones de aplicaciones**, agrega `download.alertatemprana` con ese SHA-1. No borres el de EAS: el APK de `preview` lo sigue usando.
 
@@ -68,16 +68,47 @@ Después, léela con:
 ssh oracle 'cat ~/revisores-play.txt'
 ```
 
-Texto de la instrucción, en inglés, que es como trabajan los revisores:
+Texto de la instrucción, en inglés porque así trabajan los revisores. El campo admite 500 caracteres y este tiene 499:
 
-> Log in with the credentials above. This account already has an identity document registered, so
-> every feature is available; registering a new document requires a Bolivian ID card and is not
-> needed for review.
-> Alerts are location-based (1–2 km, in Bolivia), so the map near you may be empty. The "Denuncias"
-> tab lists recent alerts, and you can create a test report with the "+" button. To sign the sworn
-> declaration, type the account's full name exactly as shown in the profile ("Revisor Google Play").
-> Account deletion: Profile → "Eliminar mi cuenta". Content reporting: open any alert →
-> "Reportar contenido inapropiado".
+```
+Log in with the credentials above. The account has an ID document registered, so all features are enabled (registering one needs a Bolivian ID card). Alerts reach people within 1-2 km in Bolivia, so the map may be empty; the "Denuncias" tab lists all recent alerts. Create one: Mapa > + Reportar. Signing needs a screen lock; type the name "Revisor Google Play". Delete account: Perfil > Eliminar mi cuenta. Report content: Denuncias > "Persona de Ejemplo" (sample) > Reportar contenido inapropiado.
+```
+
+#### La alerta de muestra
+
+«Reportar contenido inapropiado» solo aparece en la alerta de **otra** cuenta. Si el servidor
+no tiene ninguna, el revisor no encuentra el sistema de reportes y puede rechazar la app por la
+política de contenido generado por usuarios. Antes de mandar la app a revisión, deja una a la vista:
+
+```bash
+ssh oracle '~/alertas/deploy/alerta-de-muestra.sh'
+```
+
+- **La cuenta que la presenta no pasa por el OCR.** Nace con el documento ya registrado, como la de
+  revisión. Su contraseña es inutilizable y no se guarda en ningún lado, así que nadie puede entrar con ella.
+- **La alerta se ve como lo que es.** La persona se llama «Persona de Ejemplo» y la foto es una
+  silueta con la palabra EJEMPLO.
+- **No le llega a nadie.** La zona está en medio del Salar de Uyuni: la única notificación, la de
+  la firma, no encuentra a nadie. La lista «Denuncias» no filtra por distancia, así que el revisor
+  la ve desde donde esté.
+- **Vence a las 24 horas, como cualquier alerta.** Si el guion se corre de nuevo y le quedan menos
+  de 12 horas, la prolonga sin notificar. Cuando se acaban las prolongaciones, la da por encontrada
+  y presenta otra.
+
+Una revisión puede durar varios días. Para que la alerta no venza mientras tanto, instala esta
+tarea, que corre el guion cada 6 horas:
+
+```bash
+ssh oracle '(crontab -l 2>/dev/null; echo "0 */6 * * * \$HOME/alertas/deploy/alerta-de-muestra.sh >> \$HOME/alerta-de-muestra.log 2>&1") | crontab -'
+```
+
+Para quitarla cuando la app ya esté aprobada:
+
+```bash
+ssh oracle 'crontab -l | grep -v alerta-de-muestra | crontab -'
+```
+
+Si el revisor la reporta, te llega el correo del reporte como cualquier otro. No hace falta ocultarla.
 
 ### Anuncios
 No, la app no tiene anuncios.
@@ -184,9 +215,15 @@ Alerta Temprana es un proyecto académico. No es una aplicación oficial de la P
 |---|---|
 | Ícono (512 × 512) | `docs/google-play/icono-512.png` |
 | Gráfico de funciones (1024 × 500) | `docs/google-play/grafico-de-funciones.png` |
-| Capturas de teléfono (2 a 8) | Tómalas de tu teléfono con la beta y datos de prueba: el mapa, la lista, el detalle de una alerta y el reporte de avistamiento |
+| Capturas de teléfono (2 a 8) | Tómalas en tu entorno local con los datos de demostración: el mapa, la lista, el detalle de una alerta y el reporte de avistamiento |
 
-En las capturas no pueden aparecer datos de personas reales.
+En las capturas no pueden aparecer datos de personas reales. Los datos de demostración no están en
+el servidor, y `tools/datos-demo.sh` no se corre ahí: su contraseña está en el repositorio y
+desactiva por un momento las protecciones de solo inserción. Para las capturas:
+
+1. Levanta el backend local y corre `./tools/datos-demo.sh`.
+2. Corre `./tools/red-demo.sh`, sin `beta`, para que Metro apunte a tu Mac.
+3. Abre la app desde Metro, entra con una de las cuentas `@demo.bo` y toma las capturas.
 
 ### Categoría y contacto
 - **Categoría:** Social.
