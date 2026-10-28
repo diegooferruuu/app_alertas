@@ -16,6 +16,31 @@
       "api_key": [
         {
           "current_key": "AIzaSyBudDmE7qV948Ubo3FTvdNPNn-80-075RU"
+        },
+        {
+          "current_key": "AIzaSyClY5xMIo9nsn5Bvf_iQ95ShNaOJrOPTmo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:381779345515:android:74c9700d63b8abe390b12e",
+        "android_client_info": {
+          "package_name": "download.alertatemprana"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBudDmE7qV948Ubo3FTvdNPNn-80-075RU"
+        },
+        {
+          "current_key": "AIzaSyClY5xMIo9nsn5Bvf_iQ95ShNaOJrOPTmo"
         }
       ],
       "services": {
