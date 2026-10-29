@@ -112,6 +112,15 @@ export class ReportesService {
               'Para ocultar la foto y el relato a quien no la presentó (no borra nada):',
               `  ssh oracle '~/alertas/deploy/ocultar-contenido.sh ${denunciaId} "motivo"'`,
             ].join('\n'),
+        // Ocultar deja la imagen guardada. Si es abuso sexual infantil, no puede
+        // quedarse: se borra y se denuncia (estándares de seguridad infantil).
+        dto.motivo === 'imagen_inapropiada'
+          ? [
+              '',
+              'Si es abuso sexual infantil, bórrala del todo y denúncialo:',
+              `  ssh oracle '~/alertas/deploy/borrar-imagen.sh ${denunciaId} "motivo"'`,
+            ].join('\n')
+          : null,
       ]
         .filter((linea) => linea !== null)
         .join('\n')

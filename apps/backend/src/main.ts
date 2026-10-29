@@ -61,6 +61,7 @@ async function bootstrap() {
     exclude: [
       { path: 'privacidad', method: RequestMethod.GET },
       { path: 'eliminar-cuenta', method: RequestMethod.GET },
+      { path: 'seguridad-infantil', method: RequestMethod.GET },
     ],
   });
 

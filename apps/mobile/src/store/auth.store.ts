@@ -4,6 +4,7 @@ import authService, {
   LoginResponse,
   User,
 } from '../services/auth.service';
+import { storage } from '../utils/storage';
 
 /**
  * Datos del carnet que la persona declara. Ya no incluye el nombre: se declaró,
@@ -40,6 +41,7 @@ interface AuthStore {
   /** Devuelve cuántas denuncias activas identifican a esta persona (H4.4). */
   registrarDocumento: (selfieBase64: string) => Promise<ResultadoDelRegistro>;
   getProfile: () => Promise<void>;
+  restaurarSesion: () => Promise<void>;
   setError: (error: string | null) => void;
   setPersonalData: (data: PersonalData) => void;
 }
@@ -224,6 +226,31 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       });
     } catch (error) {
       console.error('Failed to fetch profile:', error);
+    }
+  },
+
+  /**
+   * Retoma, al abrir la app, la sesión que quedó guardada.
+   *
+   * Antes solo pedía el perfil y nunca daba la sesión por iniciada, así que cada
+   * arranque llevaba a la pantalla de entrada. Y como el registro del teléfono y
+   * la ubicación esperan a la sesión, quien abría la app sin volver a entrar
+   * dejaba de informar dónde está: a las 72 horas dejaba de recibir alertas.
+   *
+   * Si el perfil no llega porque la sesión venció y no se pudo renovar, el
+   * cliente ya borró las credenciales y toca entrar de nuevo.
+   */
+  restaurarSesion: async () => {
+    if (!(await storage.getItem('accessToken'))) return;
+    try {
+      const profile = await authService.getProfile();
+      set({
+        user: profile,
+        isAuthenticated: true,
+        documentoRegistrado: profile.documento_registrado,
+      });
+    } catch (error) {
+      console.error('No se pudo retomar la sesión:', error);
     }
   },
 

@@ -22,7 +22,6 @@ import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScr
 import { EliminarCuentaScreen } from './src/screens/main/EliminarCuentaScreen';
 import { ReportarContenidoScreen } from './src/screens/main/ReportarContenidoScreen';
 import { ActivityIndicator, View } from 'react-native';
-import { storage } from './src/utils/storage';
 import { navigationRef } from './src/navigation/navigationRef';
 import { useAlertas } from './src/hooks/useAlertas';
 import { BarreraDeErrores } from './src/components/BarreraDeErrores';
@@ -30,7 +29,7 @@ import { BarreraDeErrores } from './src/components/BarreraDeErrores';
 const Stack = createStackNavigator();
 
 function Aplicacion() {
-  const { isAuthenticated, getProfile } = useAuth();
+  const { isAuthenticated, restaurarSesion } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
 
   // Registra el dispositivo e informa la ubicación: sin las dos cosas, la
@@ -38,18 +37,7 @@ function Aplicacion() {
   useAlertas(isAuthenticated);
 
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        const token = await storage.getItem('accessToken');
-        if (token) {
-          await getProfile();
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkAuthStatus();
+    restaurarSesion().finally(() => setIsLoading(false));
   }, []);
 
   if (isLoading) {

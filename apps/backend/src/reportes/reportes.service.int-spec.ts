@@ -99,6 +99,7 @@ describe('Reporte de contenido de una alerta (integración)', () => {
     expect(asunto).toBe('Reporte de contenido: Imagen inapropiada');
     expect(texto).toContain(denuncia.id);
     expect(texto).toContain('ocultar-contenido.sh');
+    expect(texto).toContain(`borrar-imagen.sh ${denuncia.id}`);
     expect(texto).not.toContain('Luis Mamani');
   });
 
@@ -116,6 +117,8 @@ describe('Reporte de contenido de una alerta (integración)', () => {
     expect(segunda.mensaje).toBe(MENSAJE_REPORTE_RECIBIDO);
     expect(await reportes.countBy({ denuncia_id: denuncia.id })).toBe(1);
     expect(avisar).toHaveBeenCalledTimes(1);
+    // Borrar es solo para una imagen: con otro motivo no se ofrece.
+    expect(avisar.mock.calls[0][1]).not.toContain('borrar-imagen.sh');
   });
 
   it('no se reporta la propia denuncia', async () => {

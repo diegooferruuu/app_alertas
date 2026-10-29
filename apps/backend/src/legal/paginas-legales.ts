@@ -1,8 +1,9 @@
 import { escaparHtml } from '../denuncias/ficha-publica';
 
 /**
- * Las dos páginas públicas que exige Google Play: la política de privacidad y
- * la de eliminación de cuenta, que tiene que funcionar sin la aplicación.
+ * Las páginas públicas que exige Google Play: la política de privacidad, la de
+ * eliminación de cuenta, que tiene que funcionar sin la aplicación, y los
+ * estándares de seguridad infantil, obligatorios en la categoría Social.
  *
  * Lo que dicen tiene que ser verdad del código, no una plantilla: si cambia lo
  * que se guarda, cambia esto. Cada afirmación remite a lo que la sostiene:
@@ -11,11 +12,14 @@ import { escaparHtml } from '../denuncias/ficha-publica';
  *  - la zona de ~1 km y no el punto: `aZonaDeAvistamiento`;
  *  - el avistamiento no llega al servidor (I2): `usos_canal_avistamiento` solo
  *    guarda el canal, la alerta y el minuto;
- *  - lo que se borra y lo que queda al eliminar: `CuentasService`.
+ *  - lo que se borra y lo que queda al eliminar: `CuentasService`;
+ *  - la alerta de un menor no lleva foto: `DenunciasService.fotografiaPermitida`;
+ *  - el único texto libre es el nombre: `CreateDenunciaDto`;
+ *  - una imagen se borra del todo, no solo se oculta: `deploy/borrar-imagen.sh`.
  */
 
 /** Cuándo cambió por última vez lo que dicen estas páginas. */
-export const VIGENTE_DESDE = '27 de octubre de 2026';
+export const VIGENTE_DESDE = '28 de octubre de 2026';
 
 const ESTILOS = `
   :root { --fondo: #f3f4f6; --hoja: #ffffff; --texto: #16181d; --suave: #5b6270;
@@ -118,7 +122,7 @@ export const htmlPoliticaDePrivacidad = (correo: string): string =>
 <li><strong>Cualquiera con el enlace de una alerta</strong> ve su ficha pública, que tampoco incluye a quien la denunció y deja de mostrarse si la alerta se retira.</li>
 <li><strong>La persona reportada</strong> en una denuncia puede pedir, después de retirarla, una constancia con el nombre de quien firmó la declaración jurada. Cada entrega queda registrada.</li>
 <li><strong>Proveedores que hacen funcionar el servicio:</strong> Expo, Google y Apple reciben el identificador de tu teléfono y el texto de cada notificación (por ejemplo, el nombre de la persona buscada) para entregarla; Google Maps dibuja el mapa de la aplicación; Oracle Cloud aloja el servidor.</li>
-<li><strong>Las autoridades</strong>, solo si una orden legal lo exige.</li>
+<li><strong>Las autoridades</strong>, si una orden legal lo exige, o si en una alerta se publica material de abuso sexual infantil: en ese caso lo denunciamos con los datos de la cuenta que lo publicó (ver los <a href="/seguridad-infantil">estándares de seguridad infantil</a>).</li>
 </ul>
 
 <h2>Cuánto tiempo y cómo eliminar tu cuenta</h2>
@@ -158,6 +162,60 @@ export const htmlEliminarCuenta = (correo: string): string =>
 <h2>Qué se borra y qué se conserva</h2>
 ${queSeBorraYQueQueda()}
 <p>Más detalle en la <a href="/privacidad">política de privacidad</a>.</p>
+</article>
+<footer>Alerta Temprana · ${enlaceDeCorreo(correo)}</footer>`
+  );
+
+export const htmlSeguridadInfantil = (correo: string): string =>
+  pagina(
+    'Estándares de seguridad infantil · Alerta Temprana',
+    `<article class="hoja">
+<p class="rotulo">Alerta Temprana</p>
+<h1>Estándares de seguridad infantil</h1>
+<p class="fecha">Vigente desde el ${VIGENTE_DESDE}</p>
+
+<p>Alerta Temprana, la aplicación de Diego Ferrufino publicada en Google Play, prohíbe por completo la explotación y el abuso sexual infantil (CSAE) y el material de abuso sexual infantil (CSAM). Aquí se explica qué está prohibido, cómo está hecha la aplicación para reducir el riesgo, cómo reportarlo y qué hacemos con cada reporte.</p>
+
+<h2>Qué está prohibido</h2>
+<ul>
+<li>Publicar imágenes o datos que sexualicen a una niña, un niño o un adolescente, sean reales o generados.</li>
+<li>Usar la aplicación para contactar, captar o engañar a menores, o para la trata o la explotación de personas.</li>
+<li>Denunciar la desaparición de un menor para localizarlo con cualquier otro fin.</li>
+</ul>
+<p>Esto vale para todo lo que se publica: el nombre, la descripción y la fotografía de una alerta.</p>
+
+<h2>Cómo está hecha la aplicación</h2>
+<ul>
+<li><strong>La alerta de un menor de edad no lleva fotografía.</strong> El servidor rechaza la foto si la fecha de nacimiento es la de un menor.</li>
+<li><strong>No hay chat ni mensajes entre usuarios, ni perfiles públicos.</strong> Nadie puede escribirle a otra persona desde la aplicación. Quien ve a la persona buscada avisa a la Policía desde su propio teléfono.</li>
+<li><strong>El único texto libre es el nombre de la persona buscada.</strong> La descripción física, la vestimenta y las circunstancias se eligen de listas cerradas.</li>
+<li><strong>Nadie publica de forma anónima.</strong> Cada alerta queda atribuida a una cuenta con carnet de identidad verificado, bajo una declaración jurada firmada desde su teléfono.</li>
+<li>La aplicación es para mayores de 18 años.</li>
+</ul>
+
+<h2>Cómo reportarlo</h2>
+<ul>
+<li><strong>Desde la aplicación, sin salir de ella:</strong> abre la alerta, toca <strong>Reportar contenido inapropiado</strong> y elige <strong>Imagen inapropiada</strong>. Puedes agregar un detalle.</li>
+<li><strong>Por correo:</strong> ${enlaceDeCorreo(correo, 'Seguridad infantil')}.</li>
+<li><strong>Si un menor está en peligro inmediato,</strong> llama a la Policía al 110 antes que nada.</li>
+</ul>
+
+<h2>Qué hacemos con un reporte</h2>
+<p>Cada reporte llega por correo al responsable, que revisa primero los de imágenes. Si confirmamos material de abuso sexual infantil:</p>
+<ol>
+<li><strong>Borramos la imagen del sistema</strong> en el momento: no solo se oculta, se elimina. La alerta deja de mostrar foto y descripción, también en su ficha pública.</li>
+<li><strong>Lo denunciamos</strong> a la Policía Boliviana y al CyberTipline del National Center for Missing &amp; Exploited Children (NCMEC), con los datos de la cuenta que lo publicó.</li>
+<li><strong>Colaboramos</strong> con la investigación que lleve adelante la autoridad.</li>
+</ol>
+<p>Cumplimos la legislación boliviana de protección de niñas, niños y adolescentes.</p>
+
+<h2>Contacto</h2>
+<p>Responsable de seguridad infantil: Diego Ferrufino, ${enlaceDeCorreo(correo, 'Seguridad infantil')}. Puede responder sobre estas prácticas y su cumplimiento.</p>
+
+<h2 lang="en">Summary in English</h2>
+<div lang="en">
+<p>Alerta Temprana, by Diego Ferrufino, has zero tolerance for child sexual abuse and exploitation (CSAE) and child sexual abuse material (CSAM). Alerts about minors cannot carry a photo, there is no user-to-user messaging, and every alert is tied to an ID-verified account. Users report content in the app (<em>Reportar contenido inapropiado</em>) or by email. Confirmed CSAM is deleted from our systems and reported to the Bolivian Police and to NCMEC's CyberTipline. Child safety contact: Diego Ferrufino, ${enlaceDeCorreo(correo)}.</p>
+</div>
 </article>
 <footer>Alerta Temprana · ${enlaceDeCorreo(correo)}</footer>`
   );

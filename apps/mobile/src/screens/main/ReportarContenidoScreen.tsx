@@ -17,7 +17,7 @@ const MOTIVOS: Array<{ motivo: MotivoDeReporte; titulo: string; detalle: string 
   {
     motivo: 'imagen_inapropiada',
     titulo: 'Imagen inapropiada',
-    detalle: 'La foto es obscena, violenta o no muestra a una persona.',
+    detalle: 'La foto es obscena, violenta, sexualiza a un menor o no muestra a una persona.',
   },
   {
     motivo: 'contenido_ofensivo',

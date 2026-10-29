@@ -18,7 +18,7 @@ const loQueSeBorraYQueda = (html: string) =>
 describe('Páginas legales', () => {
   it('se abren sin sesión: la de eliminación tiene que servir sin la app', () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, LegalController)).toBeUndefined();
-    for (const metodo of ['privacidad', 'eliminarCuenta'] as const) {
+    for (const metodo of ['privacidad', 'eliminarCuenta', 'seguridadInfantil'] as const) {
       expect(
         Reflect.getMetadata(GUARDS_METADATA, LegalController.prototype[metodo])
       ).toBeUndefined();
@@ -26,7 +26,7 @@ describe('Páginas legales', () => {
   });
 
   it('no ejecutan nada ni cargan nada de fuera', () => {
-    for (const metodo of ['privacidad', 'eliminarCuenta'] as const) {
+    for (const metodo of ['privacidad', 'eliminarCuenta', 'seguridadInfantil'] as const) {
       const cabeceras: Array<{ name: string; value: string }> = Reflect.getMetadata(
         HEADERS_METADATA,
         LegalController.prototype[metodo]
@@ -45,6 +45,17 @@ describe('Páginas legales', () => {
     expect(html).toContain('Alerta Temprana');
   });
 
+  it('la de seguridad infantil tiene lo que pide Google Play: prohibición, reporte y contacto', () => {
+    const html = controlador().seguridadInfantil();
+
+    expect(html).toContain('Alerta Temprana');
+    expect(html).toContain('material de abuso sexual infantil (CSAM)');
+    expect(html).toContain('<strong>Reportar contenido inapropiado</strong>');
+    expect(html).toContain('<strong>Borramos la imagen del sistema</strong>');
+    expect(html).toContain('Responsable de seguridad infantil: Diego Ferrufino');
+    expect(html).toContain(`mailto:${CORREO}?subject=Seguridad%20infantil`);
+  });
+
   it('la política dice lo que el código hace con el carnet, la ubicación y el avistamiento', () => {
     const html = controlador().privacidad();
 
@@ -52,6 +63,7 @@ describe('Páginas legales', () => {
     expect(html).toContain('no usa tu ubicación en segundo plano');
     expect(html).toContain('<strong>no pasa por nuestro servidor</strong>');
     expect(html).toContain('href="/eliminar-cuenta"');
+    expect(html).toContain('href="/seguridad-infantil"');
     expect(html).toContain(CORREO);
   });
 

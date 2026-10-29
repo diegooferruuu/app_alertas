@@ -12,6 +12,7 @@ export const useAuth = () => {
     logout,
     registrarDocumento,
     getProfile,
+    restaurarSesion,
     setError,
   } = useAuthStore();
 
@@ -26,6 +27,7 @@ export const useAuth = () => {
     logout,
     registrarDocumento,
     getProfile,
+    restaurarSesion,
     setError,
   };
 };

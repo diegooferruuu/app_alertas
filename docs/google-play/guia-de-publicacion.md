@@ -110,6 +110,20 @@ ssh oracle 'crontab -l | grep -v alerta-de-muestra | crontab -'
 
 Si el revisor la reporta, te llega el correo del reporte como cualquier otro. No hace falta ocultarla.
 
+### Estándares de la seguridad de los niños
+Google los pide a toda app de la categoría **Social**:
+
+- **URL de los estándares de seguridad:**
+  ```
+  https://alertatemprana.download/seguridad-infantil
+  ```
+- **Contacto:** deja `dferrufinoc@gmail.com`, que es el que nombra la página.
+- Si pide confirmar que hay una forma de reportar desde la app, sí: «Reportar contenido inapropiado».
+
+La página dice qué está prohibido y cómo reportarlo. También explica qué pasa si se confirma
+material de abuso sexual infantil: la imagen se borra del todo y se denuncia. El comando para
+borrarla está en [Lo que atiende quien opera el servidor](#lo-que-atiende-quien-opera-el-servidor).
+
 ### Anuncios
 No, la app no tiene anuncios.
 
@@ -254,3 +268,12 @@ desactiva por un momento las protecciones de solo inserción. Para las capturas:
   ssh oracle '~/alertas/deploy/ocultar-contenido.sh <id> "motivo"'
   ```
   Para que lleguen los correos, el `.env` del servidor necesita `SMTP_*`: con Gmail, una contraseña de aplicación. Sin eso, el reporte queda guardado igual, pero no avisa.
+- **Material de abuso sexual infantil:** ocultar no alcanza, porque la imagen sigue guardada. Si una
+  foto reportada lo es, bórrala del todo. El correo de un reporte por «Imagen inapropiada» trae el
+  comando listo:
+  ```bash
+  ssh oracle '~/alertas/deploy/borrar-imagen.sh <id> "motivo"'
+  ```
+  La alerta, la declaración y la cuenta se conservan, porque son lo que se entrega a la autoridad.
+  Después denúncialo a la Policía Boliviana (FELCC) y al CyberTipline del NCMEC
+  (https://report.cybertip.org/), como promete la página de estándares de seguridad infantil.
