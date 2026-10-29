@@ -160,6 +160,19 @@ describe('RegisterDto', () => {
       ),
     ).rejects.toThrow(BadRequestException);
   });
+
+  it('dice en español cada regla de la contraseña que no se cumple', async () => {
+    // La app muestra el rechazo tal cual: en inglés, quien se registra no
+    // entendería qué corregir.
+    const motivos = await motivosDeRechazo(
+      { ...registroValido, password: 'abc' },
+      RegisterDto,
+    );
+    expect(motivos.sort()).toEqual([
+      'La contraseña debe tener al menos 8 caracteres',
+      'La contraseña debe tener una mayúscula, una minúscula y un número',
+    ]);
+  });
 });
 
 describe('LoginDto', () => {

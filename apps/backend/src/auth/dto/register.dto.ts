@@ -35,13 +35,15 @@ export class RegisterDto {
   @Transform(({ value }) =>
     typeof value === 'string' ? normalizarCorreo(value) : value,
   )
-  @IsEmail()
+  @IsEmail({}, { message: 'El correo electrónico no es válido' })
   email!: string;
 
+  // La app muestra estas mismas reglas mientras se escribe
+  // (`apps/mobile/src/utils/contrasena.ts`): cambiarlas aquí es cambiarlas allí.
   @IsString()
-  @MinLength(8)
+  @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
-    message: 'Password must contain uppercase, lowercase, and number',
+    message: 'La contraseña debe tener una mayúscula, una minúscula y un número',
   })
   password!: string;
 
@@ -71,6 +73,6 @@ export class RegisterDto {
   segundo_apellido!: string;
 
   @IsString()
-  @IsPhoneNumber('BO')
+  @IsPhoneNumber('BO', { message: 'El teléfono no es un número de Bolivia' })
   phone!: string;
 }

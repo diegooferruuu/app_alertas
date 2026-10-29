@@ -5,7 +5,6 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Alert,
   Modal,
   Platform,
@@ -13,6 +12,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuthStore } from '../../store/auth.store';
 import { complementoParaEnviar, limpiarComplemento } from '../../utils/documento';
+import { Formulario } from '../../components/Formulario';
 
 // Las 9 capitales de departamento de Bolivia
 const BOLIVIAN_CITIES = [
@@ -88,7 +88,7 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const minDate = new Date(today.getFullYear() - 100, 0, 1);
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <Formulario contentContainerStyle={styles.container}>
       <Text style={styles.title}>Datos Personales</Text>
       <Text style={styles.subtitle}>
         Ingresa tus datos tal como aparecen en tu carnet de identidad.
@@ -223,7 +223,7 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </View>
         </TouchableOpacity>
       </Modal>
-    </ScrollView>
+    </Formulario>
   );
 };
 

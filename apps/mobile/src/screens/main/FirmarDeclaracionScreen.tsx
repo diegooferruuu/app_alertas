@@ -3,13 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
+import { Formulario } from '../../components/Formulario';
 import { useAuth } from '../../hooks/useAuth';
 import { declaracionService } from '../../services/denuncia.service';
 import { rechazoDe } from '../../services/restricciones';
@@ -44,15 +45,15 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   const [nombreEscrito, setNombreEscrito] = useState('');
   const [enviando, setEnviando] = useState(false);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<KeyboardAwareScrollViewRef>(null);
 
   /**
-   * Lleva el campo del nombre por encima del teclado al enfocarlo.
+   * Lleva al final de la pantalla al enfocar el campo del nombre.
    *
-   * `automaticallyAdjustKeyboardInsets` deja sitio para desplazarse, pero quién
-   * desplaza y cuándo lo decide UIKit. Esto lo hace explícito: el campo es lo
-   * último de la pantalla, así que ir al final lo sube junto con el aviso de si
-   * el nombre coincide y el botón de firmar, que es todo lo que hace falta ver.
+   * `Formulario` sube el campo por encima del teclado, pero no lo que va debajo.
+   * El campo es lo último de la pantalla, así que ir al final lo sube junto con
+   * el aviso de si el nombre coincide y el botón de firmar: sin verlos, se
+   * escribía a ciegas, sin saber si estaba quedando bien.
    *
    * El retardo espera a que el teclado termine de aparecer; sin él se
    * desplazaría contra la altura de antes y se quedaría corto.
@@ -142,26 +143,7 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
   };
 
   return (
-    <ScrollView
-      ref={scrollRef}
-      contentContainerStyle={styles.contenedor}
-      keyboardShouldPersistTaps="handled"
-      /*
-       * El campo del nombre es lo último de la pantalla y el teclado lo tapaba
-       * junto con el aviso de «aún no coincide» y el botón de firmar: se
-       * escribía a ciegas, sin poder ver si estaba quedando bien.
-       *
-       * Lo resuelve iOS de forma nativa ajustando las inserciones del scroll y
-       * llevando el campo enfocado a la vista. Se prefiere a un
-       * `KeyboardAvoidingView` porque éste necesita que se le pase la altura de
-       * la cabecera de navegación, y `useHeaderHeight` vive en
-       * `@react-navigation/elements`, que no está instalado. En Android el
-       * comportamiento equivalente ya lo da `softwareKeyboardLayoutMode:
-       * "resize"`, que es lo que trae Expo por defecto.
-       */
-      automaticallyAdjustKeyboardInsets
-      contentInsetAdjustmentBehavior="automatic"
-    >
+    <Formulario ref={scrollRef} contentContainerStyle={styles.contenedor}>
       <Text style={styles.titulo}>Firmar la declaración</Text>
 
       {/* El vínculo se eligió antes de leer el texto, que lo nombra. Cambiarlo
@@ -247,7 +229,7 @@ const FirmarDeclaracionScreen: React.FC<{ route: any; navigation: any }> = ({
         <View style={[styles.paso, styles.pasoActivo]} />
         <View style={[styles.paso, styles.pasoActivo]} />
       </View>
-    </ScrollView>
+    </Formulario>
   );
 };
 

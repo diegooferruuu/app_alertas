@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  View,
   Text,
   TextInput,
   TouchableOpacity,
@@ -10,6 +9,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { CampoContrasena } from '../../components/CampoContrasena';
+import { Formulario } from '../../components/Formulario';
 
 export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [email, setEmail] = useState('');
@@ -40,7 +40,7 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <Formulario contentContainerStyle={styles.container}>
       <Text style={styles.title}>Alerta Temprana</Text>
       <Text style={styles.subtitle}>Iniciar sesión</Text>
 
@@ -90,13 +90,15 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       >
         <Text style={styles.link}>¿No tienes cuenta? Crea una</Text>
       </TouchableOpacity>
-    </View>
+    </Formulario>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // `flexGrow` y no `flex`: dentro de un desplazable, así ocupa al menos la
+    // pantalla entera y el contenido sigue centrado.
+    flexGrow: 1,
     padding: 20,
     justifyContent: 'center',
     backgroundColor: '#fff',

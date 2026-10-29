@@ -5,7 +5,6 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Alert,
   ActivityIndicator,
   Image,
@@ -27,6 +26,7 @@ import {
   SelectorCerrado,
   SelectorMultiple,
 } from '../../components/SelectorCerrado';
+import { Formulario } from '../../components/Formulario';
 import {
   CALZADO,
   CIRCUNSTANCIA,
@@ -268,7 +268,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   const hoy = new Date();
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <Formulario contentContainerStyle={styles.container}>
       <Text style={styles.title}>Reportar desaparición</Text>
 
       <View style={styles.banner}>
@@ -531,7 +531,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
           <Text style={styles.buttonText}>Enviar reporte</Text>
         )}
       </TouchableOpacity>
-    </ScrollView>
+    </Formulario>
   );
 };
 

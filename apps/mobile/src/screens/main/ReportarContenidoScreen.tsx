@@ -5,13 +5,13 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { OpcionRadio } from '../../components/OpcionRadio';
 import denunciaService, { MotivoDeReporte } from '../../services/denuncia.service';
+import { Formulario } from '../../components/Formulario';
 
 const MOTIVOS: Array<{ motivo: MotivoDeReporte; titulo: string; detalle: string }> = [
   {
@@ -65,7 +65,7 @@ export const ReportarContenidoScreen: React.FC<{ navigation: any; route: any }> 
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <Formulario contentContainerStyle={styles.container}>
       <Text style={styles.intro}>
         Revisamos cada reporte. Si el contenido no corresponde, la foto deja de mostrarse. Quien
         presentó la alerta no sabe quién la reportó.
@@ -115,7 +115,7 @@ export const ReportarContenidoScreen: React.FC<{ navigation: any; route: any }> 
           <Text style={styles.botonTexto}>Enviar reporte</Text>
         )}
       </TouchableOpacity>
-    </ScrollView>
+    </Formulario>
   );
 };
 

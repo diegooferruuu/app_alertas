@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { storage } from '../utils/storage';
+import { textoDelMensaje } from '../utils/mensaje-del-servidor';
 
 /**
  * Dirección del servidor. En teléfono físico tiene que ser la IP de la máquina
@@ -48,6 +49,14 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Cada pantalla muestra `message` en un `Alert`, y una lista ahí cierra la
+    // app en Android: se deja como texto una sola vez, antes de que llegue a
+    // ninguna.
+    const datos = error.response?.data;
+    if (datos && typeof datos === 'object' && 'message' in datos) {
+      datos.message = textoDelMensaje(datos.message);
+    }
+
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {

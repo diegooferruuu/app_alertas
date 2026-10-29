@@ -22,6 +22,7 @@ import { FirmarDeclaracionScreen } from './src/screens/main/FirmarDeclaracionScr
 import { EliminarCuentaScreen } from './src/screens/main/EliminarCuentaScreen';
 import { ReportarContenidoScreen } from './src/screens/main/ReportarContenidoScreen';
 import { ActivityIndicator, View } from 'react-native';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { navigationRef } from './src/navigation/navigationRef';
 import { useAlertas } from './src/hooks/useAlertas';
 import { BarreraDeErrores } from './src/components/BarreraDeErrores';
@@ -185,11 +186,16 @@ function Aplicacion() {
  * los efectos del propio componente raíz, que es justo donde se registra el
  * dispositivo para alertas y donde más fácil es que algo reviente en un
  * teléfono distinto del de desarrollo.
+ *
+ * `KeyboardProvider` mide el teclado para los `Formulario`, que con eso mantienen
+ * el campo en el que se escribe por encima de él.
  */
 export default function App() {
   return (
     <BarreraDeErrores>
-      <Aplicacion />
+      <KeyboardProvider>
+        <Aplicacion />
+      </KeyboardProvider>
     </BarreraDeErrores>
   );
 }

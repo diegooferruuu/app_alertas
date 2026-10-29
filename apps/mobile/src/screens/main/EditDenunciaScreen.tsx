@@ -5,7 +5,6 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Alert,
   ActivityIndicator,
   Image,
@@ -23,6 +22,7 @@ import {
   SelectorCerrado,
   SelectorMultiple,
 } from '../../components/SelectorCerrado';
+import { Formulario } from '../../components/Formulario';
 import {
   CALZADO,
   CIRCUNSTANCIA,
@@ -148,7 +148,7 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <Formulario contentContainerStyle={styles.container}>
       <Text style={styles.title}>Editar denuncia</Text>
 
       <Text style={styles.label}>Nombre de la persona desaparecida</Text>
@@ -279,7 +279,7 @@ const EditDenunciaScreen: React.FC<{ route: any; navigation: any }> = ({
           <Text style={styles.buttonText}>Guardar cambios</Text>
         )}
       </TouchableOpacity>
-    </ScrollView>
+    </Formulario>
   );
 };
 

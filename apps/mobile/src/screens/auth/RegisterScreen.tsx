@@ -7,13 +7,15 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  ScrollView,
   Linking,
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { API_URL } from '../../services/api';
 import { paginaPublica } from '../../utils/sitio';
 import { CampoContrasena } from '../../components/CampoContrasena';
+import { Formulario } from '../../components/Formulario';
+import { RequisitosContrasena } from '../../components/RequisitosContrasena';
+import { estadoDeLaContrasena } from '../../utils/contrasena';
 
 export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   // El nombre se pide por partes y no como una sola línea. Un campo único admite
@@ -29,8 +31,11 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const [repetirPassword, setRepetirPassword] = useState('');
   const { register, isLoading, error } = useAuth();
 
-  // Solo se avisa cuando ya hay algo escrito en la repetición: marcar el error
-  // desde la primera tecla es regañar a alguien que aún está escribiendo.
+  const contrasena = estadoDeLaContrasena(password, repetirPassword);
+
+  // El borde rojo del campo, solo cuando ya hay algo escrito en la repetición:
+  // marcarlo desde la primera tecla es regañar a alguien que aún está
+  // escribiendo. La lista de requisitos ya dice que falta que coincidan.
   const contrasenasNoCoinciden =
     repetirPassword.length > 0 && password !== repetirPassword;
 
@@ -50,13 +55,9 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       return;
     }
 
-    if (password !== repetirPassword) {
-      Alert.alert(
-        'Las contraseñas no coinciden',
-        'Revisa que las dos sean iguales. Puedes usar el ojito para verlas.',
-      );
-      return;
-    }
+    // El botón ya está apagado sin esto; se comprueba igual para no depender
+    // de que la pantalla lo pinte a tiempo.
+    if (!contrasena.valida) return;
 
     try {
       // El documento de identidad se registra después, cuando la persona vaya a
@@ -83,7 +84,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   };
 
   return (
-    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+    <Formulario style={styles.fondo} contentContainerStyle={styles.container}>
       <Text style={styles.title}>Crear cuenta</Text>
       <Text style={styles.subtitle}>Alerta Temprana</Text>
 
@@ -152,8 +153,12 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       <Text style={styles.seccion}>Tu contraseña</Text>
 
+      {/* Encima de los campos y no debajo: así queda a la vista con el teclado
+          abierto, que tapa todo lo que hay bajo el campo en el que se escribe. */}
+      <RequisitosContrasena requisitos={contrasena.requisitos} />
+
       <CampoContrasena
-        placeholder="Contraseña (mínimo 8 caracteres)"
+        placeholder="Contraseña"
         value={password}
         onChangeText={setPassword}
         editable={!isLoading}
@@ -171,14 +176,6 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         style={contrasenasNoCoinciden ? styles.inputConError : undefined}
       />
 
-      {contrasenasNoCoinciden && (
-        <Text style={styles.error}>Las dos contraseñas no coinciden.</Text>
-      )}
-
-      <Text style={styles.info}>
-        Debe incluir al menos una mayúscula, una minúscula y un número.
-      </Text>
-
       {error && <Text style={styles.error}>{error}</Text>}
 
       <Text style={styles.privacidad}>
@@ -194,9 +191,10 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       </Text>
 
       <TouchableOpacity
-        style={[styles.button, isLoading && styles.buttonDisabled]}
+        style={[styles.button, (isLoading || !contrasena.valida) && styles.buttonDisabled]}
         onPress={handleRegister}
-        disabled={isLoading}
+        disabled={isLoading || !contrasena.valida}
+        accessibilityState={{ disabled: isLoading || !contrasena.valida }}
       >
         {isLoading ? (
           <ActivityIndicator color="#fff" />
@@ -211,15 +209,17 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       >
         <Text style={styles.link}>¿Ya tienes cuenta? Inicia sesión</Text>
       </TouchableOpacity>
-    </ScrollView>
+    </Formulario>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  fondo: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#fff',
+  },
+  container: {
+    padding: 20,
   },
   title: {
     fontSize: 24,
@@ -285,11 +285,5 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     marginBottom: 10,
     textAlign: 'center',
-  },
-  info: {
-    color: '#666',
-    fontSize: 12,
-    marginBottom: 15,
-    marginTop: -5,
   },
 });

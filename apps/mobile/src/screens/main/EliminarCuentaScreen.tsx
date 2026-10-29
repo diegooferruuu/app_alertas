@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   ActivityIndicator,
   Alert,
   Linking,
@@ -14,6 +13,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { CampoContrasena } from '../../components/CampoContrasena';
 import { API_URL } from '../../services/api';
 import { paginaPublica } from '../../utils/sitio';
+import { Formulario } from '../../components/Formulario';
 
 /**
  * Eliminar la cuenta (lo exige Google Play).
@@ -59,7 +59,7 @@ export const EliminarCuentaScreen: React.FC = () => {
     );
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <Formulario contentContainerStyle={styles.container}>
       <Text style={styles.titulo}>Qué se borra</Text>
       <Text style={styles.parrafo}>
         Tu nombre, tu correo, tu teléfono, tu contraseña, tu ubicación y los datos de tus
@@ -115,7 +115,7 @@ export const EliminarCuentaScreen: React.FC = () => {
           </>
         )}
       </TouchableOpacity>
-    </ScrollView>
+    </Formulario>
   );
 };
 
