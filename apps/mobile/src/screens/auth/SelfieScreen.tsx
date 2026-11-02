@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/auth.store';
-import { prepararParaEnviar } from '../../services/imagenes';
+import { descartarArchivo, prepararParaEnviar } from '../../services/imagenes';
 
 const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { registrarDocumento, logout, isLoading, error } = useAuthStore();
@@ -36,6 +36,8 @@ const SelfieScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     if (!result.canceled) {
       const { uri, width } = result.assets[0];
       setSelfieImage(await prepararParaEnviar(uri, width));
+      // La selfie original queda en la caché de la app: se borra.
+      descartarArchivo(uri);
     }
   };
 

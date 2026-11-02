@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { detalleDescriptivo } from './catalogo-denuncia';
+import { detalleDescriptivo, resumenDescriptivo } from './catalogo-denuncia';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import denunciaService, {
@@ -440,6 +440,7 @@ const DenunciaDetailScreen: React.FC<{ route: any; navigation: any }> = ({
                   alerta: {
                     id: denuncia.id,
                     nombre_persona_buscada: denuncia.nombre_persona_buscada,
+                    descripcion: resumenDescriptivo(denuncia),
                   },
                 })
               }

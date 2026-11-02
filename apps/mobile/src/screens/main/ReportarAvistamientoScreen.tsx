@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import * as Sharing from 'expo-sharing';
+import { captureRef } from 'react-native-view-shot';
+import { enviarImagenPorWhatsApp } from '../../services/whatsapp';
+import { TarjetaDeReporte } from '../../components/TarjetaDeReporte';
 import { SelectorDeUbicacion, Coordenadas } from '../../components/SelectorDeUbicacion';
 import { OpcionRadio } from '../../components/OpcionRadio';
 import avistamientoService, {
@@ -20,20 +24,29 @@ import avistamientoService, {
 import { API_URL } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import {
+  DatosDelReporte,
   FRANJAS,
   FranjaAvistamiento,
   armarReporte,
   enlaceDeFicha,
   enlaceDeLlamada,
-  enlaceDeWhatsApp,
   quienReporta,
+  textoDeAcompanamiento,
 } from '../../utils/reporte-avistamiento';
 
 /** Lo que la pantalla necesita de la alerta. Viene del detalle ya cargado. */
 interface AlertaVista {
   id: string;
   nombre_persona_buscada: string | null;
+  /** La descripción física en una línea, ya armada por el detalle. */
+  descripcion?: string | null;
 }
+
+/**
+ * Cada cuánto se rehace el reporte en pantalla. Muestra horas al minuto, así
+ * que la imagen que sale nunca se atrasa más que esto respecto del envío.
+ */
+const REFRESCO_MS = 10_000;
 
 /**
  * «Vi a esta persona»: arma un reporte para la Policía y ayuda a entregarlo.
@@ -44,9 +57,10 @@ interface AlertaVista {
  * —lugar y franja—, sin texto libre ni fotos.
  *
  * Lleva el nombre de quien reporta, que la autoridad igual identifica por su
- * número, y el enlace a la ficha pública de la alerta, que le muestra la foto.
- * Sin firma: el reporte es un aviso a la Policía, que lo comprueba con sus
- * propios medios.
+ * número. Por WhatsApp va como imagen, que no se puede editar antes de
+ * enviarla, con un texto corto que trae el enlace a la ficha pública de la
+ * alerta, donde está la foto. Sin firma: el reporte es un aviso a la Policía,
+ * que lo comprueba con sus propios medios.
  *
  * No se restringe por sanciones: avisar a la Policía no usa la credibilidad
  * del sistema, e impedirlo solo perjudicaría a la persona que se busca.
@@ -60,6 +74,15 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
   const [contacto, setContacto] = useState<ContactoAutoridad | null>(null);
   const [cargandoContacto, setCargandoContacto] = useState(true);
   const [abriendo, setAbriendo] = useState<CanalAvistamiento | null>(null);
+  const [ahora, setAhora] = useState(() => new Date());
+  const tarjeta = useRef<View>(null);
+
+  // Las horas del reporte se cuentan desde el envío, no desde que se abrió la
+  // pantalla: se rehace solo, y lo que se captura es lo que está a la vista.
+  useEffect(() => {
+    const reloj = setInterval(() => setAhora(new Date()), REFRESCO_MS);
+    return () => clearInterval(reloj);
+  }, []);
 
   const cargarContacto = useCallback(async () => {
     setCargandoContacto(true);
@@ -87,46 +110,80 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
     };
   }, [punto]);
 
-  const reporteAhora = () =>
+  const datos: DatosDelReporte | null =
     punto && franja
-      ? armarReporte({
+      ? {
+          denunciaId: alerta.id,
           nombre: alerta.nombre_persona_buscada,
+          descripcion: alerta.descripcion ?? null,
           punto,
           calle,
           franja,
-          ahora: new Date(),
+          ahora,
           reporta: user ? quienReporta(user) : null,
           ficha: enlaceDeFicha(API_URL, alerta.id),
-        })
+        }
       : null;
-  const reporte = reporteAhora();
+  const reporte = datos ? armarReporte(datos) : null;
 
-  const entregar = async (canal: CanalAvistamiento) => {
-    // Se arma de nuevo al tocar: las horas del reporte se cuentan desde el
-    // momento del envío, no desde que se abrió la pantalla.
-    const texto = reporteAhora();
-    if (!contacto || !texto) return;
-    const enlace =
-      canal === 'LLAMADA'
-        ? enlaceDeLlamada(contacto.telefono)
-        : enlaceDeWhatsApp(contacto.mensajeria!, texto);
-
-    setAbriendo(canal);
+  const llamar = async () => {
+    if (!contacto) return;
+    setAbriendo('LLAMADA');
     try {
-      await Linking.openURL(enlace);
+      await Linking.openURL(enlaceDeLlamada(contacto.telefono));
     } catch {
-      Alert.alert(
-        'No se pudo abrir',
-        canal === 'LLAMADA'
-          ? `Llama al ${contacto.telefono} y lee el reporte.`
-          : 'Comprueba que WhatsApp esté instalado, o llama y lee el reporte.',
-      );
+      Alert.alert('No se pudo abrir', `Llama al ${contacto.telefono} y lee el reporte.`);
       return;
     } finally {
       setAbriendo(null);
     }
     // Primero el canal, después la métrica: su fallo no puede afectar al reporte.
-    avistamientoService.registrarUso(alerta.id, canal).catch(() => {});
+    avistamientoService.registrarUso(alerta.id, 'LLAMADA').catch(() => {});
+  };
+
+  /**
+   * Manda la tarjeta de la pantalla como imagen.
+   *
+   * En Android va directo al chat de la autoridad con la imagen y el texto
+   * adjuntos. Donde eso no se puede —iOS, o un teléfono sin WhatsApp— se abre
+   * el menú de compartir del sistema con la imagen, y la persona elige el chat.
+   * La imagen se arma y se queda en el teléfono: al servidor no llega (I2).
+   */
+  const enviarPorWhatsApp = async () => {
+    const numero = contacto?.mensajeria;
+    if (!numero || !datos) return;
+    setAbriendo('MENSAJE');
+    try {
+      const imagen = await captureRef(tarjeta, { format: 'png', quality: 1, result: 'tmpfile' });
+      // Si el atajo falla por lo que sea, queda el menú de compartir: la imagen
+      // ya está hecha y no hay por qué perder el reporte.
+      const abierto = await enviarImagenPorWhatsApp(
+        imagen,
+        textoDeAcompanamiento(datos),
+        numero,
+      ).catch(() => false);
+      if (!abierto) {
+        if (!(await Sharing.isAvailableAsync())) throw new Error('Sin menú de compartir');
+        await new Promise<void>((seguir) =>
+          Alert.alert(
+            'Elige WhatsApp',
+            `Se abrirá el menú para compartir la imagen. Elige WhatsApp y el chat del +${numero}.`,
+            [{ text: 'Continuar', onPress: () => seguir() }],
+            { cancelable: false },
+          ),
+        );
+        await Sharing.shareAsync(imagen, { mimeType: 'image/png', dialogTitle: 'Enviar el reporte' });
+      }
+    } catch {
+      Alert.alert(
+        'No se pudo enviar',
+        'Comprueba que WhatsApp esté instalado, o llama y lee el reporte.',
+      );
+      return;
+    } finally {
+      setAbriendo(null);
+    }
+    avistamientoService.registrarUso(alerta.id, 'MENSAJE').catch(() => {});
   };
 
   return (
@@ -155,13 +212,10 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
       {reporte ? (
         <>
           <Text style={estilos.seccion}>Tu reporte</Text>
-          <View style={estilos.reporte}>
-            <Text style={estilos.reporteTexto} selectable>
-              {reporte}
-            </Text>
-          </View>
+          <TarjetaDeReporte ref={tarjeta} reporte={reporte} />
           <Text style={estilos.ayuda}>
-            Durante la llamada puedes volver a esta pantalla para leerlo.
+            Por WhatsApp se envía esta misma imagen. Durante la llamada puedes volver a esta
+            pantalla para leerla.
           </Text>
         </>
       ) : (
@@ -175,7 +229,7 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
           <TouchableOpacity
             style={[estilos.llamar, (!reporte || abriendo !== null) && estilos.desactivado]}
             disabled={!reporte || abriendo !== null}
-            onPress={() => entregar('LLAMADA')}
+            onPress={llamar}
           >
             <Ionicons name="call" size={18} color="#fff" />
             <Text style={estilos.llamarTexto}>Llamar al {contacto.telefono}</Text>
@@ -184,7 +238,7 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
             <TouchableOpacity
               style={[estilos.mensaje, (!reporte || abriendo !== null) && estilos.mensajeDesactivado]}
               disabled={!reporte || abriendo !== null}
-              onPress={() => entregar('MENSAJE')}
+              onPress={enviarPorWhatsApp}
             >
               <Ionicons name="logo-whatsapp" size={18} color="#0E7247" />
               <Text style={estilos.mensajeTexto}>Enviar por WhatsApp</Text>
@@ -204,10 +258,11 @@ const ReportarAvistamientoScreen: React.FC<{ route: any }> = ({ route }) => {
       )}
 
       <Text style={estilos.privacidad}>
-        El reporte va de tu teléfono a la Policía y la aplicación no lo guarda: solo cuenta, sin
-        saber quién, que se usó un botón. Lleva tu nombre y un enlace a la ficha de la persona, que
-        deja de mostrarse si la alerta se retira. El nombre de la calle lo averigua tu teléfono con
-        su servicio de mapas
+        El reporte se arma en tu teléfono y va de ahí a la Policía; la aplicación no lo guarda:
+        solo cuenta, sin saber quién, que se usó un botón. Lleva tu nombre, y por WhatsApp va
+        como imagen, que no se puede editar antes de enviarla, con un enlace a la ficha de la
+        persona, que deja de mostrarse si la alerta se retira. El nombre de la calle lo averigua
+        tu teléfono con su servicio de mapas
         {contacto?.mensajeria ? ', y el mensaje pasa por WhatsApp' : ''}.
       </Text>
     </ScrollView>
@@ -230,14 +285,6 @@ const estilos = StyleSheet.create({
     marginTop: 24,
     marginBottom: 8,
   },
-  reporte: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e6e6e6',
-    backgroundColor: '#fafafa',
-    padding: 14,
-  },
-  reporteTexto: { fontSize: 14, color: '#1a1a1a', lineHeight: 21 },
   ayuda: { fontSize: 12, color: '#888', marginTop: 8, lineHeight: 17 },
   cargando: { marginTop: 24 },
   acciones: { gap: 10, marginTop: 20 },

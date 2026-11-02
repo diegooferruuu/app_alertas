@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/auth.store';
-import { prepararParaEnviar } from '../../services/imagenes';
+import { descartarArchivo, prepararParaEnviar } from '../../services/imagenes';
 
 const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { extraerDatosDocumento, isLoading } = useAuthStore();
@@ -64,6 +64,8 @@ const IDPhotoScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       if (!result.canceled) {
         const { uri, width } = result.assets[0];
         const base64 = await prepararParaEnviar(uri, width);
+        // La foto original del carnet queda en la caché de la app: se borra.
+        descartarArchivo(uri);
         if (side === 'front') setFrontImage(base64);
         else setBackImage(base64);
       }

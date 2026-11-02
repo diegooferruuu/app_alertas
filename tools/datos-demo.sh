@@ -1,16 +1,35 @@
 #!/bin/zsh
-# Prepara datos para una demostración.
+# Prepara datos para una demostración y para las capturas de la tesis.
 #
-#   ./tools/datos-demo.sh
+#   pnpm seed:demo        (o ./tools/datos-demo.sh)
 #
-# Crea tres cuentas con documento registrado y dos denuncias ya firmadas —una
-# difundiéndose y otra vencida—, para no depender del OCR en vivo. Es repetible:
-# borra lo de la corrida anterior.
+# Crea seis cuentas con documento registrado y seis denuncias ya firmadas en el
+# área metropolitana de Cochabamba —cinco difundiéndose y una vencida—, para no
+# depender del OCR en vivo. Es repetible: borra lo de la corrida anterior.
 #
-# Contraseña de las tres cuentas: Demo1234
+# Todo es inventado: nombres, carnets y casos. Los carnets son números que
+# nadie usa en las pruebas (1000001, 8100001…) y la foto de los adultos es la
+# silueta de `deploy/muestra/persona-de-ejemplo.jpg`, rotulada «EJEMPLO»: no
+# hay en ningún lado la cara de una persona real. La de un menor no lleva foto,
+# como en cualquier alerta.
+#
+# Contraseña de todas las cuentas: Demo1234
 set -euo pipefail
 
 API=${API:-http://localhost:3000/api}
+
+# Solo contra una máquina de desarrollo. La contraseña de estas cuentas está
+# escrita aquí y en el repositorio, y el guion desactiva los disparadores de solo
+# inserción para limpiar: contra el servidor de la beta, cualquiera entraría con
+# esas cuentas, y la limpieza tocaría datos de personas reales.
+case "$API" in
+  http://localhost*|http://127.0.0.1*|http://192.168.*|http://10.*|http://172.*) ;;
+  *)
+    echo "Este guion es solo para una máquina de desarrollo, no para $API." >&2
+    echo "En el servidor, la alerta de muestra es deploy/alerta-de-muestra.sh." >&2
+    exit 2
+    ;;
+esac
 # La base contra la que corre el servidor de `API`. Cambiarla sirve para ensayar
 # el guion contra la base de pruebas sin tocar la de desarrollo.
 BASE=${BASE_DEMO:-app_alertas}
@@ -42,6 +61,9 @@ LON_DEMO=${LON_DEMO:--66.15198734651142}
 # del punto y no se fija aparte para que lo siga si se cambia `LAT_DEMO`.
 LAT_VENCIDA=$(printf '%.7f' $(( LAT_DEMO + 0.01 )))
 LON_VENCIDA=$LON_DEMO
+
+# Foto de las alertas de adultos: la silueta de muestra, en base64.
+FOTO_DEMO=$(base64 < "$RAIZ/deploy/muestra/persona-de-ejemplo.jpg" | tr -d '\n')
 
 psqlq() { psql -q -t -A -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d "$BASE" "$@" }
 hash() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1 }
@@ -137,44 +159,106 @@ limpiar_usuarios "email LIKE '%@demo.bo'"
 echo "→ Limpiando la cuenta de pruebas del carnet $CI_PRUEBAS…"
 limpiar_usuarios "ci_hash = '$(hash $CI_PRUEBAS)'" 
 
+# Presenta una denuncia y devuelve su identificador.
+#
+#   denunciar <token> <lat> <lon> <horas desde que se la vio> <foto: si|no> <campos JSON>
+#
+# Formulario de campos cerrados: sin relato libre. La circunstancia se elige de
+# una lista, no se narra. Si el servidor la rechaza, se dice por qué y se para:
+# seguir con un identificador vacío firmaría nada y fallaría lejos de la causa.
+denunciar() {
+  local foto=""
+  [[ "$5" == si ]] && foto=",\"fotografia_base64\":\"$FOTO_DEMO\""
+  curl -s -X POST "$API/denuncias" -H "Authorization: Bearer $1" \
+    -H 'Content-Type: application/json' -d "{$6,
+      \"latitude\":$2,\"longitude\":$3,
+      \"ultimo_avistamiento_en\":\"$(date -u -v-${4}H '+%Y-%m-%dT%H:%M:%S.000Z')\"$foto}" \
+    | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+if "id" not in d: sys.exit("La denuncia no se creó: " + json.dumps(d, ensure_ascii=False))
+print(d["id"])'
+}
+
+# Desde la H6.3 la declaración lleva la firma Ed25519 del teléfono: el guion
+# firma igual que la app. El nombre escrito tiene que ser el de la cuenta.
+firmar() { # token denuncia vínculo nombre
+  node "$RAIZ/tools/firmar-como-telefono.mjs" "$API" "$1" "$2" "$3" "$4" > /dev/null
+}
+
+# Zonas del área metropolitana. El servidor no guarda el punto sino el centro
+# de su celda de ~1 km, así que basta con caer en la zona.
+LA_CANCHA="-17.4030 -66.1570"
+SACABA="-17.4040 -66.0400"
+TIQUIPAYA="-17.3375 -66.2160"
+QUILLACOLLO="-17.3925 -66.2780"
+
 echo "→ Creando cuentas…"
 TOK_ANA=$(registrar "Ana" "Quispe" "Vargas" "ana@demo.bo")
 registrar "Luis" "Mamani" "Choque" "luis@demo.bo" > /dev/null
 TOK_CARO=$(registrar "Caro" "Vaca" "Ortiz" "caro@demo.bo")
-sellar "ana@demo.bo"  1000001
-sellar "luis@demo.bo" 2000002
-sellar "caro@demo.bo" 3000003
+TOK_MARCO=$(registrar "Marco" "Rojas" "Céspedes" "marco@demo.bo")
+TOK_ELENA=$(registrar "Elena" "Torrico" "Meneses" "elena@demo.bo")
+TOK_WILMA=$(registrar "Wilma" "Gutiérrez" "Rocha" "wilma@demo.bo")
+sellar "ana@demo.bo"   1000001
+sellar "luis@demo.bo"  2000002
+sellar "caro@demo.bo"  3000003
+sellar "marco@demo.bo" 5000005
+sellar "elena@demo.bo" 6000006
+sellar "wilma@demo.bo" 7000007
 
-echo "→ Creando una denuncia ya firmada (Ana reporta a Luis)…"
-# Formulario de campos cerrados: sin relato libre. La circunstancia se elige de
-# una lista, no se narra, y la fotografía es obligatoria.
-DEN=$(curl -s -X POST "$API/denuncias" -H "Authorization: Bearer $TOK_ANA" \
-  -H 'Content-Type: application/json' -d "{
-    \"nombre_persona_buscada\":\"Luis Mamani\",
-    \"ci_persona_buscada\":\"2000002\",
-    \"fecha_nacimiento\":\"1988-07-03\",
-    \"sexo\":\"MASCULINO\",
-    \"estatura_rango\":\"DE_170_A_180\",
-    \"contextura\":\"MEDIA\",
-    \"color_piel\":\"TRIGUENA\",
-    \"color_cabello\":\"NEGRO\",
-    \"color_ojos\":\"CAFES_OSCUROS\",
-    \"senas_particulares\":[\"CICATRIZ\"],
-    \"ultimo_avistamiento_en\":\"$(date -u -v-2d '+%Y-%m-%dT%H:%M:%S.000Z')\",
-    \"prenda_superior\":\"CHOMPA\",
-    \"color_prenda_superior\":\"AZUL\",
-    \"prenda_inferior\":\"PANTALON_JEAN\",
-    \"color_prenda_inferior\":\"NEGRO\",
-    \"calzado\":\"ZAPATILLAS\",
-    \"circunstancia\":\"SALIO_DE_CASA\",
-    \"condicion_relevante\":[\"REQUIERE_MEDICACION\"],
-    \"latitude\":$LAT_DEMO,\"longitude\":$LON_DEMO,
-    \"fotografia_base64\":\"$(printf 'foto-de-demostracion' | base64)\"}" \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+echo "→ Ana reporta a su hijo Luis, en el centro…"
+DEN=$(denunciar "$TOK_ANA" $LAT_DEMO $LON_DEMO 48 si '
+  "nombre_persona_buscada":"Luis Mamani Choque", "ci_persona_buscada":"2000002",
+  "fecha_nacimiento":"1988-07-03", "sexo":"MASCULINO", "estatura_rango":"DE_170_A_180",
+  "contextura":"MEDIA", "color_piel":"TRIGUENA", "color_cabello":"NEGRO",
+  "color_ojos":"CAFES_OSCUROS", "senas_particulares":["CICATRIZ"],
+  "prenda_superior":"CHOMPA", "color_prenda_superior":"AZUL",
+  "prenda_inferior":"PANTALON_JEAN", "color_prenda_inferior":"NEGRO", "calzado":"ZAPATILLAS",
+  "circunstancia":"SALIO_DE_CASA", "condicion_relevante":["REQUIERE_MEDICACION"]')
+firmar "$TOK_ANA" "$DEN" MADRE "Ana Quispe Vargas"
 
-# Desde la H6.3 la declaración lleva la firma Ed25519 del teléfono: el guion
-# firma igual que la app.
-node "$RAIZ/tools/firmar-como-telefono.mjs" "$API" "$TOK_ANA" "$DEN" MADRE "Ana Quispe Vargas" > /dev/null
+echo "→ Marco reporta a su madre, Rosa, en La Cancha…"
+DEN_ROSA=$(denunciar "$TOK_MARCO" ${=LA_CANCHA} 5 si '
+  "nombre_persona_buscada":"Rosa Céspedes Flores", "ci_persona_buscada":"8100001",
+  "fecha_nacimiento":"1958-02-11", "sexo":"FEMENINO", "estatura_rango":"DE_150_A_160",
+  "contextura":"DELGADA", "color_piel":"TRIGUENA", "color_cabello":"CANOSO",
+  "color_ojos":"CAFES_OSCUROS", "senas_particulares":["LENTES"],
+  "prenda_superior":"CHOMPA", "color_prenda_superior":"ROSADO",
+  "prenda_inferior":"POLLERA", "color_prenda_inferior":"AZUL", "calzado":"SANDALIAS",
+  "circunstancia":"EXTRAVIO_EN_VIA_PUBLICA", "condicion_relevante":["DIFICULTAD_DE_ORIENTACION"]')
+firmar "$TOK_MARCO" "$DEN_ROSA" HIJO_A "Marco Rojas Céspedes"
+
+echo "→ Elena reporta a su hijo Kevin, de 15 años, en Sacaba (sin foto: es menor)…"
+DEN_KEVIN=$(denunciar "$TOK_ELENA" ${=SACABA} 6 no '
+  "nombre_persona_buscada":"Kevin Arnez Torrico", "ci_persona_buscada":"8100002",
+  "fecha_nacimiento":"2011-06-03", "sexo":"MASCULINO", "estatura_rango":"DE_160_A_170",
+  "contextura":"DELGADA", "color_piel":"MORENA", "color_cabello":"NEGRO",
+  "color_ojos":"NEGROS", "prenda_superior":"POLERON", "color_prenda_superior":"GRIS",
+  "prenda_inferior":"PANTALON_DEPORTIVO", "color_prenda_inferior":"AZUL", "calzado":"ZAPATILLAS",
+  "circunstancia":"NO_REGRESO_DE_TRABAJO_O_ESTUDIO"')
+firmar "$TOK_ELENA" "$DEN_KEVIN" MADRE "Elena Torrico Meneses"
+
+echo "→ Wilma reporta a su esposo, Wilfredo, en Quillacollo…"
+DEN_WILFREDO=$(denunciar "$TOK_WILMA" ${=QUILLACOLLO} 20 si '
+  "nombre_persona_buscada":"Wilfredo Choque Gutiérrez", "ci_persona_buscada":"8100004",
+  "fecha_nacimiento":"1981-04-17", "sexo":"MASCULINO", "estatura_rango":"DE_160_A_170",
+  "contextura":"GRUESA", "color_piel":"MORENA", "color_cabello":"NEGRO",
+  "color_ojos":"CAFES_OSCUROS", "senas_particulares":["CICATRIZ","TATUAJE"],
+  "prenda_superior":"CHAQUETA", "color_prenda_superior":"VERDE",
+  "prenda_inferior":"PANTALON_TELA", "color_prenda_inferior":"CAFE", "calzado":"ZAPATOS",
+  "circunstancia":"PERDIDA_DE_CONTACTO", "condicion_relevante":["REQUIERE_MEDICACION"]')
+firmar "$TOK_WILMA" "$DEN_WILFREDO" CONYUGE "Wilma Gutiérrez Rocha"
+
+echo "→ Caro reporta a su amiga Daniela, en Tiquipaya (no familiar: 12 h)…"
+DEN_DANIELA=$(denunciar "$TOK_CARO" ${=TIQUIPAYA} 3 si '
+  "nombre_persona_buscada":"Daniela Soria Pinto", "ci_persona_buscada":"8100003",
+  "fecha_nacimiento":"2004-09-21", "sexo":"FEMENINO", "estatura_rango":"DE_150_A_160",
+  "contextura":"MEDIA", "color_piel":"TRIGUENA", "color_cabello":"CASTANO_OSCURO",
+  "color_ojos":"CAFES_OSCUROS", "senas_particulares":["TATUAJE"],
+  "prenda_superior":"CASACA", "color_prenda_superior":"NEGRO",
+  "prenda_inferior":"PANTALON_JEAN", "color_prenda_inferior":"AZUL", "calzado":"BOTAS",
+  "circunstancia":"NO_LLEGO_A_DESTINO"')
+firmar "$TOK_CARO" "$DEN_DANIELA" TERCERO_NO_FAMILIAR "Caro Vaca Ortiz"
 
 echo "→ Creando una denuncia que ya venció (Caro reporta a su padre)…"
 # Mostrar la caducidad exige una alerta que haya cumplido su plazo, y 24 horas no
@@ -190,31 +274,15 @@ echo "→ Creando una denuncia que ya venció (Caro reporta a su padre)…"
 # que lo reportaron, y la alerta de la firma no sale: se vence en la misma
 # fracción de segundo, y el worker, que pasa cada minuto, relee el estado antes
 # de enviar y la descarta.
-DEN_VENCIDA=$(curl -s -X POST "$API/denuncias" -H "Authorization: Bearer $TOK_CARO" \
-  -H 'Content-Type: application/json' -d "{
-    \"nombre_persona_buscada\":\"Jorge Vaca\",
-    \"ci_persona_buscada\":\"4000004\",
-    \"fecha_nacimiento\":\"1948-05-14\",
-    \"sexo\":\"MASCULINO\",
-    \"estatura_rango\":\"DE_160_A_170\",
-    \"contextura\":\"DELGADA\",
-    \"color_piel\":\"TRIGUENA\",
-    \"color_cabello\":\"CANOSO\",
-    \"color_ojos\":\"CAFES_OSCUROS\",
-    \"senas_particulares\":[\"LENTES\"],
-    \"ultimo_avistamiento_en\":\"$(date -u -v-1d '+%Y-%m-%dT%H:%M:%S.000Z')\",
-    \"prenda_superior\":\"ABRIGO\",
-    \"color_prenda_superior\":\"CAFE\",
-    \"prenda_inferior\":\"PANTALON_TELA\",
-    \"color_prenda_inferior\":\"GRIS\",
-    \"calzado\":\"ZAPATOS\",
-    \"circunstancia\":\"EXTRAVIO_EN_VIA_PUBLICA\",
-    \"condicion_relevante\":[\"DIFICULTAD_DE_ORIENTACION\"],
-    \"latitude\":$LAT_VENCIDA,\"longitude\":$LON_VENCIDA,
-    \"fotografia_base64\":\"$(printf 'foto-de-demostracion' | base64)\"}" \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
-
-node "$RAIZ/tools/firmar-como-telefono.mjs" "$API" "$TOK_CARO" "$DEN_VENCIDA" HIJO_A "Caro Vaca Ortiz" > /dev/null
+DEN_VENCIDA=$(denunciar "$TOK_CARO" $LAT_VENCIDA $LON_VENCIDA 24 si '
+  "nombre_persona_buscada":"Jorge Vaca Saavedra", "ci_persona_buscada":"4000004",
+  "fecha_nacimiento":"1948-05-14", "sexo":"MASCULINO", "estatura_rango":"DE_160_A_170",
+  "contextura":"DELGADA", "color_piel":"TRIGUENA", "color_cabello":"CANOSO",
+  "color_ojos":"CAFES_OSCUROS", "senas_particulares":["LENTES"],
+  "prenda_superior":"ABRIGO", "color_prenda_superior":"CAFE",
+  "prenda_inferior":"PANTALON_TELA", "color_prenda_inferior":"GRIS", "calzado":"ZAPATOS",
+  "circunstancia":"EXTRAVIO_EN_VIA_PUBLICA", "condicion_relevante":["DIFICULTAD_DE_ORIENTACION"]')
+firmar "$TOK_CARO" "$DEN_VENCIDA" HIJO_A "Caro Vaca Ortiz"
 
 VENCIDA=$(psqlq -c "UPDATE denuncias SET expira_en = now(), estado = 'CADUCADA'
                      WHERE id = '$DEN_VENCIDA' AND estado = 'ACTIVA' RETURNING id")
@@ -246,14 +314,22 @@ cat <<FIN
 
   Contraseña de todas las cuentas:  Demo1234
 
-  ana@demo.bo    Ana Quispe Vargas    CI 1000001   (denunciante)
-  luis@demo.bo   Luis Mamani Choque   CI 2000002   (persona reportada)
-  caro@demo.bo   Caro Vaca Ortiz      CI 3000003   (vecina, con una alerta vencida)
+  ana@demo.bo    Ana Quispe Vargas       CI 1000001   (denunciante)
+  luis@demo.bo   Luis Mamani Choque      CI 2000002   (persona reportada)
+  caro@demo.bo   Caro Vaca Ortiz         CI 3000003   (vecina, con una alerta vencida)
+  marco@demo.bo  Marco Rojas Céspedes    CI 5000005   (denunciante)
+  elena@demo.bo  Elena Torrico Meneses   CI 6000006   (denunciante)
+  wilma@demo.bo  Wilma Gutiérrez Rocha   CI 7000007   (denunciante)
 
-  Hay dos denuncias, firmadas desde «el teléfono» de quien las presentó:
-  · La de Ana sobre Luis, que se está difundiendo.
-  · La de Caro sobre su padre, Jorge Vaca, que no tiene cuenta. Ya venció: no
+  Hay seis denuncias, firmadas desde «el teléfono» de quien las presentó:
+  · Centro: Ana sobre su hijo Luis Mamani Choque, 38 años.
+  · La Cancha: Marco sobre su madre, Rosa Céspedes Flores, 68 años.
+  · Sacaba: Elena sobre su hijo Kevin Arnez Torrico, 15 años. Sin foto: es menor.
+  · Quillacollo: Wilma sobre su esposo, Wilfredo Choque Gutiérrez, 45 años.
+  · Tiquipaya: Caro sobre su amiga Daniela Soria Pinto, 22 años (vence en 12 h).
+  · Caro sobre su padre, Jorge Vaca Saavedra, que no tiene cuenta. Ya venció: no
     aparece en el mapa ni en la lista.
+  Las fotos de los adultos son la silueta rotulada «EJEMPLO».
 
   · caro@demo.bo: ve la de Ana en el mapa y prueba «Vi a esta persona». En
     «Mis denuncias», la de su padre figura como «Alerta vencida»: «Volver a

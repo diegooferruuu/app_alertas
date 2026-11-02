@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Propio y no el de expo-sharing: así no depende del nombre interno de
+         otro módulo. Solo expone la caché, que es donde se guarda la imagen. -->
+    <provider
+      android:name=".ProveedorDeReportes"
+      android:authorities="${applicationId}.ProveedorDeReportes"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/reportes_provider_paths" />
+    </provider>
+  </application>
+
+  <!-- Para poder abrir WhatsApp desde Android 11: sin esto el sistema lo esconde. -->
+  <queries>
+    <package android:name="com.whatsapp" />
+    <package android:name="com.whatsapp.w4b" />
+  </queries>
+</manifest>

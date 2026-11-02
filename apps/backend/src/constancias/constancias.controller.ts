@@ -12,8 +12,9 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 /**
  * Constancia probatoria (§6).
  *
- * Es un acto **separado y deliberado**, posterior al retiro de la alerta y nunca
- * automático. La mayoría de las personas solo quiere que la alerta se detenga;
+ * Es un acto **separado y deliberado**, nunca automático: retirar la alerta no
+ * la entrega, y se puede pedir antes o después de retirarla, desde que alguien
+ * firmó. La mayoría de las personas solo quiere que la alerta se detenga;
  * volcarles encima la identidad de quien las denunció obligaría a todas a entrar
  * en modo confrontación, incluida la que solo estaba corrigiendo un malentendido.
  */

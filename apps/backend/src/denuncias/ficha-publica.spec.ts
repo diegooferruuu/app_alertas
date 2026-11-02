@@ -11,6 +11,7 @@ const AHORA = new Date('2026-10-08T15:00:00.000Z');
 const URL_FOTO = 'http://172.20.10.10:3000/api/fichas/5c3f0d7e-1111-4a2b-9c3d-123456789abc/foto';
 
 const denuncia = (cambios: Partial<DenunciaDeFicha> = {}): DenunciaDeFicha => ({
+  id: '5c3f0d7e-1111-4a2b-9c3d-123456789abc',
   nombre_persona_buscada: 'Rosa Vargas',
   estado: EstadoDenuncia.ACTIVA,
   expira_en: new Date('2026-10-09T12:00:00.000Z'),
@@ -58,6 +59,12 @@ describe('Ficha pública de una alerta', () => {
     expect(html).not.toContain('9f0e1d2c');
     expect(html).not.toContain('Ana Quispe');
     expect(html).not.toContain('ana@demo.bo');
+  });
+
+  it('muestra el código de caso que lleva el reporte de avistamiento', () => {
+    // Quien recibe un reporte y abre su enlace tiene que poder ver que hablan de
+    // la misma alerta.
+    expect(htmlDeFicha(denuncia(), { urlFoto: null, ahora: AHORA })).toContain('Caso 5C3F0D7E');
   });
 
   it('describe a la persona con las mismas etiquetas que la aplicación', () => {

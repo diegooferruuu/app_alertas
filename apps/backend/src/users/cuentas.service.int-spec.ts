@@ -211,6 +211,33 @@ describe('Eliminar y recuperar una cuenta (integración)', () => {
       expect(total).toBe(1);
     });
 
+    it('las faltas se conservan, y si la cuenta estaba suspendida su documento sigue bloqueado', async () => {
+      // Eliminar la cuenta no puede ser la salida de una sanción: lo que la
+      // sostiene es de solo inserción y no cuelga de los datos que se borran.
+      const cuenta = await crearCuenta('ana@test.bo', '1234567');
+      const denuncia = await crearDenunciaActiva(cuenta.id);
+      await faltas.save(
+        faltas.create({ usuario_id: cuenta.id, tipo: 'CIERRE_CON_SANCION', denuncia_id: denuncia.id })
+      );
+      await usuarios.query(
+        `INSERT INTO documentos_bloqueados (ci_hash, usuario_id, motivo) VALUES ($1, $2, 'suspension')`,
+        [hashDe('1234567'), cuenta.id]
+      );
+
+      await cuentas.eliminar(cuenta.id, CONTRASENA);
+
+      expect(await faltas.countBy({ usuario_id: cuenta.id })).toBe(1);
+      const [{ total }] = await usuarios.query(
+        `SELECT count(*)::int AS total FROM documentos_bloqueados WHERE ci_hash = $1`,
+        [hashDe('1234567')]
+      );
+      expect(total).toBe(1);
+      // Y la denuncia sigue existiendo: deja de difundirse, no se borra.
+      expect((await denuncias.findOneByOrFail({ id: denuncia.id })).estado).toBe(
+        EstadoDenuncia.CADUCADA
+      );
+    });
+
     it('una cuenta sin documento también se puede eliminar', async () => {
       const cuenta = await crearCuenta('visitante@test.bo');
 

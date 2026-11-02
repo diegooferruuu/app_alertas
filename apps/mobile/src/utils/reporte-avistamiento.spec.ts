@@ -2,12 +2,13 @@ import { describe, expect, it } from '@jest/globals';
 import {
   FRANJAS,
   armarReporte,
+  codigoDeCaso,
   enlaceDeFicha,
   enlaceDeLlamada,
   enlaceDeMapa,
-  enlaceDeWhatsApp,
   momentoDe,
   quienReporta,
+  textoDeAcompanamiento,
 } from './reporte-avistamiento';
 
 /**
@@ -51,9 +52,12 @@ describe('momentoDe', () => {
 });
 
 describe('armarReporte', () => {
-  const FICHA = 'http://172.20.10.10:3000/api/fichas/5c3f0d7e-1111-4a2b-9c3d-123456789abc';
+  const ID = '5c3f0d7e-1111-4a2b-9c3d-123456789abc';
+  const FICHA = `http://172.20.10.10:3000/api/fichas/${ID}`;
   const base = {
+    denunciaId: ID,
     nombre: 'Luis Mamani',
+    descripcion: 'Masculino · Entre 1,70 y 1,80 m · Chompa azul y pantalón jean negro',
     punto: { lat: -17.381879, lng: -66.151987 },
     calle: 'Av. Heroínas',
     franja: 'MENOS_DE_30_MIN' as const,
@@ -61,46 +65,91 @@ describe('armarReporte', () => {
     reporta: { nombre: 'Caro Vaca Ortiz', conDocumento: true },
     ficha: FICHA,
   };
+  const valor = (reporte: ReturnType<typeof armarReporte>, etiqueta: string) =>
+    reporte.filas.find((f) => f.etiqueta === etiqueta)?.valor;
 
-  it('arma el texto que se lee o se envía', () => {
-    expect(armarReporte(base)).toBe(
+  it('lleva los campos que pidió el tribunal, en orden de lectura', () => {
+    const reporte = armarReporte(base);
+
+    expect(reporte.titulo).toBe('Reporte de avistamiento');
+    expect(reporte.filas).toEqual([
+      { etiqueta: 'Caso', valor: '5C3F0D7E' },
+      { etiqueta: 'Persona buscada', valor: 'Luis Mamani' },
+      {
+        etiqueta: 'Descripción',
+        valor: 'Masculino · Entre 1,70 y 1,80 m · Chompa azul y pantalón jean negro',
+      },
+      { etiqueta: 'Zona aproximada', valor: 'Av. Heroínas (-17.38188, -66.15199)' },
+      { etiqueta: 'Franja horaria', valor: 'entre las 14:10 y las 14:40 del 01/10/2026' },
+      { etiqueta: 'Reporta', valor: 'Caro Vaca Ortiz (con documento registrado)' },
+    ]);
+    expect(reporte.generado).toBe(
+      'Generado el 01/10/2026 a las 14:40 en el teléfono de quien reporta',
+    );
+  });
+
+  it('el caso es el mismo código que muestra la ficha pública', () => {
+    expect(codigoDeCaso(ID)).toBe('5C3F0D7E');
+  });
+
+  it('dice si el nombre de quien reporta viene de una cuenta sin documento registrado', () => {
+    expect(
+      valor(armarReporte({ ...base, reporta: { nombre: 'Caro', conDocumento: false } }), 'Reporta'),
+    ).toBe('Caro (sin documento registrado)');
+  });
+
+  it('sin la cuenta cargada sale igual, sin esa fila', () => {
+    const reporte = armarReporte({ ...base, reporta: null });
+
+    expect(valor(reporte, 'Reporta')).toBeUndefined();
+    expect(valor(reporte, 'Franja horaria')).toBeDefined();
+  });
+
+  it('sin descripción ni calle, no inventa: omite la fila y deja las coordenadas', () => {
+    const reporte = armarReporte({ ...base, descripcion: null, calle: null });
+
+    expect(valor(reporte, 'Descripción')).toBeUndefined();
+    expect(valor(reporte, 'Zona aproximada')).toBe('-17.38188, -66.15199');
+  });
+
+  it('no lleva el CI: quien recibe la alerta no lo tiene', () => {
+    expect(JSON.stringify(armarReporte(base))).not.toMatch(/\bCI\b|carnet/i);
+  });
+
+  it('no lleva el número de caso de la FELCC: no es público', () => {
+    expect(JSON.stringify(armarReporte(base))).not.toMatch(/FELCC|n[uú]mero de caso/i);
+  });
+});
+
+describe('textoDeAcompanamiento', () => {
+  const ID = '5c3f0d7e-1111-4a2b-9c3d-123456789abc';
+  const base = {
+    denunciaId: ID,
+    nombre: 'Luis Mamani',
+    descripcion: null,
+    punto: { lat: -17.381879, lng: -66.151987 },
+    calle: 'Av. Heroínas',
+    franja: 'MENOS_DE_30_MIN' as const,
+    ahora: a(1, 14, 40),
+    reporta: { nombre: 'Caro Vaca Ortiz', conDocumento: true },
+    ficha: `http://172.20.10.10:3000/api/fichas/${ID}`,
+  };
+
+  it('lleva el código de caso y los enlaces, que en la imagen no se pueden tocar', () => {
+    expect(textoDeAcompanamiento(base)).toBe(
       [
-        'Reporte de avistamiento — persona reportada como desaparecida',
-        'Persona buscada: Luis Mamani',
-        'Zona: Av. Heroínas — https://maps.google.com/?q=-17.38188,-66.15199',
-        'Momento: entre las 14:10 y las 14:40 del 01/10/2026',
-        'Reporta: Caro Vaca Ortiz (con documento registrado)',
-        `Ficha de la persona: ${FICHA}`,
+        'Reporte de avistamiento del caso 5C3F0D7E, enviado desde Alerta Temprana. Los datos van en la imagen.',
+        'Mapa del lugar: https://maps.google.com/?q=-17.38188,-66.15199',
+        `Ficha de la persona: http://172.20.10.10:3000/api/fichas/${ID}`,
       ].join('\n'),
     );
   });
 
-  it('dice si el nombre de quien reporta viene de una cuenta sin documento registrado', () => {
-    expect(armarReporte({ ...base, reporta: { nombre: 'Caro', conDocumento: false } })).toContain(
-      'Reporta: Caro (sin documento registrado)',
-    );
-  });
+  it('no repite los datos de la imagen: lo editable no puede contradecirla', () => {
+    const texto = textoDeAcompanamiento(base);
 
-  it('sin la cuenta cargada sale igual, sin esa línea', () => {
-    const texto = armarReporte({ ...base, reporta: null, ficha: null });
-
-    expect(texto).not.toContain('Reporta:');
-    expect(texto).not.toContain('Ficha');
-    expect(texto).toContain('Momento:');
-  });
-
-  it('no lleva el CI: quien recibe la alerta no lo tiene', () => {
-    expect(armarReporte(base)).not.toMatch(/\bCI\b|carnet/i);
-  });
-
-  it('no lleva el número de caso de la FELCC: no es público', () => {
-    expect(armarReporte(base)).not.toMatch(/FELCC|n[uú]mero de caso/i);
-  });
-
-  it('sin calle, la zona es solo el enlace del mapa', () => {
-    expect(armarReporte({ ...base, calle: null })).toContain(
-      'Zona: https://maps.google.com/?q=-17.38188,-66.15199',
-    );
+    expect(texto).not.toContain('Luis Mamani');
+    expect(texto).not.toContain('Caro Vaca Ortiz');
   });
 });
 
@@ -115,13 +164,6 @@ describe('enlaces', () => {
     expect(enlaceDeLlamada('7000 0000')).toBe('tel:70000000');
     expect(enlaceDeLlamada('+591 7000-0000')).toBe('tel:+59170000000');
     expect(enlaceDeLlamada('110')).toBe('tel:110');
-  });
-
-  it('WhatsApp recibe el número en dígitos y el texto codificado', () => {
-    const enlace = enlaceDeWhatsApp('+59170000000', 'Nombre: Luis\nZona: Av. Heroínas — x');
-
-    expect(enlace.startsWith('https://wa.me/59170000000?text=')).toBe(true);
-    expect(decodeURIComponent(enlace.split('text=')[1])).toBe('Nombre: Luis\nZona: Av. Heroínas — x');
   });
 
   it('la ficha cuelga de la dirección de la API, con o sin barra final', () => {

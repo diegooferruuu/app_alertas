@@ -1,3 +1,4 @@
+import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 /**
@@ -59,8 +60,29 @@ export async function prepararParaEnviar(
     base64: true,
   });
 
+  // La copia reducida es un archivo de la caché de la app que nadie vuelve a
+  // leer: lo que se envía es el base64.
+  descartarArchivo(resultado.uri);
+
   if (!resultado.base64) {
     throw new Error('No se pudo preparar la imagen para enviarla.');
   }
   return resultado.base64;
+}
+
+/**
+ * Borra un archivo de la caché de la app, si existe.
+ *
+ * Para las fotos del carnet y la selfie: el servidor las descarta al terminar
+ * de leerlas, y el teléfono no tiene por qué guardarlas hasta que el sistema
+ * limpie la caché. Nunca falla: es limpieza, y un archivo que no se pudo borrar
+ * no es motivo para interrumpir un registro.
+ */
+export function descartarArchivo(uri: string): void {
+  try {
+    const archivo = new File(uri);
+    if (archivo.exists) archivo.delete();
+  } catch {
+    // En la web no hay archivo que borrar, y en el teléfono lo hará el sistema.
+  }
 }

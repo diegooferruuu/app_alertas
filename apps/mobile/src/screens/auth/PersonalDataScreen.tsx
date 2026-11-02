@@ -68,9 +68,12 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       return;
     }
 
-    const ciRegex = /^\d{7,8}$/;
+    // Lo mismo que acepta el servidor (`NUMERO_DE_CEDULA`). Con 7 u 8 dígitos
+    // quedaba fuera un carnet de menos o más cifras que el servidor sí admite,
+    // y que en la denuncia sí se podía escribir.
+    const ciRegex = /^\d{5,12}$/;
     if (!ciRegex.test(ciNumber.replace(/\s/g, ''))) {
-      Alert.alert('CI inválido', 'El número de CI debe tener 7 u 8 dígitos.');
+      Alert.alert('CI inválido', 'El número de CI lleva solo dígitos, entre 5 y 12.');
       return;
     }
 
@@ -116,9 +119,17 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         value={ciNumber}
         onChangeText={(v) => setCiNumber(v.replace(/\D/g, ''))}
         keyboardType="numeric"
-        maxLength={8}
+        // El mismo largo que acepta el servidor: con 8, un carnet de más cifras
+        // no se podía registrar, aunque sí se podía denunciar.
+        maxLength={12}
         returnKeyType="next"
       />
+      {/* La sigla del departamento no es parte del número ni de la identidad
+          del carnet: el campo solo deja escribir dígitos, y se dice por qué. */}
+      <Text style={styles.campoFijoAyuda}>
+        Solo los dígitos. Si tu carnet dice LP, CB u otra sigla después del número, no la
+        escribas: es el lugar de expedición y no forma parte del número.
+      </Text>
 
       {/*
         Hay números de carnet duplicados, y el SEGIP distingue a sus titulares

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+  <!-- La captura del reporte va a la caché interna o a la externa, según cuál
+       tenga más espacio libre. -->
+  <cache-path name="reportes" path="." />
+  <external-cache-path name="reportes_externos" path="." />
+</paths>

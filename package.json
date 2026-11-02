@@ -14,7 +14,8 @@
     "build:backend": "cd apps/backend && npm run build",
     "build:mobile": "cd apps/mobile && npm run build",
     "lint": "eslint . --ext .ts,.tsx",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "seed:demo": "zsh tools/datos-demo.sh"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

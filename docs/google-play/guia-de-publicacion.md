@@ -158,9 +158,10 @@ Respuestas generales:
 | ¿Están cifrados en tránsito? | Sí (HTTPS) |
 | ¿Ofrece una forma de solicitar la eliminación? | Sí, con este enlace: `https://alertatemprana.download/eliminar-cuenta` |
 
-**Compartido:** solo el **Nombre**. Es el de quien firma una declaración jurada, que puede
-recibir la persona reportada en la constancia. Márcalo con el propósito «Prevención de fraudes,
-seguridad y cumplimiento». Declararlo de más no se sanciona; callarlo, sí.
+**Compartido:** el **Nombre** y la **Otra información** (el número de carnet en hash). Son los de
+quien firma una declaración jurada, que la persona reportada recibe en la constancia: su nombre y
+el hash de su carnet. Márcalos con el propósito «Prevención de fraudes, seguridad y
+cumplimiento». Declararlo de más no se sanciona; callarlo, sí.
 
 Google no cuenta como «compartir» lo que reciben los proveedores que hacen funcionar el servicio,
 como Expo, FCM u Oracle. Tampoco cuenta lo que el propio usuario publica a sabiendas, como una
@@ -175,7 +176,7 @@ Datos que se marcan como **recopilados**:
 | Información personal → **Dirección de correo** | Inicio de sesión | Sí | Administración de la cuenta |
 | Información personal → **Números de teléfono** | Dato de la cuenta | Sí | Administración de la cuenta |
 | Información personal → **ID de usuario** | Identificador interno de la cuenta | Sí | Funcionalidad, prevención de fraude |
-| Información personal → **Otra información** | Número de carnet, guardado como hash | Opcional: solo para denunciar | Prevención de fraude, seguridad y cumplimiento |
+| Información personal → **Otra información** | Número de carnet, guardado como hash (**compartido**: ver arriba) | Opcional: solo para denunciar | Prevención de fraude, seguridad y cumplimiento |
 | Fotos y videos → **Fotos** | Foto de la persona buscada (guardada). Carnet y selfie (**se procesan y se descartan**) | Opcional | Funcionalidad, prevención de fraude |
 | Actividad en la app → **Otro contenido generado por el usuario** | Denuncias, declaraciones juradas, reportes de contenido | Opcional | Funcionalidad, prevención de fraude |
 | Identificadores del dispositivo → **ID del dispositivo u otros** | Token de notificaciones | Sí | Funcionalidad de la app |

@@ -300,6 +300,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       <Text style={styles.hint}>
         Lo pedimos porque es lo que permite a esa persona enterarse y cerrar la
         alerta si hubo un error. No guardamos el número: solo una huella cifrada de él.
+        Solo los dígitos, sin la sigla del lugar de expedición (LP, CB…).
       </Text>
 
       <Text style={styles.label}>Complemento del carnet (solo si lo tiene)</Text>

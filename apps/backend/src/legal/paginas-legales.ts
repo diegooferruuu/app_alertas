@@ -19,7 +19,7 @@ import { escaparHtml } from '../denuncias/ficha-publica';
  */
 
 /** Cuándo cambió por última vez lo que dicen estas páginas. */
-export const VIGENTE_DESDE = '28 de octubre de 2026';
+export const VIGENTE_DESDE = '2 de noviembre de 2026';
 
 const ESTILOS = `
   :root { --fondo: #f3f4f6; --hoja: #ffffff; --texto: #16181d; --suave: #5b6270;
@@ -81,7 +81,7 @@ const queSeBorraYQueQueda = (): string => `<p>Se borran:</p>
 <ul>
 <li>el número de tu carnet, solo en forma de hash (una huella que no permite leerlo);</li>
 <li>las denuncias que presentaste y las declaraciones juradas que firmaste, con el nombre de tu documento si firmaste alguna;</li>
-<li>las faltas que tengas por denuncias que la persona afectada declaró falsas.</li>
+<li>las faltas que tengas por denuncias que la persona afectada declaró falsas, y, si tu cuenta estaba suspendida, el bloqueo de tu carnet.</li>
 </ul>
 <p>Tus alertas activas dejan de difundirse en el momento. Si más adelante vuelves a registrarte con el mismo carnet, recuperas esa cuenta con su historial.</p>`;
 
@@ -105,7 +105,7 @@ export const htmlPoliticaDePrivacidad = (correo: string): string =>
 <li><strong>Tus teléfonos:</strong> el identificador para enviarte notificaciones y si es Android o iPhone.</li>
 <li><strong>Los reportes de contenido</strong> que hagas sobre una alerta.</li>
 </ul>
-<p>Lo que escribes al reportar un avistamiento <strong>no pasa por nuestro servidor</strong>: lo envías tú, desde tu teléfono, por llamada o mensaje. Solo registramos, sin saber quién, que se usó un canal para una alerta.</p>
+<p>El reporte de un avistamiento <strong>no pasa por nuestro servidor</strong>: tu teléfono lo arma y tú lo entregas a la Policía, en una llamada o por WhatsApp como imagen, con tu nombre, el lugar y la hora que marcaste. Solo registramos, sin saber quién, que se usó un canal para una alerta.</p>
 
 <h2>Para qué los usamos</h2>
 <ul>
@@ -120,7 +120,7 @@ export const htmlPoliticaDePrivacidad = (correo: string): string =>
 <ul>
 <li><strong>Las personas cercanas</strong> ven la alerta: los datos de la persona buscada. Nunca ven quién la denunció.</li>
 <li><strong>Cualquiera con el enlace de una alerta</strong> ve su ficha pública, que tampoco incluye a quien la denunció y deja de mostrarse si la alerta se retira.</li>
-<li><strong>La persona reportada</strong> en una denuncia puede pedir, después de retirarla, una constancia con el nombre de quien firmó la declaración jurada. Cada entrega queda registrada.</li>
+<li><strong>La persona reportada</strong> en una denuncia firmada puede pedir una constancia con el nombre de quien firmó la declaración jurada, la haya retirado o no. Quien firmó puede pedir la suya, sin los demás nombres. Cada entrega queda registrada.</li>
 <li><strong>Proveedores que hacen funcionar el servicio:</strong> Expo, Google y Apple reciben el identificador de tu teléfono y el texto de cada notificación (por ejemplo, el nombre de la persona buscada) para entregarla; Google Maps dibuja el mapa de la aplicación; Oracle Cloud aloja el servidor.</li>
 <li><strong>Las autoridades</strong>, si una orden legal lo exige, o si en una alerta se publica material de abuso sexual infantil: en ese caso lo denunciamos con los datos de la cuenta que lo publicó (ver los <a href="/seguridad-infantil">estándares de seguridad infantil</a>).</li>
 </ul>
@@ -189,7 +189,7 @@ export const htmlSeguridadInfantil = (correo: string): string =>
 <li><strong>La alerta de un menor de edad no lleva fotografía.</strong> El servidor rechaza la foto si la fecha de nacimiento es la de un menor.</li>
 <li><strong>No hay chat ni mensajes entre usuarios, ni perfiles públicos.</strong> Nadie puede escribirle a otra persona desde la aplicación. Quien ve a la persona buscada avisa a la Policía desde su propio teléfono.</li>
 <li><strong>El único texto libre es el nombre de la persona buscada.</strong> La descripción física, la vestimenta y las circunstancias se eligen de listas cerradas.</li>
-<li><strong>Nadie publica de forma anónima.</strong> Cada alerta queda atribuida a una cuenta con carnet de identidad verificado, bajo una declaración jurada firmada desde su teléfono.</li>
+<li><strong>Nadie publica de forma anónima.</strong> Cada alerta queda atribuida a una cuenta con documento de identidad registrado, bajo una declaración jurada firmada desde su teléfono.</li>
 <li>La aplicación es para mayores de 18 años.</li>
 </ul>
 
@@ -214,7 +214,7 @@ export const htmlSeguridadInfantil = (correo: string): string =>
 
 <h2 lang="en">Summary in English</h2>
 <div lang="en">
-<p>Alerta Temprana, by Diego Ferrufino, has zero tolerance for child sexual abuse and exploitation (CSAE) and child sexual abuse material (CSAM). Alerts about minors cannot carry a photo, there is no user-to-user messaging, and every alert is tied to an ID-verified account. Users report content in the app (<em>Reportar contenido inapropiado</em>) or by email. Confirmed CSAM is deleted from our systems and reported to the Bolivian Police and to NCMEC's CyberTipline. Child safety contact: Diego Ferrufino, ${enlaceDeCorreo(correo)}.</p>
+<p>Alerta Temprana, by Diego Ferrufino, has zero tolerance for child sexual abuse and exploitation (CSAE) and child sexual abuse material (CSAM). Alerts about minors cannot carry a photo, there is no user-to-user messaging, and every alert is tied to an account with a registered ID document. Users report content in the app (<em>Reportar contenido inapropiado</em>) or by email. Confirmed CSAM is deleted from our systems and reported to the Bolivian Police and to NCMEC's CyberTipline. Child safety contact: Diego Ferrufino, ${enlaceDeCorreo(correo)}.</p>
 </div>
 </article>
 <footer>Alerta Temprana · ${enlaceDeCorreo(correo)}</footer>`

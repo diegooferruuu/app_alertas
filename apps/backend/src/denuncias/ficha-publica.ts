@@ -1,5 +1,6 @@
 import { Denuncia } from './entities/denuncia.entity';
 import { EstadoDenuncia } from './domain/estados';
+import { codigoDeCaso } from './domain/codigo-de-caso';
 import {
   aFechaLocal,
   edadEn,
@@ -48,6 +49,7 @@ import {
 /** Los campos de la denuncia que la ficha muestra. Nada más llega hasta aquí. */
 export type DenunciaDeFicha = Pick<
   Denuncia,
+  | 'id'
   | 'nombre_persona_buscada'
   | 'estado'
   | 'expira_en'
@@ -306,7 +308,7 @@ export const htmlDeFicha = (d: DenunciaDeFicha, contexto: ContextoDeFicha): stri
     .join('\n');
 
   const cuerpo = `<article class="hoja">
-<p class="rotulo">Persona desaparecida</p>
+<p class="rotulo">Persona desaparecida · Caso ${codigoDeCaso(d.id)}</p>
 <h1>${escaparHtml(nombre ?? 'Nombre no registrado')}</h1>
 <p class="estado${vencida ? ' vencida' : ''}">${
     vencida

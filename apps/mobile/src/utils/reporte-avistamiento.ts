@@ -2,9 +2,15 @@
  * El reporte de avistamiento, armado entero en el teléfono.
  *
  * Nada de esto pasa por el servidor (I2): ni el lugar, ni la hora, ni quién
- * vio a la persona. El texto lo entrega la propia persona a la autoridad, por
- * llamada o por WhatsApp. Son funciones puras para poder probarlas sin pantalla:
- * un error aquí confunde a la Policía, no a la aplicación.
+ * vio a la persona. La propia persona lo entrega a la autoridad: por WhatsApp,
+ * como imagen, o leyéndolo en una llamada. Son funciones puras para poder
+ * probarlas sin pantalla: un error aquí confunde a la Policía, no a la
+ * aplicación.
+ *
+ * Va como imagen y no como texto a pedido del tribunal: un texto se puede
+ * editar en WhatsApp antes de enviarlo, y así el nombre de quien reporta o la
+ * zona podían cambiarse. Una imagen no es infalsificable —se puede retocar con
+ * otra aplicación—, pero ya no basta con borrar y escribir.
  */
 
 /** Cuándo se vio a la persona. Franjas cerradas: no hay texto libre (I3). */
@@ -92,8 +98,24 @@ export const quienReporta = (cuenta: {
 export const enlaceDeFicha = (urlDeLaApi: string, denunciaId: string): string =>
   `${urlDeLaApi.replace(/\/+$/, '')}/fichas/${denunciaId}`;
 
+/**
+ * El código corto de la alerta: los primeros 8 caracteres de su identificador.
+ *
+ * La ficha pública muestra el mismo (`denuncias/domain/codigo-de-caso.ts` en el
+ * servidor): quien recibe el reporte y abre la ficha ve que hablan de la misma
+ * alerta. No es un número de caso policial, que no es público.
+ */
+export const codigoDeCaso = (denunciaId: string): string =>
+  denunciaId.replace(/-/g, '').slice(0, 8).toUpperCase();
+
+/** Las coordenadas del punto, para leerlas: cinco decimales, un metro. */
+const coordenadas = (p: { lat: number; lng: number }) => `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+
 export interface DatosDelReporte {
+  denunciaId: string;
   nombre: string | null;
+  /** La descripción física de la alerta, en una línea. Nula si no la tiene. */
+  descripcion: string | null;
   punto: { lat: number; lng: number };
   /** La calle más cercana, si el teléfono la pudo averiguar. */
   calle: string | null;
@@ -104,8 +126,17 @@ export interface DatosDelReporte {
   ficha: string | null;
 }
 
+/** Lo que muestra la imagen del reporte, en orden de lectura. */
+export interface Reporte {
+  titulo: string;
+  subtitulo: string;
+  filas: Array<{ etiqueta: string; valor: string }>;
+  /** Cuándo se generó, dicho entero: es lo último que se lee. */
+  generado: string;
+}
+
 /**
- * El texto que se lee en la llamada o se manda por WhatsApp.
+ * El reporte que se manda como imagen o se lee en la llamada.
  *
  * Sin el CI de la persona buscada: el sistema solo guarda su hash, así que
  * quien recibe la alerta no lo tiene. Tampoco el número de caso de la FELCC,
@@ -116,27 +147,48 @@ export interface DatosDelReporte {
  * Nada de quien presentó la denuncia: ni su nombre ni un contacto (I8, P4). La
  * autoridad llega a la familia por sus propios canales.
  */
-export function armarReporte(d: DatosDelReporte): string {
-  const mapa = enlaceDeMapa(d.punto.lat, d.punto.lng);
-  return [
-    'Reporte de avistamiento — persona reportada como desaparecida',
-    `Persona buscada: ${d.nombre?.trim() || 'sin nombre registrado'}`,
-    `Zona: ${d.calle?.trim() ? `${d.calle.trim()} — ${mapa}` : mapa}`,
-    `Momento: ${momentoDe(d.franja, d.ahora)}`,
-    ...(d.reporta
-      ? [
-          `Reporta: ${d.reporta.nombre} (${
+export function armarReporte(d: DatosDelReporte): Reporte {
+  const calle = d.calle?.trim();
+  const filas: Array<{ etiqueta: string; valor: string | null }> = [
+    { etiqueta: 'Caso', valor: codigoDeCaso(d.denunciaId) },
+    { etiqueta: 'Persona buscada', valor: d.nombre?.trim() || 'Sin nombre registrado' },
+    { etiqueta: 'Descripción', valor: d.descripcion?.trim() || null },
+    {
+      etiqueta: 'Zona aproximada',
+      valor: calle ? `${calle} (${coordenadas(d.punto)})` : coordenadas(d.punto),
+    },
+    { etiqueta: 'Franja horaria', valor: momentoDe(d.franja, d.ahora) },
+    {
+      etiqueta: 'Reporta',
+      valor: d.reporta
+        ? `${d.reporta.nombre} (${
             d.reporta.conDocumento ? 'con documento registrado' : 'sin documento registrado'
-          })`,
-        ]
-      : []),
+          })`
+        : null,
+    },
+  ];
+  return {
+    titulo: 'Reporte de avistamiento',
+    subtitulo: 'Persona reportada como desaparecida',
+    filas: filas.filter((f): f is { etiqueta: string; valor: string } => f.valor !== null),
+    generado: `Generado el ${fecha(d.ahora)} a las ${hora(d.ahora)} en el teléfono de quien reporta`,
+  };
+}
+
+/**
+ * El texto corto que acompaña a la imagen en WhatsApp.
+ *
+ * Lleva lo que en una imagen no se puede tocar: los enlaces al mapa y a la
+ * ficha. Repite el código de caso para que el texto y la imagen se reconozcan
+ * juntos, y nada más: los datos van en la imagen, que es lo que no se edita.
+ */
+export function textoDeAcompanamiento(d: DatosDelReporte): string {
+  return [
+    `Reporte de avistamiento del caso ${codigoDeCaso(d.denunciaId)}, enviado desde Alerta Temprana. Los datos van en la imagen.`,
+    `Mapa del lugar: ${enlaceDeMapa(d.punto.lat, d.punto.lng)}`,
     ...(d.ficha ? [`Ficha de la persona: ${d.ficha}`] : []),
   ].join('\n');
 }
 
 /** Lo que marca el botón «Llamar». Sin espacios ni guiones, que el marcador no quiere. */
 export const enlaceDeLlamada = (numero: string): string => `tel:${numero.replace(/[^\d+]/g, '')}`;
-
-/** Abre WhatsApp con el reporte ya escrito. `wa.me` quiere el número solo en dígitos. */
-export const enlaceDeWhatsApp = (numero: string, texto: string): string =>
-  `https://wa.me/${numero.replace(/\D/g, '')}?text=${encodeURIComponent(texto)}`;

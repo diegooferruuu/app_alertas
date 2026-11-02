@@ -110,3 +110,102 @@ describe('Registro de documento de un carnet que ya tuvo cuenta (integración)',
     expect(resultado).toMatchObject({ documento_registrado: true, cuenta_recuperada: false });
   });
 });
+
+/**
+ * El carnet con complemento y con lugar de expedición, de punta a punta del
+ * registro. Las reglas puras se prueban en `documento-identidad.spec.ts` y
+ * `numero-de-documento.spec.ts`; aquí, que el registro y el bloqueo las usen.
+ */
+describe('Registro de un carnet con complemento o con lugar de expedición (integración)', () => {
+  let ctx: ContextoDePruebas;
+  let servicio: VerificationService;
+  let usersService: UsersService;
+  let bloqueados: Repository<DocumentoBloqueado>;
+  const lector = new LectorDeDocumentoSimulado();
+
+  beforeAll(async () => {
+    ctx = await crearContexto({
+      imports: [TypeOrmModule.forFeature([User, RefreshToken, DocumentoBloqueado])],
+      providers: [
+        VerificationService,
+        UsersService,
+        CuentasService,
+        { provide: AlertasService, useValue: { avisarPersonaReportada: async () => 0 } },
+        { provide: LectorDeDocumento, useValue: lector },
+        { provide: ComparadorDeRostros, useValue: new ComparadorDeRostrosSimulado() },
+      ],
+    });
+    servicio = ctx.module.get(VerificationService);
+    usersService = ctx.module.get(UsersService);
+    bloqueados = ctx.module.get(getRepositoryToken(DocumentoBloqueado));
+  });
+
+  afterAll(async () => ctx.cerrar());
+  beforeEach(async () => ctx.limpiar());
+
+  /** Una cuenta cuyo carnet «dice» lo que se le pase, con el nombre de siempre. */
+  const cuentaConCarnet = async (email: string, impreso: string) => {
+    lector.devolver(`ESTADO PLURINACIONAL DE BOLIVIA ${NOMBRE} ${impreso}`);
+    return usersService.create({
+      email,
+      password_hash: 'x',
+      phone: '70000000',
+      primer_nombre: 'Ana',
+      segundo_nombre: 'Rocío',
+      primer_apellido: 'Quispe',
+      segundo_apellido: 'Mamani',
+    });
+  };
+
+  const registrar = (userId: string, ci_complemento?: string) =>
+    servicio.registrarDocumento(userId, IMAGEN, IMAGEN, IMAGEN, {
+      ci_number: CI,
+      ci_complemento,
+    } as any);
+
+  const hashGuardado = async (userId: string) =>
+    (await usersService.findById(userId)).ci_hash;
+
+  it('con complemento, guarda el hash del número con el complemento', async () => {
+    const cuenta = await cuentaConCarnet('ana@test.bo', `${CI}-1K`);
+
+    await registrar(cuenta.id, '1k');
+
+    expect(await hashGuardado(cuenta.id)).toBe(hashDeDocumento(CI, '1K'));
+    expect(await hashGuardado(cuenta.id)).not.toBe(hashDeDocumento(CI));
+  });
+
+  it('sin complemento, el hash es el de siempre: las cuentas de antes no cambian', async () => {
+    const cuenta = await cuentaConCarnet('ana@test.bo', CI);
+
+    await registrar(cuenta.id);
+
+    expect(await hashGuardado(cuenta.id)).toBe(hashDeDocumento(CI));
+  });
+
+  it('el mismo número con otro complemento es otra persona: se registran las dos', async () => {
+    const sin = await cuentaConCarnet('ana@test.bo', CI);
+    await registrar(sin.id);
+    const con = await cuentaConCarnet('otra.ana@test.bo', `${CI}-1K`);
+
+    await expect(registrar(con.id, '1K')).resolves.toMatchObject({ documento_registrado: true });
+    expect(await hashGuardado(sin.id)).not.toBe(await hashGuardado(con.id));
+  });
+
+  it('el lugar de expedición se ignora: no entra en el hash ni se confunde con un complemento', async () => {
+    const cuenta = await cuentaConCarnet('ana@test.bo', `${CI} LP`);
+
+    await registrar(cuenta.id);
+
+    expect(await hashGuardado(cuenta.id)).toBe(hashDeDocumento(CI));
+  });
+
+  it('el bloqueo alcanza solo al documento bloqueado, no al mismo número con otro complemento', async () => {
+    await bloqueados.insert({ ci_hash: hashDeDocumento(CI), usuario_id: null, motivo: 'prueba' });
+    const bloqueada = await cuentaConCarnet('ana@test.bo', CI);
+    await expect(registrar(bloqueada.id)).rejects.toThrow(/bloqueado/);
+
+    const otra = await cuentaConCarnet('otra.ana@test.bo', `${CI}-1K`);
+    await expect(registrar(otra.id, '1K')).resolves.toMatchObject({ documento_registrado: true });
+  });
+});
