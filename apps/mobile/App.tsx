@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from './src/hooks/useAuth';
 import { LoginScreen } from './src/screens/auth/LoginScreen';
 import { RegisterScreen } from './src/screens/auth/RegisterScreen';
@@ -32,6 +33,10 @@ const Stack = createStackNavigator();
 function Aplicacion() {
   const { isAuthenticated, restaurarSesion } = useAuth();
   const [isLoading, setIsLoading] = React.useState(true);
+  // Lo que ocupan las barras del sistema. Android dibuja la app de borde a borde
+  // y la barra de navegación queda encima: sin este margen tapa los botones del
+  // final de cada pantalla.
+  const margen = useSafeAreaInsets();
 
   // Registra el dispositivo e informa la ubicación: sin las dos cosas, la
   // consulta de destinatarios del servidor no alcanza a esta cuenta.
@@ -54,7 +59,9 @@ function Aplicacion() {
       <Stack.Navigator
         screenOptions={{
           headerShown: true,
-          cardStyle: { backgroundColor: 'white' },
+          // El encabezado ya deja el margen de arriba; el de abajo va aquí, una
+          // sola vez para todas las pantallas, y no en cada una.
+          cardStyle: { backgroundColor: 'white', paddingBottom: margen.bottom },
         }}
       >
         {!isAuthenticated ? (
@@ -63,7 +70,15 @@ function Aplicacion() {
             <Stack.Screen
               name="Login"
               component={LoginScreen}
-              options={{ headerShown: false }}
+              // Sin encabezado, también le toca el margen de la barra de estado.
+              options={{
+                headerShown: false,
+                cardStyle: {
+                  backgroundColor: 'white',
+                  paddingTop: margen.top,
+                  paddingBottom: margen.bottom,
+                },
+              }}
             />
             <Stack.Screen
               name="Register"
@@ -78,7 +93,9 @@ function Aplicacion() {
             <Stack.Screen
               name="MainTabs"
               component={MainTabs}
-              options={{ headerShown: false }}
+              // Sin margen abajo: la barra de pestañas ya se corre por encima de la
+              // del sistema, y sumarle este la dejaría flotando sobre un hueco.
+              options={{ headerShown: false, cardStyle: { backgroundColor: 'white' } }}
             />
             <Stack.Screen
               name="ReportarDenuncia"
@@ -189,13 +206,18 @@ function Aplicacion() {
  *
  * `KeyboardProvider` mide el teclado para los `Formulario`, que con eso mantienen
  * el campo en el que se escribe por encima de él.
+ *
+ * `SafeAreaProvider` mide las barras del sistema. Va por encima de `Aplicacion`
+ * porque es ella la que reparte el margen entre las pantallas.
  */
 export default function App() {
   return (
     <BarreraDeErrores>
-      <KeyboardProvider>
-        <Aplicacion />
-      </KeyboardProvider>
+      <SafeAreaProvider>
+        <KeyboardProvider>
+          <Aplicacion />
+        </KeyboardProvider>
+      </SafeAreaProvider>
     </BarreraDeErrores>
   );
 }

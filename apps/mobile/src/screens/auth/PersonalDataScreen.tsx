@@ -12,7 +12,9 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuthStore } from '../../store/auth.store';
 import { complementoParaEnviar, limpiarComplemento } from '../../utils/documento';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Formulario } from '../../components/Formulario';
+import { separacionInferior } from '../../utils/margenes';
 
 // Las 9 capitales de departamento de Bolivia
 const BOLIVIAN_CITIES = [
@@ -49,6 +51,8 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [birthDate, setBirthDate] = useState<Date | null>(null);
 
   const [cityModalVisible, setCityModalVisible] = useState(false);
+  // La lista sube desde abajo: sin esto, la barra de Android tapa las últimas ciudades.
+  const margen = useSafeAreaInsets();
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const onDateChange = (event: any, selectedDate?: Date) => {
@@ -210,7 +214,7 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           activeOpacity={1}
           onPress={() => setCityModalVisible(false)}
         >
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { paddingBottom: separacionInferior(margen.bottom) }]}>
             <Text style={styles.modalTitle}>Lugar de nacimiento</Text>
             {BOLIVIAN_CITIES.map((city) => (
               <TouchableOpacity
@@ -364,7 +368,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingVertical: 16,
     paddingHorizontal: 20,
-    paddingBottom: 32,
   },
   modalTitle: {
     fontSize: 18,

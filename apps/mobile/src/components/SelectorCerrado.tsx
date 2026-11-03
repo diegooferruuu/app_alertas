@@ -7,7 +7,9 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Opcion } from '../screens/main/catalogo-denuncia';
+import { separacionInferior } from '../utils/margenes';
 
 /**
  * Elegir de una lista, no escribir.
@@ -39,6 +41,8 @@ export const SelectorCerrado: React.FC<PropsUnico> = ({
 }) => {
   const [abierto, setAbierto] = useState(false);
   const elegida = opciones.find((o) => o.valor === valor);
+  // La hoja sube desde abajo: sin esto, la barra de Android tapa las últimas opciones.
+  const { bottom } = useSafeAreaInsets();
 
   return (
     <View style={styles.campo}>
@@ -72,7 +76,7 @@ export const SelectorCerrado: React.FC<PropsUnico> = ({
           activeOpacity={1}
           onPress={() => setAbierto(false)}
         >
-          <View style={styles.hoja}>
+          <View style={[styles.hoja, { paddingBottom: separacionInferior(bottom) }]}>
             <Text style={styles.tituloHoja}>{etiqueta}</Text>
             <ScrollView style={styles.lista}>
               {opciones.map((opcion) => (
@@ -197,7 +201,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingVertical: 16,
     paddingHorizontal: 20,
-    paddingBottom: 32,
     maxHeight: '70%',
   },
   tituloHoja: {

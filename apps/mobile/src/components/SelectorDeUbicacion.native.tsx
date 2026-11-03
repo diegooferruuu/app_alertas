@@ -8,9 +8,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { Mapa } from './mapa/Mapa';
 import { AMPLITUD_INICIAL, CENTRO_POR_DEFECTO } from '../utils/ubicacion-inicial';
+import { separacionInferior } from '../utils/margenes';
 
 export interface Coordenadas {
   lat: number;
@@ -79,6 +81,9 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange, modo = '
   const textos = TEXTOS[modo];
   const [buscandoGps, setBuscandoGps] = useState(false);
   const [mapaAbierto, setMapaAbierto] = useState(false);
+  // El modal ocupa toda la pantalla: arriba lo tapa la barra de estado, abajo la
+  // de navegación. Los mínimos son los márgenes fijos que tenía, pensados para iPhone.
+  const margen = useSafeAreaInsets();
   const [provisional, setProvisional] = useState<Coordenadas | null>(valor);
   const [region, setRegion] = useState({
     ...CENTRO_POR_DEFECTO,
@@ -194,7 +199,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange, modo = '
         onRequestClose={() => setMapaAbierto(false)}
       >
         <View style={estilos.modal}>
-          <View style={estilos.barra}>
+          <View style={[estilos.barra, { paddingTop: Math.max(54, margen.top + 14) }]}>
             <TouchableOpacity onPress={() => setMapaAbierto(false)}>
               <Text style={estilos.cancelar}>Cancelar</Text>
             </TouchableOpacity>
@@ -237,7 +242,7 @@ export const SelectorDeUbicacion: React.FC<Props> = ({ valor, onChange, modo = '
             alTocar={setProvisional}
           />
 
-          <View style={estilos.pie}>
+          <View style={[estilos.pie, { paddingBottom: separacionInferior(margen.bottom, 34) }]}>
             <Text style={estilos.pieTexto}>
               {provisional ? textos.pieConPunto : textos.pieSinPunto}
             </Text>
@@ -298,7 +303,6 @@ const estilos = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    paddingTop: 54,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
@@ -309,7 +313,6 @@ const estilos = StyleSheet.create({
   mapa: { flex: 1 },
   pie: {
     padding: 16,
-    paddingBottom: 34,
     borderTopWidth: 1,
     borderTopColor: '#eee',
     backgroundColor: '#fafafa',
