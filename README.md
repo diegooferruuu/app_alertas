@@ -167,10 +167,9 @@ Available endpoints:
 - `POST /api/auth/register` - User registration
 - `POST /api/auth/login` - User login
 - `POST /api/auth/refresh` - Refresh access token
-- `POST /api/auth/verify-identity` - Identity verification with ID card
+- `POST /api/auth/documento/extraer` - Read the ID document (OCR)
+- `POST /api/auth/documento/registrar` - Register the ID document
 - `GET /api/auth/me` - Get current user profile
-- `GET /api/users/:id` - Get user by ID
-- `PUT /api/users/:id` - Update user
 
 ### Mobile Development
 

@@ -1,0 +1,13 @@
+emision,telefono,modelo_y_android,cuenta,posicion_prevista,distancia_prevista_km,hora_firma,recibio,hora_visible,segundos_cronometro,observaciones
+E1,T1,,campo1,dentro,,,,,,
+E1,T2,,campo2,dentro,,,,,,
+E1,T3,,campo3,fuera,,,,,,
+E1,T4,,campo4,fuera,,,,,,
+E2,T1,,campo1,dentro,,,,,,
+E2,T2,,campo2,dentro,,,,,,
+E2,T3,,campo3,fuera,,,,,,
+E2,T4,,campo4,fuera,,,,,,
+E3,T1,,campo1,dentro,,,,,,
+E3,T2,,campo2,dentro,,,,,,
+E3,T3,,campo3,fuera,,,,,,
+E3,T4,,campo4,fuera,,,,,,
