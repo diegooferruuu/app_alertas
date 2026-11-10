@@ -99,7 +99,10 @@ telefonos AS (
     AND u.email <> :'emisor'
 )
 SELECT s.n,
-       t.cuenta,
+       -- La cuenta que recibió esa emisión en ese teléfono, que puede no ser la de
+       -- ahora: el teléfono queda con la última cuenta que inició sesión en él.
+       CASE WHEN x.id IS NULL OR r.email LIKE :'cuentas' THEN coalesce(split_part(r.email, '@', 1), t.cuenta)
+            ELSE '(otra cuenta)' END AS cuenta,
        left(t.dispositivo_id::text, 8) AS dispositivo,
        coalesce(x.distancia_m,
                 round(ST_Distance(t.last_location,
@@ -112,6 +115,7 @@ SELECT s.n,
 FROM s
 CROSS JOIN telefonos t
 LEFT JOIN entregas_alerta x ON x.emision_id = s.id AND x.dispositivo_id = t.dispositivo_id
+LEFT JOIN users r ON r.id = x.usuario_id
 ORDER BY s.n, distancia_m NULLS LAST, t.cuenta;
 
 ROLLBACK;

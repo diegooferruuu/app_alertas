@@ -24,6 +24,12 @@ const ESPACIO_SOBRE_EL_TECLADO = 48;
  *
  * Con el teclado abierto, un botón responde al primer toque en vez de solo
  * cerrar el teclado.
+ *
+ * Al cerrarse el teclado, la pantalla se queda donde está. Sin
+ * `disableScrollOnKeyboardHide`, volvía a la posición que tenía antes de que el
+ * teclado apareciera: en la denuncia, quien escribía el nombre arriba, bajaba y
+ * abría un selector veía el formulario subir solo hasta el principio, porque
+ * abrir el selector cierra el teclado.
  */
 export const Formulario = forwardRef<KeyboardAwareScrollViewRef, KeyboardAwareScrollViewProps>(
   (props, ref) => (
@@ -31,6 +37,7 @@ export const Formulario = forwardRef<KeyboardAwareScrollViewRef, KeyboardAwareSc
       ref={ref}
       keyboardShouldPersistTaps="handled"
       bottomOffset={ESPACIO_SOBRE_EL_TECLADO}
+      disableScrollOnKeyboardHide
       {...props}
     />
   ),

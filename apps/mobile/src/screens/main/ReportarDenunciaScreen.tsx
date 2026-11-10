@@ -152,7 +152,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   const submit = async () => {
     setSubmitting(true);
     try {
-      await denunciaService.create({
+      const creada = await denunciaService.create({
         nombre_persona_buscada: nombrePersonaBuscada.trim(),
         ci_persona_buscada: ciPersonaBuscada.trim(),
         ci_complemento_persona_buscada: complementoParaEnviar(complementoPersonaBuscada),
@@ -179,10 +179,20 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         // que mandarlo sería un error garantizado.
         fotografia_base64: esMenor ? undefined : photo!,
       });
+      // La firma es lo que difunde: se ofrece en el mismo paso, en vez de dejar a
+      // quien denuncia buscando su denuncia en el perfil. Reemplaza al formulario
+      // para que «Atrás» desde la firma no vuelva a una denuncia ya enviada.
       Alert.alert(
         'Denuncia registrada',
-        'Todavía no se difunde. Firma la declaración para que se alerte a la zona.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }],
+        'Todavía no se difunde: para que se alerte a la zona, firma la declaración jurada. ' +
+          'Si la firmas más tarde, la encuentras en Perfil › Mis denuncias.',
+        [
+          { text: 'Más tarde', style: 'cancel', onPress: () => navigation.goBack() },
+          {
+            text: 'Firmar ahora',
+            onPress: () => navigation.replace('TextoLegal', { denunciaId: creada.id }),
+          },
+        ],
       );
     } catch (err: any) {
       const rechazo = rechazoDe(err, {
