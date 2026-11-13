@@ -39,6 +39,7 @@
     "expo-secure-store": "~57.0.4",
     "expo-sharing": "~57.0.22",
     "expo-splash-screen": "~57.0.9",
+    "expo-system-ui": "~57.0.4",
     "leaflet": "~1.9.4",
     "metro": "^0.84.5",
     "metro-runtime": "^0.84.4",

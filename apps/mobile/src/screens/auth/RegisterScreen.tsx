@@ -96,6 +96,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <TextInput
         style={styles.input}
         placeholder="Primer nombre"
+        placeholderTextColor="#8a8a8a"
         value={primerNombre}
         onChangeText={setPrimerNombre}
         editable={!isLoading}
@@ -105,6 +106,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <TextInput
         style={styles.input}
         placeholder="Segundo nombre (opcional)"
+        placeholderTextColor="#8a8a8a"
         value={segundoNombre}
         onChangeText={setSegundoNombre}
         editable={!isLoading}
@@ -114,6 +116,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <TextInput
         style={styles.input}
         placeholder="Primer apellido"
+        placeholderTextColor="#8a8a8a"
         value={primerApellido}
         onChangeText={setPrimerApellido}
         editable={!isLoading}
@@ -123,6 +126,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <TextInput
         style={styles.input}
         placeholder="Segundo apellido"
+        placeholderTextColor="#8a8a8a"
         value={segundoApellido}
         onChangeText={setSegundoApellido}
         editable={!isLoading}
@@ -134,6 +138,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <TextInput
         style={styles.input}
         placeholder="Correo electrónico"
+        placeholderTextColor="#8a8a8a"
         value={email}
         onChangeText={setEmail}
         editable={!isLoading}
@@ -145,6 +150,7 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <TextInput
         style={styles.input}
         placeholder="Teléfono"
+        placeholderTextColor="#8a8a8a"
         value={phone}
         onChangeText={setPhone}
         editable={!isLoading}
@@ -253,6 +259,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderRadius: 8,
     fontSize: 16,
+    color: '#1a1a1a',
   },
   inputConError: {
     borderColor: '#FF3B30',

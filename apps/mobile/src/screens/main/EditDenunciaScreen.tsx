@@ -304,6 +304,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
+    color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
   avisoMenor: {

@@ -39,6 +39,7 @@ export const CampoContrasena: React.FC<Props> = ({
   return (
     <View style={styles.contenedor}>
       <TextInput
+        placeholderTextColor="#8a8a8a"
         {...props}
         style={[styles.input, style]}
         secureTextEntry={!visible}
@@ -84,6 +85,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderRadius: 8,
     fontSize: 16,
+    color: '#1a1a1a',
   },
   ojito: {
     position: 'absolute',

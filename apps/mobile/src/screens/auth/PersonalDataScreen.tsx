@@ -120,6 +120,7 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <TextInput
         style={styles.input}
         placeholder="Ej: 1234567"
+        placeholderTextColor="#8a8a8a"
         value={ciNumber}
         onChangeText={(v) => setCiNumber(v.replace(/\D/g, ''))}
         keyboardType="numeric"
@@ -145,6 +146,7 @@ const PersonalDataScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <TextInput
         style={styles.input}
         placeholder="Ej: 1K"
+        placeholderTextColor="#8a8a8a"
         value={complemento}
         onChangeText={(v) => setComplemento(limpiarComplemento(v))}
         autoCapitalize="characters"

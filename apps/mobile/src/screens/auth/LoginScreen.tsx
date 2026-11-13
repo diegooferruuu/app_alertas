@@ -47,6 +47,7 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       <TextInput
         style={styles.input}
         placeholder="Correo electrónico"
+        placeholderTextColor="#8a8a8a"
         value={email}
         onChangeText={setEmail}
         editable={!isLoading}
@@ -122,6 +123,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderRadius: 8,
     fontSize: 16,
+    color: '#1a1a1a',
   },
   button: {
     backgroundColor: '#007AFF',

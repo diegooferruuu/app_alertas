@@ -70,7 +70,8 @@
         {
           "faceIDPermission": "Usamos Face ID para confirmar que eres tú al firmar una declaración jurada."
         }
-      ]
+      ],
+      "./plugins/sin-oscurecimiento-forzado"
     ],
     "scheme": "alertatemprana",
     "extra": {

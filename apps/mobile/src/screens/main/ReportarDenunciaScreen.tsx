@@ -292,6 +292,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       <TextInput
         style={styles.input}
         placeholder="Ej: María Pérez López"
+        placeholderTextColor="#8a8a8a"
         value={nombrePersonaBuscada}
         onChangeText={setNombrePersonaBuscada}
         autoCapitalize="words"
@@ -302,6 +303,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       <TextInput
         style={styles.input}
         placeholder="Ej: 9876543"
+        placeholderTextColor="#8a8a8a"
         value={ciPersonaBuscada}
         onChangeText={(v) => setCiPersonaBuscada(v.replace(/\D/g, ''))}
         keyboardType="numeric"
@@ -317,6 +319,7 @@ const ReportarDenunciaScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       <TextInput
         style={styles.input}
         placeholder="Ej: 1K"
+        placeholderTextColor="#8a8a8a"
         value={complementoPersonaBuscada}
         onChangeText={(v) => setComplementoPersonaBuscada(limpiarComplemento(v))}
         autoCapitalize="characters"
@@ -579,6 +582,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
+    color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
   campo: { marginTop: 0 },

@@ -91,6 +91,7 @@ export const ReportarContenidoScreen: React.FC<{ navigation: any; route: any }> 
         value={detalle}
         onChangeText={setDetalle}
         placeholder="Escribe aquí"
+        placeholderTextColor="#8a8a8a"
         multiline
         maxLength={500}
         editable={!enviando}
@@ -132,6 +133,7 @@ const styles = StyleSheet.create({
     minHeight: 90,
     textAlignVertical: 'top',
     fontSize: 15,
+    color: '#1a1a1a',
   },
   aviso: {
     flexDirection: 'row',
